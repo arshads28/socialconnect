@@ -275,7 +275,7 @@ socket.onmessage = (e) => {
             if (statusSpan) statusSpan.style.display = "block"; // Show status back
         }, 1500);
         return;
-
+    }
     // 2. READ RECEIPT (Blue Tick Update)
     if (data.type === "message_read") {
         if (data.reader !== currentUser) {

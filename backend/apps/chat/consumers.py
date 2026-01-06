@@ -54,7 +54,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
             )
             return
 
-        # 2. READ RECEIPT (New Addition for Blue Ticks)
+        #  READ RECEIPT (New Addition for Blue Ticks)
         # This handles when the frontend says "I read message #123"
         if data.get("command") == "read_receipt":
             await self.channel_layer.group_send(
@@ -67,12 +67,11 @@ class ChatConsumer(AsyncWebsocketConsumer):
             )
             return
 
-        # 3. CHAT MESSAGE (Your logic + grabbing the ID)
         message = data.get("message")
         if not message:
             return
 
-        # CHANGE: Assigned to 'msg_instance' to get the ID
+        # Assigned to 'msg_instance' to get the ID
         msg_instance = await sync_to_async(Message.objects.create)(
             sender=self.user,
             receiver=self.other_user,
@@ -85,9 +84,21 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 "type": "chat_message",
                 "message": message,
                 "sender": self.user.username,
-                # ADDED: Send the ID and Timestamp back to frontend
                 "id": msg_instance.id,
                 "timestamp": msg_instance.timestamp.strftime("%I:%M %p"),
+            }
+        )
+
+        #Send Notification to Receiver's Global Group
+        # unread_count = await sync_to_async(Message.objects.filter(receiver=self.other_user, is_read=False).count)()
+        
+        await self.channel_layer.group_send(
+            f"user_{self.other_user.id}",
+            {
+                "type": "new_message_notification", # Matches handler in OnlineStatusConsumer
+                "message": message,
+                "sender": self.user.username,
+                # "count": unread_count   # We calculate on frontend.
             }
         )
 
@@ -120,9 +131,12 @@ class ChatConsumer(AsyncWebsocketConsumer):
 class OnlineStatusConsumer(AsyncWebsocketConsumer):
     async def connect(self):
         self.user = self.scope["user"]
-        
         if self.user.is_authenticated:
-            # 1. Update user to Online
+            # 1. Join a private group for this user (for notifications)
+            self.group_name = f"user_{self.user.id}"
+            await self.channel_layer.group_add(self.group_name, self.channel_name)
+
+            # 2. Update Online Status
             await self.update_user_status(True)
             await self.accept()
         else:
@@ -130,8 +144,18 @@ class OnlineStatusConsumer(AsyncWebsocketConsumer):
 
     async def disconnect(self, close_code):
         if self.user.is_authenticated:
-            # 2. Update user to Offline when they leave the site
+            # Leave group
+            await self.channel_layer.group_discard(self.group_name, self.channel_name)
             await self.update_user_status(False)
+
+    async def new_message_notification(self, event):
+        # Send notification data to the frontend
+        await self.send(text_data=json.dumps({
+            "type": "notification",
+            "message": event["message"],
+            "sender": event["sender"],
+            # "count": event["count"]
+        }))
 
     @sync_to_async
     def update_user_status(self, is_online):
@@ -139,3 +163,5 @@ class OnlineStatusConsumer(AsyncWebsocketConsumer):
             is_online=is_online,
             last_seen=timezone.now()
         )
+
+

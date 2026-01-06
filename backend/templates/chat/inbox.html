@@ -5,36 +5,30 @@
     /* ============================
        RESPONSIVE LIST STYLING
        ============================ */
-    
-    /* Base styles (Mobile First) */
+    body { margin: 0; background-color: #fafafa; }
+
     .user-list-container {
         background-color: #fff;
         display: flex;
         flex-direction: column;
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-        
-        /* Mobile: Full screen, no borders */
         width: 100%;
         height: 100vh; 
         margin: 0;
         border: none;
     }
 
-    /* Desktop Styles (Screens wider than 768px) */
     @media (min-width: 768px) {
         .user-list-container {
-            /* INCREASED WIDTH HERE */
             max-width: 800px; 
-            height: 85vh; /* Don't take full height on desktop */
-            margin: 30px auto; /* Center on screen */
-            
+            height: 85vh; 
+            margin: 30px auto; 
             border: 1px solid #dbdbdb;
-            border-radius: 8px; /* Rounded corners for modern look */
-            box-shadow: 0 4px 12px rgba(0,0,0,0.05); /* Subtle shadow for depth */
+            border-radius: 8px; 
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05); 
         }
     }
 
-    /* Header Styling */
     .list-header {
         padding: 20px;
         border-bottom: 1px solid #dbdbdb;
@@ -54,13 +48,13 @@
         text-decoration: none; 
         color: black;
         transition: background-color 0.2s ease;
+        position: relative; /* For positioning checks if needed */
     }
 
     .user-item-link:hover {
         background-color: #fafafa;
     }
 
-    /* Profile Picture Circle */
     .profile-circle {
         width: 50px; 
         height: 50px; 
@@ -74,18 +68,35 @@
         border: 1px solid #dbdbdb;
     }
 
+    /* ============================
+       NEW: BADGE STYLING
+       ============================ */
+    .unread-badge {
+        background-color: #25D366; /* WhatsApp Green */
+        color: white;
+        border-radius: 50%;
+        padding: 4px 8px; /* Slightly adjusted padding for better circle shape */
+        font-size: 12px;
+        font-weight: bold;
+        min-width: 18px; /* Ensure it stays circular-ish */
+        text-align: center;
+        margin-left: auto; /* Pushes it to the right */
+        margin-right: 10px; /* Space between badge and arrow */
+        display: inline-block;
+    }
+
 </style>
 
 <div class="user-list-container">
-    
     <div class="list-header">
         <h3 style="margin:0; font-size:18px; font-weight:600;">Messages</h3>
     </div>
 
-    <div style="overflow-y: auto; flex: 1;">
-
+    <div id="user-list" style="overflow-y: auto; flex: 1;">
         {% for user in chat_users %}
-            <a href="/chat/{{ user.username }}/" class="user-item-link">
+            <a href="/chat/{{ user.username }}/" 
+               class="user-item-link" 
+               data-username="{{ user.username }}">
                 
                 <div class="profile-circle">
                     <span>👤</span>
@@ -101,6 +112,12 @@
                     {% endif %}
                 </div>
 
+                <span id="unread-badge-{{ user.username }}" 
+                      class="unread-badge" 
+                      style="{% if user.unread_count == 0 %}display:none;{% endif %}">
+                    {{ user.unread_count }}
+                </span>
+
                 <span style="color: #ccc; font-size: 20px;">›</span>
             </a>
         {% empty %}
@@ -108,9 +125,50 @@
                 <p>No conversations yet.</p>
             </div>
         {% endfor %}
-        
     </div>
-
 </div>
+
+<script>
+    // We do NOT open a new WebSocket here.
+    // We listen to the one running in base.html
+    
+    document.addEventListener('chatNotification', function(e) {
+        const data = e.detail; // This contains {sender: "...", message: "..."}
+        const sender = data.sender;
+
+        // 1. Find the badge for this specific sender
+        const badge = document.getElementById(`unread-badge-${sender}`);
+        
+        if (badge) {
+            // 2. Get current number
+            // If text is empty or NaN, default to 0
+            let currentCount = parseInt(badge.innerText);
+            if (isNaN(currentCount)) currentCount = 0;
+            
+            // 3. Increment
+            let newCount = currentCount + 1;
+            
+            // 4. Update DOM
+            badge.innerText = newCount;
+            badge.style.display = "inline-block"; 
+            
+            // 5. Move User to Top of List
+            moveUserToTop(sender);
+        } else {
+            console.log("Received message from a user not currently in the list:", sender);
+            // Optional: You could reload the page here to fetch the new user row
+            // window.location.reload(); 
+        }
+    });
+
+    function moveUserToTop(username) {
+        const listContainer = document.getElementById("user-list");
+        const userItem = document.querySelector(`a[data-username='${username}']`);
+        
+        if (listContainer && userItem) {
+            listContainer.prepend(userItem);
+        }
+    }
+</script>
 
 {% endblock %}
