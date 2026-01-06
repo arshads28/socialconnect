@@ -1,9 +1,20 @@
 import json
 from channels.generic.websocket import AsyncWebsocketConsumer
+from django.contrib.auth import get_user_model
+from asgiref.sync import sync_to_async
+from .models import Message
+
+User = get_user_model()
 
 class ChatConsumer(AsyncWebsocketConsumer):
     async def connect(self):
-        # Logic: Room name usually generated from user IDs (e.g. "chat_1_2")
+        self.user = self.scope["user"]
+
+        # Block unauthenticated users
+        if not self.user.is_authenticated:
+            await self.close()
+            return
+        
         self.room_name = self.scope["url_route"]["kwargs"]["room"]
         self.room_group_name = f"chat_{self.room_name}"
 
@@ -26,7 +37,23 @@ class ChatConsumer(AsyncWebsocketConsumer):
         data = json.loads(text_data)
         message = data["message"]
 
-        # TODO: Here is where you will save the message to the DB (apps/chat/models.py)
+        if not message:
+            return
+
+        # Extract receiver username from room name
+        # room format: chat_username
+        receiver_username = self.room_name.replace("chat_", "")
+        receiver = await sync_to_async(User.objects.get)(
+            username=receiver_username
+        )
+
+        # SAVE MESSAGE
+        await sync_to_async(Message.objects.create)(
+            sender=self.user,
+            receiver=receiver,
+            content=message
+        )
+
 
         # Send message to room group
         await self.channel_layer.group_send(

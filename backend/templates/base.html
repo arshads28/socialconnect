@@ -1,0 +1,228 @@
+{% comment %} base.html layout + chat modal + JS {% endcomment %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>{% block title %}SocialConnect{% endblock %}</title>
+
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: Arial, sans-serif;
+        }
+
+        body {
+            background: #fafafa;
+        }
+
+        /* NAVBAR */
+        .navbar {
+            position: fixed;
+            top: 0;
+            width: 100%;
+            height: 60px;
+            background: #fff;
+            border-bottom: 1px solid #dbdbdb;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 20px;
+            z-index: 100;
+        }
+
+        .logo {
+            font-weight: bold;
+            font-size: 20px;
+        }
+
+        .nav-center input {
+            width: 250px;
+            padding: 6px;
+            border: 1px solid #dbdbdb;
+        }
+
+        .nav-right a {
+            margin-left: 15px;
+            text-decoration: none;
+            color: #262626;
+            font-weight: 500;
+        }
+
+        /* MAIN */
+        main {
+            margin-top: 80px;
+            display: flex;
+            justify-content: center;
+        }
+
+        /* CHAT MODAL */
+        .chat-modal {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            width: 320px;
+            height: 420px;
+            background: #fff;
+            border: 1px solid #dbdbdb;
+            display: flex;
+            flex-direction: column;
+            z-index: 999;
+        }
+
+        .chat-modal.hidden {
+            display: none;
+        }
+
+        .chat-header {
+            padding: 10px;
+            border-bottom: 1px solid #dbdbdb;
+            display: flex;
+            justify-content: space-between;
+            font-weight: bold;
+        }
+
+        .chat-box {
+            flex: 1;
+            padding: 10px;
+            overflow-y: auto;
+            background: #fafafa;
+        }
+
+        .chat-box div {
+            margin-bottom: 6px;
+            padding: 6px 10px;
+            background: #e4e6eb;
+            border-radius: 12px;
+            max-width: 80%;
+        }
+
+        .chat-input {
+            display: flex;
+            border-top: 1px solid #dbdbdb;
+        }
+
+        .chat-input input {
+            flex: 1;
+            border: none;
+            padding: 10px;
+        }
+
+        .chat-input button {
+            border: none;
+            background: #0095f6;
+            color: white;
+            padding: 0 15px;
+        }
+    </style>
+</head>
+
+<body>
+
+<!-- NAVBAR -->
+<nav class="navbar">
+    <div class="nav-left">
+        <span class="logo">SocialConnect</span>
+    </div>
+
+    <div class="nav-center">
+        <input type="text" placeholder="Search">
+    </div>
+
+    <div class="nav-right">
+        <a href="/">Home</a>
+        <a href="#">Profile</a>
+    </div>
+</nav>
+
+<main>
+    {% block content %}{% endblock %}
+</main>
+
+<!-- CHAT MODAL -->
+<div id="chat-modal" class="chat-modal hidden">
+    <div class="chat-header">
+        <span id="chat-username">Chat</span>
+        <button onclick="closeChat()">✕</button>
+    </div>
+
+    <div id="chat-box" class="chat-box"></div>
+
+    <div class="chat-input">
+        <input
+            type="text"
+            id="chat-message-input"
+            placeholder="Message..."
+            onkeydown="handleEnter(event)"
+        >
+        <button onclick="sendChatMessage()">Send</button>
+    </div>
+</div>
+
+<script>
+    let chatSocket = null;
+    let currentRoom = null;
+
+        async function openChat(username) {
+        document.getElementById("chat-username").innerText = username;
+        document.getElementById("chat-modal").classList.remove("hidden");
+
+        const box = document.getElementById("chat-box");
+        box.innerHTML = "";
+
+        // LOAD CHAT HISTORY
+        const response = await fetch(`/chat/history/${username}/`);
+        const messages = await response.json();
+
+        messages.forEach(msg => {
+            appendMessage(msg.message, msg.sender);
+        });
+
+        // OPEN WEBSOCKET
+        chatSocket = new WebSocket(
+            `ws://${window.location.host}/ws/chat/chat_${username}/`
+        );
+
+        chatSocket.onmessage = (e) => {
+            const data = JSON.parse(e.data);
+            appendMessage(data.message, data.sender);
+        };
+    }
+
+    function closeChat() {
+        if (chatSocket) chatSocket.close();
+        document.getElementById("chat-modal").classList.add("hidden");
+    }
+
+    function sendChatMessage() {
+        const input = document.getElementById("chat-message-input");
+        const message = input.value.trim();
+
+        if (message && chatSocket) {
+            chatSocket.send(JSON.stringify({ message }));
+            input.value = "";
+        }
+    }
+
+    function appendMessage(message) {
+        const box = document.getElementById("chat-box");
+        const div = document.createElement("div");
+        div.innerText = message;
+        box.appendChild(div);
+        box.scrollTop = box.scrollHeight;
+    }
+
+    function handleEnter(event) {
+        if (event.key === "Enter") {
+            sendChatMessage();
+        }
+    }
+
+    function messageUser(username) {
+        openChat(username);
+    }
+</script>
+
+</body>
+</html>

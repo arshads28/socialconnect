@@ -1,0 +1,62 @@
+
+{% extends "base.html" %}
+{% block title %}Home | SocialConnect{% endblock %}
+
+{% block content %}
+<div style="width: 500px;">
+
+    <!-- CREATE POST -->
+    <div style="
+        background:#fff;
+        padding:15px;
+        border:1px solid #dbdbdb;
+        margin-bottom:20px;">
+        
+        <textarea
+            placeholder="What's on your mind?"
+            style="width:100%; border:none; resize:none; height:60px;"></textarea>
+
+        <div style="display:flex; justify-content:space-between; margin-top:10px;">
+            <input type="file">
+            <button style="
+                background:#0095f6;
+                border:none;
+                color:white;
+                padding:6px 12px;">
+                Post
+            </button>
+        </div>
+    </div>
+
+    <!-- POSTS -->
+    {% for post in posts %}
+    <div style="
+        background:#fff;
+        border:1px solid #dbdbdb;
+        margin-bottom:20px;">
+
+        <div style="display:flex; align-items:center; padding:10px;">
+            <div style="
+                width:35px;
+                height:35px;
+                border-radius:50%;
+                background:#ccc;
+                margin-right:10px;">
+            </div>
+            <strong>{{ post.author.username }}</strong>
+        </div>
+
+        <div style="padding:10px;">
+            <p>{{ post.content }}</p>
+        </div>
+
+        <div style="padding:10px; border-top:1px solid #dbdbdb;">
+            <button onclick="messageUser('{{ post.author.username }}')">
+                Message
+            </button>
+        </div>
+    </div>
+    {% endfor %}
+
+</div>
+{% endblock %}
