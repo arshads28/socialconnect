@@ -1,0 +1,185 @@
+Software Requirements Specification (SRS)
+Project Name
+SocialConnect
+
+Version
+1.2 (Final MVP Specification)
+
+Date
+January 6, 2026
+
+Document Status
+Approved for Development
+1. Introduction
+1.1 Purpose
+This document defines the functional and non-functional requirements for SocialConnect, a real-time social networking web application. It serves as the authoritative blueprint for development, testing, deployment, and future scaling.
+
+1.2 Scope
+SocialConnect enables users to:
+
+Create and manage profiles
+Publish public posts
+Discover and connect with other users
+Communicate via real-time chat, voice, and video
+Create or join public and private virtual rooms
+The system is designed as an MVP supporting up to 1,000 active users, with architectural provisions for future scalability.
+
+1.3 Definitions & Acronyms
+MVP – Minimum Viable Product
+WebRTC – Web Real-Time Communication
+ASGI – Asynchronous Server Gateway Interface
+WSS – Secure WebSocket
+2. System Overview
+SocialConnect is a browser-based platform built using a monolithic Django backend with asynchronous real-time capabilities. The system combines traditional REST-based interactions with WebSocket-based real-time communication and peer-to-peer media streaming via WebRTC.
+3. Technology Stack
+3.1 Backend
+Language: Python 3.11+
+Framework: Django 5.x
+Real-Time Layer: Django Channels 4.x
+Protocols: HTTP(S), WebSocket (WSS)
+ASGI Server: Daphne / Uvicorn
+WSGI Server: Gunicorn
+3.2 Frontend
+HTML5 (Semantic Markup)
+CSS3 (Flexbox, Grid, Responsive Design)
+Vanilla JavaScript (ES6+)
+Native WebSocket & WebRTC APIs
+3.3 Data & Infrastructure
+Database: PostgreSQL
+Cache / Channel Layer: Redis
+Media Storage: AWS S3 / MinIO
+Reverse Proxy: Nginx
+Deployment: Docker-based (recommended)
+3.4 Communication
+Chat: WebSockets
+Audio/Video Calls: WebRTC (STUN/TURN enabled)
+4. User Roles
+4.1 Authenticated User
+Register and authenticate
+Manage personal profile
+Create and view posts
+Discover and connect with other users
+Chat, call, and video call
+Create or join rooms
+4.2 System Administrator
+Access via Django Admin Panel
+Moderate posts and rooms
+Suspend or deactivate users
+5. Functional Requirements
+5.1 Authentication & Profile Management
+Secure registration, login, and logout
+Password hashing using Argon2 or PBKDF2
+Profile fields:
+Avatar
+Bio
+Interests
+“My Profile” dashboard showing:
+Profile details
+User posts
+Connections & pending requests
+5.2 Public Feed (Post System)
+Users can create posts with:
+Text
+Images
+Videos
+All posts visible to authenticated users
+Feed pagination (infinite scroll or load-more)
+Users may delete their own posts
+Administrators may delete any post
+5.3 Match & Discovery System
+User discovery via:
+Search (username / display name)
+Browsing suggested or recent users
+Connection lifecycle:
+Send request
+Accept
+Reject
+Block
+Only connected users may chat or call privately
+5.4 Direct Messaging (1-on-1)
+Real-time messaging via WebSockets
+Supported message types:
+Text
+Image attachments
+Chat features:
+Read receipts
+Typing indicators
+In-app unread message indicators
+5.5 Audio & Video Calling
+One-to-one audio and video calls
+WebRTC peer-to-peer streaming
+WebSocket signaling for SDP and ICE exchange
+Call states:
+Ringing
+Accepted
+Rejected
+Busy
+In-call controls:
+Mute/unmute microphone
+Enable/disable camera
+End call
+5.6 Public & Private Room System
+Public Rooms:
+Visible to all users
+Joinable without password
+Private Rooms:
+Password or PIN protected
+Room capabilities:
+Group text chat (session-persistent)
+Group video calls (max 6 participants)
+Host moderation (kick users)
+Room lifecycle:
+Automatically deleted when last user leaves
+6. Non-Functional Requirements
+6.1 Performance
+Support up to 1,000 concurrent users
+WebSocket latency < 300 ms
+Initial page load < 3 seconds
+6.2 Security
+HTTPS and WSS enforced in production
+CSRF protection enabled
+CORS restricted to trusted domains
+Input sanitization to prevent XSS
+WebSocket authentication on handshake
+Rate limiting:
+Login attempts
+Message sending
+6.3 Reliability & Availability
+Automatic WebSocket reconnection
+Graceful handling of call failures
+Redis health monitoring and fallback behavior
+6.4 Data Management
+No reliance on local filesystem for media
+Media stored in object storage (S3/MinIO)
+Database indexing on frequently queried fields
+Referential integrity enforced via foreign keys
+6.5 Scalability
+Modular Django app structure
+Redis and PostgreSQL separable into independent services
+Architecture ready for horizontal scaling
+7. Constraints & Assumptions
+Maximum video participants per room: 6
+Supported browsers: Chrome, Firefox, Edge, Safari
+No Internet Explorer support
+No end-to-end encryption in MVP
+8. Out of Scope (Current MVP)
+Push notifications (email/SMS/mobile)
+Post likes, comments, or reactions
+User mentions and hashtags
+Call recording
+AI-based recommendations
+9. Logging, Monitoring & Testing
+9.1 Logging
+Server-side error logging (HTTP & WebSocket)
+WebRTC call failure logs
+Redis connection logs
+9.2 Testing
+Unit tests for models and services
+Integration tests for chat flows
+Manual testing for WebRTC
+Load testing using Locust or equivalent
+10. Deliverables
+Source code repository (Git)
+Database schema (ER diagram)
+setup.md – Local environment setup
+deployment.md – Production deployment guide
