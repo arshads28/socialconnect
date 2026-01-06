@@ -83,7 +83,7 @@ This project is developed as a **production-ready MVP** supporting **up to 1,000
 ```text
 socialconnect/
 ├── backend/
-│   ├── config/          # Django project settings
+│   ├── backend/          # Django project settings
 │   ├── apps/
 │   │   ├── accounts/    # Auth, Profile, Connections
 │   │   ├── posts/       # Feed & Posts
