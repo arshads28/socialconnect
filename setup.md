@@ -194,7 +194,7 @@ http://127.0.0.1:8000/admin/
 ## 10. Run Development Server
 
 ```bash
-python manage.py runserver
+uvicorn backend.asgi:application --reload
 ```
 
 Open in browser:

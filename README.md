@@ -97,6 +97,25 @@ socialconnect/
 ├── setup.md
 ├── deployment.md
 └── README.md
+
+
+for frontend
+backend/
+├── static/
+│   ├── css/
+│   │   └── style.css
+│   ├── js/
+│   │   ├── feed.js
+│   │   └── chat.js
+│   └── img/
+│       └── default-avatar.png
+│
+├── templates/
+│   ├── base.html
+│   ├── home.html
+│   └── components/
+│       ├── post_card.html
+│       └── chat_modal.html
 ```
 
 ---
@@ -152,7 +171,7 @@ python manage.py createsuperuser
 ### 7️⃣ Start Development Server
 
 ```bash
-python manage.py runserver
+uvicorn backend.asgi:application --reload
 ```
 
 ---
