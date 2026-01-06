@@ -95,9 +95,9 @@
                     <strong style="font-size: 16px; display: block; margin-bottom: 4px;">{{ user.username }}</strong>
                     
                     {% if user.is_online %}
-                        <span style="color:green; font-size:13px; font-weight: 500;">● Online</span>
+                        <span style="color: #25D366; font-size:13px; font-weight: 500;">● Online</span>
                     {% else %}
-                        <span style="color:gray; font-size:13px;">● Offline</span>
+                        <span style="color:gray; font-size:13px;">{{ user.last_seen_formatted }}</span>
                     {% endif %}
                 </div>
 

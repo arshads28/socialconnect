@@ -5,12 +5,8 @@
     /* ============================
        INSTAGRAM STYLE CSS
        ============================ */
-    body {
-        margin: 0;
-        background-color: #fafafa;
-    }
+    body { margin: 0; background-color: #fafafa; }
 
-    /* Main Container */
     .chat-container {
         background: #fff;
         display: flex;
@@ -18,7 +14,6 @@
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     }
 
-    /* DESKTOP: Centered Box */
     @media (min-width: 768px) {
         .chat-container {
             max-width: 600px;
@@ -30,7 +25,6 @@
         }
     }
 
-    /* MOBILE: Full Screen */
     @media (max-width: 767px) {
         .chat-container {
             width: 100%;
@@ -40,7 +34,6 @@
         }
     }
 
-    /* Header */
     .chat-header {
         height: 60px;
         padding: 0 15px;
@@ -52,7 +45,6 @@
         border-radius: 8px 8px 0 0;
     }
 
-    /* Chat Area */
     #chat-box {
         flex: 1;
         overflow-y: auto;
@@ -62,13 +54,17 @@
         flex-direction: column;
     }
     
-    /* Scrollbar Styling */
     #chat-box::-webkit-scrollbar { width: 6px; }
     #chat-box::-webkit-scrollbar-thumb { background-color: #cccccc; border-radius: 4px; }
 
     /* Bubbles */
+    .msg-row {
+        width: 100%;
+        display: flex;
+        margin-bottom: 8px;
+    }
+
     .bubble {
-        display: inline-block;
         padding: 10px 14px;
         border-radius: 22px;
         font-size: 14px;
@@ -76,16 +72,18 @@
         max-width: 70%;
         word-wrap: break-word;
         position: relative;
+        display: flex;
+        flex-direction: column;
     }
 
-    /* SENT (Right, Gradient) */
+    .sent-row { justify-content: flex-end; }
     .sent-bubble {
-        background: linear-gradient(90deg, #962fbf, #4f5bd5); /* Instagram Gradient */
+        background: linear-gradient(90deg, #962fbf, #4f5bd5);
         color: white;
-        border-bottom-right-radius: 4px; /* Slight edge */
+        border-bottom-right-radius: 4px;
     }
 
-    /* RECEIVED (Left, Gray) */
+    .received-row { justify-content: flex-start; }
     .received-bubble {
         background-color: #efefef;
         color: #262626;
@@ -93,7 +91,30 @@
         border-bottom-left-radius: 4px;
     }
 
-    /* Input Area */
+    /* Timestamp & Ticks */
+    .msg-footer {
+        font-size: 10px;
+        margin-top: 4px;
+        align-self: flex-end;
+        display: flex;
+        align-items: center;
+        opacity: 0.8;
+    }
+    
+    .sent-bubble .msg-footer { color: #e0e0e0; }
+    .received-bubble .msg-footer { color: #8e8e8e; }
+
+    /* Tick Styling */
+    .tick {
+        font-size: 14px; /* slightly larger than time */
+        margin-left: 3px;
+        font-weight: bold;
+        line-height: 10px;
+    }
+    
+    .tick.read { color: #4fc3f7; /* Cyan/Blue for Read */ }
+    .tick.delivered { color: #e0e0e0; /* Light Gray */ }
+
     .input-area {
         padding: 15px;
         border-top: 1px solid #efefef;
@@ -114,132 +135,208 @@
     }
 </style>
 
-<div class="chat-container">
 
+<div class="chat-container">
     <div class="chat-header">
         <div style="width: 32px; height: 32px; border-radius: 50%; background: #dbdbdb; margin-right: 10px; display: flex; align-items: center; justify-content: center; overflow: hidden;">
              <svg aria-label="Profile" color="#fff" fill="#fff" height="24" viewBox="0 0 48 48" width="24"><path d="M24 0C10.7 0 0 10.7 0 24s10.7 24 24 24 24-10.7 24-24S37.3 0 24 0zm0 7.2c4.1 0 7.4 3.3 7.4 7.4 0 4.1-3.3 7.4-7.4 7.4-4.1 0-7.4-3.3-7.4-7.4 0-4.1 3.3-7.4 7.4-7.4zm0 33.6c-5.3 0-10-2.3-13.2-5.9 1-5.1 5.5-9 10.8-9h4.8c5.3 0 9.8 3.8 10.8 9-3.2 3.6-7.9 5.9-13.2 5.9z"></path></svg>
         </div>
         
         <div style="display: flex; flex-direction: column;">
-            <strong style="font-size: 16px;">{{ other_user }}</strong>
-            <span id="typing-indicator" style="font-size:12px; color:#8e8e8e; height: 14px;"></span>
+            <strong style="font-size: 16px;">{{ other_user.username }}</strong>
+            
+            <span id="user-status" style="font-size:12px; color:#8e8e8e; height: 14px;">
+                {% if other_user.is_online %}
+                    <span style="color: #25D366; font-weight: 500;">Active now</span>
+                {% else %}
+                    {{ last_seen_text }}
+                {% endif %}
+            </span>
+            
+            <span id="typing-indicator" style="font-size:12px; color:#8e8e8e; display:none;">typing...</span>
         </div>
     </div>
 
-    <div id="chat-box">
-        </div>
+    <div id="chat-box"></div>
 
     <div class="input-area">
         <div class="input-wrapper">
             <span style="font-size: 20px; margin-right: 8px; cursor: pointer;">😊</span>
-            <input
-                id="msg-input"
-                style="flex:1; border:none; outline:none; font-size: 14px;"
-                placeholder="Message..."
-                autocomplete="off"
-            >
+            <input id="msg-input" style="flex:1; border:none; outline:none; font-size: 14px;" placeholder="Message..." autocomplete="off">
             <button id="send-btn" style="background:none; border:none; color:#0095f6; font-weight:600; cursor:pointer; font-size:14px;">Send</button>
         </div>
     </div>
 
-</div>
-
 <script>
-const otherUser = "{{ other_user }}";
+const otherUser = "{{ other_user.username }}"; 
 const currentUser = "{{ user.username }}";
-
 const chatBox = document.getElementById("chat-box");
 const typingIndicator = document.getElementById("typing-indicator");
+const statusSpan = document.getElementById("user-status"); 
 const input = document.getElementById("msg-input");
+const sendBtn = document.getElementById("send-btn");
 
+// Pagination Variables
+let currentPage = 1;
+let hasNextPage = true;
+let isLoading = false;
 
 // =======================
-// LOAD CHAT HISTORY (AJAX)
+// HELPER FUNCTIONS
 // =======================
-async function loadChatHistory() {
-    const response = await fetch(`/chat/history/${otherUser}/`);
-    const messages = await response.json();
 
-    chatBox.innerHTML = "";
-
-    messages.forEach(msg => {
-        const div = document.createElement("div");
-        div.style.marginBottom = "8px";
-        div.style.textAlign = msg.sender === currentUser ? "right" : "left";
-
-        // UPDATED STYLING: using 'sent-bubble' (gradient) and 'received-bubble' classes
-        div.innerHTML = `
-            <span class="bubble ${msg.sender === currentUser ? 'sent-bubble' : 'received-bubble'}">
-                ${msg.message}
-                ${msg.sender === currentUser && msg.is_read ? " <span style='font-size:10px; margin-left:4px;'>✔✔</span>" : ""}
-            </span>
-        `;
-
-        chatBox.appendChild(div);
-    });
-
-    chatBox.scrollTop = chatBox.scrollHeight;
+function getTickIcon(isRead) {
+    if (isRead) return '<span class="tick read">✓✓</span>';
+    return '<span class="tick delivered">✓✓</span>';
 }
 
-// 🔥 Load history when page opens
-loadChatHistory();
+function createMessageHTML(msg) {
+    const isMe = msg.sender === currentUser;
+    
+    // Only show ticks if I am the sender
+    const tickHtml = isMe ? getTickIcon(msg.is_read) : "";
+
+    return `
+        <div class="msg-row ${isMe ? 'sent-row' : 'received-row'}">
+            <div id="msg-${msg.id}" class="bubble ${isMe ? 'sent-bubble' : 'received-bubble'}">
+                <span>${msg.message}</span>
+                <div class="msg-footer">
+                    <span>${msg.timestamp}</span>
+                    ${tickHtml}
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+// =======================
+// LOAD HISTORY
+// =======================
+async function loadChatHistory(page = 1) {
+    if (isLoading || !hasNextPage) return;
+    isLoading = true;
+
+    const oldScrollHeight = chatBox.scrollHeight;
+
+    try {
+        const response = await fetch(`/chat/history/${otherUser}/?page=${page}`);
+        const data = await response.json();
+        
+        hasNextPage = data.has_next;
+
+        let html = "";
+        data.messages.forEach(msg => {
+            html += createMessageHTML(msg);
+        });
+
+        if (page === 1) {
+            chatBox.innerHTML = html;
+            chatBox.scrollTop = chatBox.scrollHeight;
+        } else {
+            chatBox.insertAdjacentHTML('afterbegin', html);
+            chatBox.scrollTop = chatBox.scrollHeight - oldScrollHeight;
+        }
+
+    } catch (err) {
+        console.error("Failed to load chat", err);
+    } finally {
+        isLoading = false;
+    }
+}
+loadChatHistory(1);
+
+chatBox.addEventListener('scroll', () => {
+    if (chatBox.scrollTop === 0 && !isLoading && hasNextPage) {
+        currentPage++;
+        loadChatHistory(currentPage);
+    }
+});
 
 
 // =======================
-// WEBSOCKET
+// WEBSOCKET LOGIC
 // =======================
 const socket = new WebSocket(
     "ws://" + window.location.host + "/ws/chat/" + otherUser + "/"
 );
 
-
-// RECEIVE MESSAGE / TYPING
 socket.onmessage = (e) => {
     const data = JSON.parse(e.data);
 
-    if (data.typing) {
-        typingIndicator.innerText = `${data.user} is typing...`;
-        setTimeout(() => typingIndicator.innerText = "", 1000);
+    // 1. TYPING INDICATOR
+    if (data.type === "typing" && data.user !== currentUser) {
+        if (statusSpan) statusSpan.style.display = "none"; // Hide status
+        typingIndicator.style.display = "block"; // Show typing
+        typingIndicator.innerText = "typing...";
+        
+        clearTimeout(window.typingTimer);
+        window.typingTimer = setTimeout(() => {
+            typingIndicator.style.display = "none";
+            if (statusSpan) statusSpan.style.display = "block"; // Show status back
+        }, 1500);
+        return;
+
+    // 2. READ RECEIPT (Blue Tick Update)
+    if (data.type === "message_read") {
+        if (data.reader !== currentUser) {
+            // Find message by ID and update tick to Blue
+            const bubble = document.getElementById(`msg-${data.message_id}`);
+            if (bubble) {
+                const tick = bubble.querySelector(".tick");
+                if (tick) {
+                    tick.classList.remove("delivered");
+                    tick.classList.add("read"); // Turns blue
+                }
+            }
+        }
         return;
     }
 
-    const div = document.createElement("div");
-    div.style.marginBottom = "8px";
-    div.style.textAlign = data.sender === currentUser ? "right" : "left";
+    // 3. NEW MESSAGE
+    if (data.type === "chat_message") {
+        // Construct message object (use ID from backend)
+        const msgObj = {
+            id: data.id,
+            sender: data.sender,
+            message: data.message,
+            timestamp: data.timestamp, 
+            is_read: false 
+        };
 
-    // UPDATED STYLING: using 'sent-bubble' and 'received-bubble' classes
-    div.innerHTML = `
-        <span class="bubble ${data.sender === currentUser ? 'sent-bubble' : 'received-bubble'}">
-            ${data.message}
-        </span>
-    `;
+        // Render Message
+        const div = document.createElement("div");
+        div.innerHTML = createMessageHTML(msgObj);
+        chatBox.appendChild(div.firstElementChild);
+        chatBox.scrollTop = chatBox.scrollHeight;
 
-    chatBox.appendChild(div);
-    chatBox.scrollTop = chatBox.scrollHeight;
+        // CRITICAL: If I am the receiver, tell server I read it!
+        if (data.sender !== currentUser) {
+            socket.send(JSON.stringify({
+                command: "read_receipt",
+                message_id: data.id
+            }));
+        }
+    }
 };
-
 
 // =======================
 // SEND MESSAGE
 // =======================
-document.getElementById("send-btn").onclick = sendMessage;
-
-input.addEventListener("keypress", (e) => {
-    if (e.key === "Enter") {
-        sendMessage();
-    } else {
-        socket.send(JSON.stringify({ typing: true }));
-    }
-});
-
 function sendMessage() {
     const message = input.value.trim();
     if (!message) return;
 
-    socket.send(JSON.stringify({ message }));
+    // Send structure matching backend
+    socket.send(JSON.stringify({ message: message }));
     input.value = "";
 }
+
+sendBtn.onclick = sendMessage;
+
+input.addEventListener("keypress", (e) => {
+    if (e.key === "Enter") sendMessage();
+    else socket.send(JSON.stringify({ typing: true }));
+});
 </script>
 
 {% endblock %}

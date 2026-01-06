@@ -4,51 +4,101 @@ from .models import Message
 from django.db.models import Q, Max
 from django.shortcuts import render
 from django.contrib.auth import get_user_model
+from django.core.paginator import Paginator
+from django.shortcuts import render, get_object_or_404
 
 User = get_user_model()
 
 @login_required
 def chat_history(request, username):
     user = request.user
+    page_number = request.GET.get('page', 1) # Get page number from URL
+
 
     messages = Message.objects.filter(
         Q(sender=user, receiver__username=username) |
         Q(sender__username=username, receiver=user)
-    ).order_by("timestamp")
+    ).order_by("-timestamp")
 
-    #MARK RECEIVED MESSAGES AS READ
+    # 2. Paginate (12 messages per page)
+    paginator = Paginator(messages, 12)
+    page_obj = paginator.get_page(page_number)
+
+    # 3. Mark these specific messages as read
     Message.objects.filter(
-        sender__username=username,
-        receiver=user,
-        is_read=False
+        sender__username=username, 
+        receiver=user, 
+        is_read=False,
+        id__in=[msg.id for msg in page_obj] 
     ).update(is_read=True)
 
+    # 4. Serialize data (Reverse them back to OLDER -> NEWER for display)
     data = [
-        {
+        {   
+            "id": msg.id,
             "sender": msg.sender.username,
             "message": msg.content,
             "is_read": msg.is_read,
+            "timestamp": msg.timestamp.strftime("%I:%M %p"), 
         }
-        for msg in messages
+        for msg in reversed(page_obj.object_list)
     ]
 
-    return JsonResponse(data, safe=False)
+    # Return data + has_next flag so JS knows if it should keep scrolling
+    return JsonResponse({
+        "messages": data, 
+        "has_next": page_obj.has_next()
+    })
 
 
 
 
 @login_required
 def chat_view(request, username):
+    # 1. Get the actual User object (needed for is_online/last_seen)
+    other_user_obj = get_object_or_404(User, username=username)
+
+    # 2. Get the formatted text
+    last_seen_text = get_last_seen_text(other_user_obj)
+
     messages = Message.objects.filter(
-        Q(sender=request.user, receiver__username=username) |
-        Q(sender__username=username, receiver=request.user)
+        Q(sender=request.user, receiver=other_user_obj) |
+        Q(sender=other_user_obj, receiver=request.user)
     ).order_by("timestamp")
 
     return render(request, "chat/chat.html", {
         "messages": messages,
-        "other_user": username,
+        "other_user": other_user_obj,  # Passing Object, not just string
+        "last_seen_text": last_seen_text, # Passing the text
     })
 
+
+def get_last_seen_text(user):
+    from django.utils import timezone
+    from datetime import timedelta
+    # If no last_seen data exists
+    if not user.last_seen:
+        return "Offline"
+        
+    now = timezone.now()
+    # Ensure last_seen is timezone-aware if your project uses timezones
+    last_seen = user.last_seen 
+    
+    # Calculate difference
+    delta = now - last_seen
+    
+    # Logic for text formatting
+    if delta < timedelta(minutes=1):
+        return "Last seen just now"
+    
+    if last_seen.date() == now.date():
+        return f"Last seen today at {last_seen.strftime('%I:%M %p')}"
+    
+    if last_seen.date() == (now - timedelta(days=1)).date():
+        return f"Last seen yesterday at {last_seen.strftime('%I:%M %p')}"
+        
+    # Default: Show full date
+    return f"Last seen {last_seen.strftime('%d/%m/%Y')}"
 
 def get_unread_count(user):
     return Message.objects.filter(
@@ -69,7 +119,7 @@ def unread_messages(request):
 def inbox_view(request):
     user = request.user
 
-    # Get latest message per conversation
+    # Get latest message per conversation (Your existing logic)
     conversations = (
         Message.objects
         .filter(Q(sender=user) | Q(receiver=user))
@@ -85,9 +135,12 @@ def inbox_view(request):
         other_id = convo["receiver"] if convo["sender"] == user.id else convo["sender"]
         if other_id not in seen:
             seen.add(other_id)
-            chat_users.append(
-                User.objects.get(id=other_id)
-            )
+            other_user_obj = User.objects.get(id=other_id)
+            
+            # ATTACH FORMATTED TEXT TO USER OBJECT TEMPORARILY
+            other_user_obj.last_seen_formatted = get_last_seen_text(other_user_obj)
+            
+            chat_users.append(other_user_obj)
 
     return render(request, "chat/inbox.html", {
         "chat_users": chat_users

@@ -257,6 +257,29 @@
     function messageUser(username) {
         openChat(username);
     }
+
+    {% if user.is_authenticated %}
+    (function() {
+        // Connect to the global online status socket
+        const statusSocket = new WebSocket(
+            'ws://' + window.location.host + '/ws/online-status/'
+        );
+
+        statusSocket.onopen = function(e) {
+            console.log("Global Online Status: Connected");
+        };
+
+        statusSocket.onclose = function(e) {
+            console.log("Global Online Status: Disconnected");
+        };
+        
+        // Optional: reconnect logic if connection drops
+        statusSocket.onerror = function(err) {
+            console.error("Status Socket Error:", err);
+        };
+    })();
+    {% endif %}
+
 </script>
 
 </body>
