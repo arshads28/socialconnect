@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% block content %}
+
+<style>
+    /* ============================
+       RESPONSIVE LIST STYLING
+       ============================ */
+    
+    /* Base styles (Mobile First) */
+    .user-list-container {
+        background-color: #fff;
+        display: flex;
+        flex-direction: column;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        
+        /* Mobile: Full screen, no borders */
+        width: 100%;
+        height: 100vh; 
+        margin: 0;
+        border: none;
+    }
+
+    /* Desktop Styles (Screens wider than 768px) */
+    @media (min-width: 768px) {
+        .user-list-container {
+            /* INCREASED WIDTH HERE */
+            max-width: 800px; 
+            height: 85vh; /* Don't take full height on desktop */
+            margin: 30px auto; /* Center on screen */
+            
+            border: 1px solid #dbdbdb;
+            border-radius: 8px; /* Rounded corners for modern look */
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05); /* Subtle shadow for depth */
+        }
+    }
+
+    /* Header Styling */
+    .list-header {
+        padding: 20px;
+        border-bottom: 1px solid #dbdbdb;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #fff;
+        flex-shrink: 0;
+    }
+
+    /* Link Item Styling */
+    .user-item-link {
+        display: flex; 
+        align-items: center; 
+        padding: 15px 20px; 
+        border-bottom: 1px solid #f2f2f2; 
+        text-decoration: none; 
+        color: black;
+        transition: background-color 0.2s ease;
+    }
+
+    .user-item-link:hover {
+        background-color: #fafafa;
+    }
+
+    /* Profile Picture Circle */
+    .profile-circle {
+        width: 50px; 
+        height: 50px; 
+        background-color: #f0f0f0; 
+        border-radius: 50%; 
+        display: flex; 
+        justify-content: center; 
+        align-items: center; 
+        margin-right: 15px; 
+        font-size: 24px;
+        border: 1px solid #dbdbdb;
+    }
+
+</style>
+
+<div class="user-list-container">
+    
+    <div class="list-header">
+        <h3 style="margin:0; font-size:18px; font-weight:600;">Messages</h3>
+    </div>
+
+    <div style="overflow-y: auto; flex: 1;">
+
+        {% for user in chat_users %}
+            <a href="/chat/{{ user.username }}/" class="user-item-link">
+                
+                <div class="profile-circle">
+                    <span>👤</span>
+                </div>
+                
+                <div style="flex: 1;">
+                    <strong style="font-size: 16px; display: block; margin-bottom: 4px;">{{ user.username }}</strong>
+                    
+                    {% if user.is_online %}
+                        <span style="color:green; font-size:13px; font-weight: 500;">● Online</span>
+                    {% else %}
+                        <span style="color:gray; font-size:13px;">● Offline</span>
+                    {% endif %}
+                </div>
+
+                <span style="color: #ccc; font-size: 20px;">›</span>
+            </a>
+        {% empty %}
+            <div style="padding:40px; text-align:center; color:gray;">
+                <p>No conversations yet.</p>
+            </div>
+        {% endfor %}
+        
+    </div>
+
+</div>
+
+{% endblock %}

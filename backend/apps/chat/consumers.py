@@ -4,6 +4,7 @@ from django.core.exceptions import ObjectDoesNotExist
 from django.contrib.auth import get_user_model
 from asgiref.sync import sync_to_async
 from .models import Message
+from django.utils import timezone
 
 User = get_user_model()
 
@@ -17,6 +18,10 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
         self.other_username = self.scope["url_route"]["kwargs"]["username"]
 
+        await sync_to_async(User.objects.filter(id=self.user.id).update)(
+            is_online=True,
+            last_seen=timezone.now()
+        )
         try:
             self.other_user = await sync_to_async(User.objects.get)(
                 username=self.other_username
@@ -37,10 +42,18 @@ class ChatConsumer(AsyncWebsocketConsumer):
         await self.accept()
 
     async def disconnect(self, close_code):
-        await self.channel_layer.group_discard(
-            self.room_group_name,
-            self.channel_name
+        await sync_to_async(User.objects.filter(id=self.user.id).update)(
+            is_online=False,
+            last_seen=timezone.now()
         )
+        
+        if hasattr(self, "room_group_name"):
+            await self.channel_layer.group_discard(
+                self.room_group_name,
+                self.channel_name,
+        )
+
+
 
     async def receive(self, text_data):
         data = json.loads(text_data)

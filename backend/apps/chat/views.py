@@ -1,9 +1,11 @@
 from django.http import JsonResponse
 from django.contrib.auth.decorators import login_required
 from .models import Message
-from django.db.models import Q
+from django.db.models import Q, Max
 from django.shortcuts import render
+from django.contrib.auth import get_user_model
 
+User = get_user_model()
 
 @login_required
 def chat_history(request, username):
@@ -60,3 +62,33 @@ def unread_messages(request):
             "unread_count": get_unread_count(request.user)
         }
     return {}
+
+
+
+@login_required
+def inbox_view(request):
+    user = request.user
+
+    # Get latest message per conversation
+    conversations = (
+        Message.objects
+        .filter(Q(sender=user) | Q(receiver=user))
+        .values("sender", "receiver")
+        .annotate(last_time=Max("timestamp"))
+        .order_by("-last_time")
+    )
+
+    chat_users = []
+    seen = set()
+
+    for convo in conversations:
+        other_id = convo["receiver"] if convo["sender"] == user.id else convo["sender"]
+        if other_id not in seen:
+            seen.add(other_id)
+            chat_users.append(
+                User.objects.get(id=other_id)
+            )
+
+    return render(request, "chat/inbox.html", {
+        "chat_users": chat_users
+    })
