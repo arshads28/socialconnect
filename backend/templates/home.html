@@ -7,26 +7,35 @@
 
     <!-- CREATE POST -->
     <div style="
-        background:#fff;
-        padding:15px;
-        border:1px solid #dbdbdb;
-        margin-bottom:20px;">
-        
-        <textarea
-            placeholder="What's on your mind?"
-            style="width:100%; border:none; resize:none; height:60px;"></textarea>
+    background:#fff;
+    padding:15px;
+    border:1px solid #dbdbdb;
+    margin-bottom:20px;
+">
+    <form method="POST" action="{% url 'create_post' %}">
+        {% csrf_token %}
 
-        <div style="display:flex; justify-content:space-between; margin-top:10px;">
-            <input type="file">
-            <button style="
+        <textarea
+            name="content"
+            placeholder="What's on your mind?"
+            required
+            style="width:100%; border:none; resize:none; height:60px;"
+        ></textarea>
+
+        <div style="display:flex; justify-content:flex-end; margin-top:10px;">
+            <button type="submit" style="
                 background:#0095f6;
                 border:none;
                 color:white;
-                padding:6px 12px;">
+                padding:6px 12px;
+                cursor:pointer;
+            ">
                 Post
             </button>
         </div>
-    </div>
+    </form>
+</div>
+
 
     <!-- POSTS -->
     {% for post in posts %}
