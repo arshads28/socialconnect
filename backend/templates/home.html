@@ -102,17 +102,10 @@
         {% endif %}
 
         <div style="padding: 10px 15px 5px 15px;">
-            <button onclick="messageUser('{{ post.author.username }}')" style="
-                background: transparent; 
-                border: 1px solid #dbdbdb; 
-                border-radius: 4px; 
-                padding: 5px 10px; 
-                font-weight: 600; 
-                font-size: 13px; 
-                cursor: pointer;
-            ">
+            <button onclick="window.location.href='/chat/{{ post.author.username }}/'">
                 Message
             </button>
+
         </div>
 
         {% if post.content %}
