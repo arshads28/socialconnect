@@ -155,6 +155,12 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 
 
+LOGIN_URL = "/auth/login/"
+LOGIN_REDIRECT_URL = "/"
+LOGOUT_REDIRECT_URL = "/auth/login/"
+
+
+
 LOGGING_DIR = os.path.join(BASE_DIR, 'logs')
 if not os.path.exists(LOGGING_DIR):
     os.makedirs(LOGGING_DIR)
