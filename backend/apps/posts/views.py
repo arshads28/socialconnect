@@ -24,3 +24,29 @@ def create_post(request):
         )
 
     return redirect("home")
+
+
+
+@require_POST
+@login_required
+def create_post(request):
+    content = request.POST.get("content", "").strip()
+    media = request.FILES.get("media")
+
+    media_type = Post.MediaType.NONE
+
+    if media:
+        if media.content_type.startswith("image"):
+            media_type = Post.MediaType.IMAGE
+        elif media.content_type.startswith("video"):
+            media_type = Post.MediaType.VIDEO
+
+    if content or media:
+        Post.objects.create(
+            author=request.user,
+            content=content,
+            media=media,
+            media_type=media_type,
+        )
+
+    return redirect("home")

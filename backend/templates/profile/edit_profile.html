@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+
+{% block title %}Edit Profile{% endblock %}
+
+{% block content %}
+<div style="width:500px; background:#fff; border:1px solid #dbdbdb; padding:20px;">
+
+    <h2>Edit Profile</h2>
+
+    <form method="POST" enctype="multipart/form-data">
+        {% csrf_token %}
+
+        <label>Avatar</label><br>
+        {{ form.avatar }}<br><br>
+
+        <label>Bio</label><br>
+        {{ form.bio }}<br><br>
+
+        <label>Interests</label><br>
+        {{ form.interests }}<br><br>
+
+        <button type="submit">Save Changes</button>
+    </form>
+</div>
+{% endblock %}

@@ -57,3 +57,51 @@ def logout_view(request):
     if request.method == "POST":
         logout(request)
         return redirect("login")
+    
+
+
+
+
+class ProfileUpdateForm(forms.ModelForm):
+    class Meta:
+        model = User
+        fields = ["avatar", "bio", "interests"]
+
+        widgets = {
+            "bio": forms.Textarea(attrs={
+                "placeholder": "Tell something about yourself",
+                "rows": 3,
+            }),
+            "interests": forms.Textarea(attrs={
+                "placeholder": "Your interests (comma separated)",
+                "rows": 3,
+            }),
+        }
+
+
+@login_required
+def profile_view(request):
+    return render(request, "profile/profile.html", {
+        "user_obj": request.user
+    })
+
+
+@login_required
+def edit_profile_view(request):
+    user = request.user
+
+    if request.method == "POST":
+        form = ProfileUpdateForm(
+            request.POST,
+            request.FILES,
+            instance=user
+        )
+        if form.is_valid():
+            form.save()
+            return redirect("profile")
+    else:
+        form = ProfileUpdateForm(instance=user)
+
+    return render(request, "profile/edit_profile.html", {
+        "form": form
+    })

@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+
+{% block title %}My Profile{% endblock %}
+
+{% block content %}
+<div style="width:500px; background:#fff; border:1px solid #dbdbdb; padding:20px;">
+
+    <h2>{{ user_obj.username }}</h2>
+
+    {% if user_obj.avatar %}
+        <img src="{{ user_obj.avatar.url }}"
+             style="width:100px;height:100px;border-radius:50%;">
+    {% else %}
+        <div style="width:100px;height:100px;border-radius:50%;background:#ccc;"></div>
+    {% endif %}
+
+    <p><strong>Email:</strong> {{ user_obj.email }}</p>
+    <p><strong>Bio:</strong> {{ user_obj.bio|default:"No bio yet" }}</p>
+    <p><strong>Interests:</strong> {{ user_obj.interests|default:"Not specified" }}</p>
+
+    <a href="/auth/profile/edit/">Edit Profile</a>
+</div>
+{% endblock %}
