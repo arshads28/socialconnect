@@ -1,4 +1,4 @@
-Django
+Django==6.*
 djangorestframework
 django-channels
 channels-redis
@@ -10,3 +10,5 @@ boto3
 Pillow
 django-ratelimit
 bleach
+uvicorn[standard]
+gunicorn
