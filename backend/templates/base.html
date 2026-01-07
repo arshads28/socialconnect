@@ -7,15 +7,11 @@
     <title>{% block title %}SocialConnect{% endblock %}</title>
 
     <style>
-        /* ====================
-           1. GLOBAL & RESET
-           ==================== */
+        /* 1. GLOBAL & RESET */
         * { margin: 0; padding: 0; box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
         body { background: #fafafa; }
 
-        /* ====================
-           2. NAVBAR & UI ELEMENTS
-           ==================== */
+        /* 2. NAVBAR */
         .navbar { position: fixed; top: 0; width: 100%; height: 60px; background: #fff; border-bottom: 1px solid #dbdbdb; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; z-index: 100; }
         .nav-right a { margin-left: 15px; text-decoration: none; color: #262626; font-weight: 500; position: relative; display: inline-block; }
         .badge { position: absolute; top: -5px; right: -10px; background: red; color: white; border-radius: 50%; padding: 2px 6px; font-size: 10px; display: none; }
@@ -27,20 +23,13 @@
         .toast.show { opacity: 1; transform: translateY(0); }
         .toast-avatar { width: 30px; height: 30px; border-radius: 50%; background: #fff; color: #333; display: flex; justify-content: center; align-items: center; margin-right: 12px; font-weight: bold; }
 
-        /* ====================
-           3. CALL OVERLAY STYLES (Merged from call.html)
-           ==================== */
+        /* 3. CALL OVERLAY STYLES */
         #global-call-overlay {
-            display: none; /* Hidden by default */
-            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-            background: #111; z-index: 99999;
-            flex-direction: column; justify-content: center; align-items: center;
+            display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            background: #111; z-index: 99999; flex-direction: column; justify-content: center; align-items: center;
             transition: background 0.3s ease; color: white;
         }
-
         #hidden-media { display: none; }
-
-        /* Video Grid */
         #video-container { display: flex; width: 100%; height: 100%; position: relative; justify-content: center; align-items: center; }
         #video-grid { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; align-content: center; gap: 16px; padding: 20px; width: 100%; height: 100%; overflow-y: auto; }
         
@@ -48,12 +37,10 @@
         .remote-video-wrapper video { width: 100%; height: 100%; object-fit: contain; background: #000; }
         .remote-label { position: absolute; bottom: 12px; left: 12px; background: rgba(0,0,0,0.6); padding: 6px 14px; border-radius: 20px; font-size: 13px; font-weight: 500; backdrop-filter: blur(4px); pointer-events: none; }
 
-        /* Local Video (Draggable) */
         #localVideoWrapper { position: absolute; bottom: 100px; right: 20px; width: 140px; height: 200px; border-radius: 15px; overflow: hidden; box-shadow: 0 8px 25px rgba(0,0,0,0.7); border: 2px solid rgba(255,255,255,0.3); cursor: grab; z-index: 501; background: #000; transition: transform 0.1s; }
         #localVideoWrapper:active { cursor: grabbing; transform: scale(0.95); }
         #localVideo { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
 
-        /* Controls */
         .video-controls { position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); display: flex; gap: 15px; z-index: 502; background: rgba(0,0,0,0.6); padding: 10px 20px; border-radius: 40px; backdrop-filter: blur(10px); }
         .ctrl-btn { width: 50px; height: 50px; border-radius: 50%; border: none; font-size: 20px; cursor: pointer; display: flex; align-items: center; justify-content: center; background: #333; color: white; transition: 0.3s; }
         .ctrl-btn:hover { background: #555; }
@@ -151,96 +138,226 @@
         </div>
     </div>
 </div>
+
 <main>{% block content %}{% endblock %}</main>
 
 <script>
     // ============================================
-    // 1. GLOBAL VARIABLES FOR CALLING
+    // 1. GLOBAL VARIABLES
     // ============================================
-    let callSocket = null;
+    var currentUserName = "{{ user.username|escapejs }}"; 
+    
+    // Global State
+    let globalStatusSocket = null;
     let localStream = null;
     let rawStream = null;
     let peerConnections = {};
     const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
     let currentCallUser = null;
+    let pendingOffer = null;
+    let pendingCaller = null;
 
-    // Filters & Flash
+    // Filters
     const filters = ['none', 'contrast(1.1) brightness(0.95) saturate(1.2) blur(1px)', 'grayscale(1)', 'sepia(0.6)'];
     let currentFilterIndex = 0;
 
     // ============================================
-    // 2. PUBLIC FUNCTION: START CALL
+    // 2. SOCKET & NOTIFICATIONS (Global Scope)
     // ============================================
-    window.startGlobalCall = function(targetUser, mode) {
-        currentCallUser = targetUser;
-        document.getElementById('global-call-overlay').style.display = 'flex';
-        
-        // Connect Socket
-        const protocol = window.location.protocol === "https:" ? "wss://" : "ws://";
-        callSocket = new WebSocket(protocol + window.location.host + "/ws/call/" + targetUser + "/");
-
-        callSocket.onopen = () => {
-            console.log("Call Socket Connected");
-            initMedia(mode === 'video').then(() => {
-                sendSignal('join', {});
-            });
-        };
-
-        callSocket.onmessage = async (e) => {
-            const msg = JSON.parse(e.data);
-            handleCallSignal(msg.type, msg.data);
-        };
-        
-        callSocket.onclose = () => {
-            console.log("Call Socket Closed");
-            window.endCall(); // Ensure cleanup
-        };
-    };
-
-    // ============================================
-    // 3. CALL LOGIC (Merged from call.html)
-    // ============================================
-    function sendSignal(type, data) {
-        if(callSocket && callSocket.readyState === WebSocket.OPEN){
-            callSocket.send(JSON.stringify({ type: 'signal', data: { type: type, ...data } }));
+    
+    function updateBadge(count) {
+        const badge = document.getElementById("msg-badge");
+        if (badge) {
+            if (count > 0) { badge.innerText = count; badge.style.display = "inline-block"; } 
+            else { badge.style.display = "none"; }
         }
     }
 
-    async function handleCallSignal(type, payload) {
-        if (type === 'signal') {
-            const signal = payload;
-            const sender = "peer"; 
-            
-            if (signal.type === 'join') {
-                document.getElementById('status-text').innerText = "Connecting...";
-                await createPeerConnection(sender);
-                const offer = await peerConnection.createOffer();
-                await peerConnection.setLocalDescription(offer);
-                sendSignal('offer', offer);
-            } 
-            else if (signal.type === 'offer') {
-                document.getElementById('status-text').style.display = "none";
-                if (!peerConnections[sender]) await createPeerConnection(sender);
-                await peerConnections[sender].setRemoteDescription(new RTCSessionDescription(signal));
-                const answer = await peerConnections[sender].createAnswer();
-                await peerConnections[sender].setLocalDescription(answer);
-                sendSignal('answer', answer);
-            } 
-            else if (signal.type === 'answer') {
-                document.getElementById('status-text').style.display = "none";
-                if(peerConnections[sender]) await peerConnections[sender].setRemoteDescription(new RTCSessionDescription(signal));
-            } 
-            else if (signal.type === 'candidate') {
-                if (peerConnections[sender] && peerConnections[sender].remoteDescription) {
-                    await peerConnections[sender].addIceCandidate(new RTCIceCandidate(signal));
+    function showToast(sender, message) {
+        const container = document.getElementById("toast-container");
+        if (!container) return;
+        const shortMsg = message.length > 30 ? message.substring(0, 30) + "..." : message;
+        const toast = document.createElement("div");
+        toast.className = "toast";
+        toast.innerHTML = `<div class="toast-avatar">${sender[0].toUpperCase()}</div><div><strong style="display:block; font-size:13px;">${sender}</strong><span style="font-size:12px; opacity:0.9;">${shortMsg}</span></div>`;
+        container.appendChild(toast);
+        setTimeout(() => toast.classList.add("show"), 10);
+        setTimeout(() => { toast.classList.remove("show"); setTimeout(() => toast.remove(), 300); }, 3000);
+    }
+
+    // INITIALIZE SOCKET
+    {% if user.is_authenticated %}
+    function connectSocket() {
+        const protocol = window.location.protocol === "https:" ? "wss://" : "ws://";
+        globalStatusSocket = new WebSocket(protocol + window.location.host + '/ws/online-status/');
+
+        globalStatusSocket.onopen = function(e) { console.log("✅ Global Socket Connected"); };
+        
+        globalStatusSocket.onclose = function(e) { 
+            console.log("⚠️ Socket disconnected, retrying...");
+            setTimeout(connectSocket, 3000); 
+        };
+
+        globalStatusSocket.onmessage = function(e) {
+            try {
+                const data = JSON.parse(e.data);
+
+                // A. Notifications
+                if (data.type === "notification") {
+                    const event = new CustomEvent('chatNotification', { detail: data });
+                    document.dispatchEvent(event);
+                    updateBadge(data.count || 1);
+                    const onChatPage = window.location.pathname.includes("/chat/" + data.sender + "/");
+                    if (!onChatPage) showToast(data.sender, data.message);
                 }
+
+                // B. Signaling (Call)
+                if (data.type === "call_signal") {
+                     handleCallSignal(data.data, data.sender);
+                }
+            } catch (err) { console.error("Socket Error:", err); }
+        };
+    }
+    connectSocket();
+    {% endif %}
+
+    // ============================================
+    // 3. PUBLIC CALL FUNCTION (Triggered by chat.html)
+    // ============================================
+    window.startGlobalCall = function(targetUser, mode) {
+        console.log("📞 Starting call with:", targetUser);
+        currentCallUser = targetUser;
+        document.getElementById('global-call-overlay').style.display = 'flex';
+        document.getElementById('status-text').innerText = "Dialing...";
+        
+        // 1. Send Immediate Invite
+        sendSignal('new_call_invite', { mode: mode }, targetUser);
+
+        // 2. Init Media -> Then Send Offer
+        initMedia(mode === 'video').then(() => {
+            createPeerConnection(targetUser).then(pc => {
+                pc.createOffer().then(offer => {
+                    pc.setLocalDescription(offer);
+                    sendSignal('offer', offer, targetUser);
+                });
+            });
+        });
+    };
+
+    // ============================================
+    // 4. WEBRTC LOGIC
+    // ============================================
+    function sendSignal(type, payload, target) {
+        if (globalStatusSocket && globalStatusSocket.readyState === WebSocket.OPEN) {
+            globalStatusSocket.send(JSON.stringify({
+                command: "call_signal",
+                target: target,
+                data: { type: type, ...payload }
+            }));
+        } else {
+            console.error("Socket not ready to send signal");
+        }
+    }
+
+    async function handleCallSignal(signal, sender) {
+        console.log("📩 Signal received:", signal.type, "from", sender);
+
+        // A. IMMEDIATE RINGING (New Call Invite)
+        if (signal.type === 'new_call_invite') {
+            // FIX: Check if display is NOT flex (handles empty string & none)
+            const overlay = document.getElementById('global-call-overlay');
+            if (overlay.style.display !== 'flex') {
+                 showIncomingCallPopup(sender, signal);
+            }
+            return;
+        }
+
+        // B. Incoming Offer
+        if (signal.type === 'offer') {
+            const overlay = document.getElementById('global-call-overlay');
+            if (overlay.style.display !== 'flex') {
+                 showIncomingCallPopup(sender, signal);
+                 return;
+            }
+            // Already accepted via popup
+            await createPeerConnection(sender);
+            await peerConnections[sender].setRemoteDescription(new RTCSessionDescription(signal));
+            const answer = await peerConnections[sender].createAnswer();
+            await peerConnections[sender].setLocalDescription(answer);
+            sendSignal('answer', answer, sender);
+        }
+        // C. Incoming Answer
+        else if (signal.type === 'answer') {
+            document.getElementById('status-text').style.display = "none";
+            if (peerConnections[sender]) {
+                await peerConnections[sender].setRemoteDescription(new RTCSessionDescription(signal));
+            }
+        }
+        // D. Candidate
+        else if (signal.type === 'candidate') {
+            if (peerConnections[sender] && signal.candidate) { 
+                try {
+                    await peerConnections[sender].addIceCandidate(new RTCIceCandidate(signal));
+                } catch(e) { console.log("Candidate Error:", e); }
             }
         }
     }
 
+    // ============================================
+    // 5. INCOMING POPUP LOGIC (Global Scope)
+    // ============================================
+    function showIncomingCallPopup(callerName, offerSignal) {
+        pendingOffer = offerSignal.type === 'offer' ? offerSignal : null;
+        pendingCaller = callerName;
+
+        const ringtone = new Audio('{% static "ringtone.mp3" %}');
+        ringtone.loop = true;
+        ringtone.play().catch(e => console.log("Audio autoplay blocked"));
+
+        const modal = document.createElement('div');
+        modal.id = "incoming-modal";
+        modal.style.cssText = `position: fixed; top: 20px; right: 20px; z-index: 99999; background: #fff; padding: 20px; border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.2); border: 1px solid #eee; font-family: sans-serif; min-width: 250px; animation: slideIn 0.5s ease-out;`;
+        
+        modal.innerHTML = `
+            <div style="text-align:center; margin-bottom:15px;">
+                <div style="font-size:16px; font-weight:bold; margin-bottom:5px;">Incoming Call...</div>
+                <div style="font-size:14px; color:#666;">${callerName} is calling you</div>
+            </div>
+            <div style="display:flex; justify-content:space-around;">
+                <button id="decline-btn" style="background:#ff3b30; color:white; border:none; padding:10px 20px; border-radius:20px; cursor:pointer;">Decline</button>
+                <button id="accept-btn" style="background:#34c759; color:white; border:none; padding:10px 20px; border-radius:20px; cursor:pointer;">Accept</button>
+            </div>
+        `;
+        document.body.appendChild(modal);
+    
+        document.getElementById('accept-btn').onclick = async () => {
+            ringtone.pause(); 
+            modal.remove();
+            
+            currentCallUser = pendingCaller;
+            document.getElementById('global-call-overlay').style.display = 'flex';
+            document.getElementById('status-text').innerText = "Connecting...";
+            
+            // Assume video for answer
+            await initMedia(true); 
+
+            if(pendingOffer) {
+                await handleCallSignal(pendingOffer, pendingCaller);
+            }
+        };
+    
+        document.getElementById('decline-btn').onclick = () => {
+            ringtone.pause();
+            modal.remove();
+        };
+    }
+
+    // ============================================
+    // 6. MEDIA HELPERS
+    // ============================================
     async function createPeerConnection(peerName) {
         if (peerConnections[peerName]) return peerConnections[peerName];
-        
+
         const pc = new RTCPeerConnection(rtcConfig);
         peerConnections[peerName] = pc;
 
@@ -251,42 +368,38 @@
         pc.ontrack = event => {
             if (event.streams && event.streams[0]) {
                 addRemoteVideo(peerName, event.streams[0]);
+                document.getElementById('status-text').style.display = "none";
             }
         };
 
         pc.onicecandidate = event => {
-            if (event.candidate) sendSignal('candidate', event.candidate);
+            if (event.candidate) {
+                sendSignal('candidate', event.candidate.toJSON(), peerName);
+            }
         };
         
         pc.onconnectionstatechange = () => {
-             if(pc.connectionState === "disconnected") {
-                 document.getElementById('status-text').innerText = "Call Ended";
-                 document.getElementById('status-text').style.display = "block";
-                 setTimeout(endCall, 2000);
+             if(pc.connectionState === "disconnected" || pc.connectionState === "failed") {
+                 window.endCall();
              }
         };
         return pc;
     }
 
-    // --- MEDIA PROCESSING ---
     async function initMedia(videoEnabled) {
         try {
-            const qualityVal = document.getElementById("set-quality").value;
-            const fpsVal = parseInt(document.getElementById("set-fps").value);
-            const resMap = { 'fhd': { w: 1920, h: 1080 }, 'hd': { w: 1280, h: 720 }, 'vga': { w: 640, h: 480 } };
-            const targetRes = resMap[qualityVal];
-
             const constraints = {
                 audio: true,
-                video: videoEnabled ? { width: { ideal: targetRes.w }, height: { ideal: targetRes.h }, frameRate: { ideal: fpsVal } } : false
+                video: videoEnabled ? { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 24 } } : false
             };
 
             rawStream = await navigator.mediaDevices.getUserMedia(constraints);
-            const rawVideo = document.getElementById('rawVideo');
-            rawVideo.srcObject = rawStream;
-            await rawVideo.play();
-
+            
             if (videoEnabled) {
+                const rawVideo = document.getElementById('rawVideo');
+                rawVideo.srcObject = rawStream;
+                await rawVideo.play();
+
                 const canvas = document.getElementById('processorCanvas');
                 const ctx = canvas.getContext('2d', { alpha: false });
                 
@@ -302,7 +415,7 @@
                 }
                 processFrame();
 
-                const canvasStream = canvas.captureStream(fpsVal);
+                const canvasStream = canvas.captureStream(24);
                 const audioTrack = rawStream.getAudioTracks()[0];
                 if (audioTrack) canvasStream.addTrack(audioTrack);
                 localStream = canvasStream;
@@ -316,7 +429,8 @@
                 document.getElementById('btn-video').classList.remove('btn-active');
                 document.getElementById('btn-video').classList.add('btn-off');
             }
-            document.getElementById('status-text').innerText = "Waiting for answer...";
+            
+            document.getElementById('status-text').innerText = "Calling...";
         } catch (e) {
             console.error(e);
             alert("Camera Error: " + e.message);
@@ -324,65 +438,48 @@
         }
     }
 
-    // --- UI FUNCTIONS ---
-    window.endCall = function() {
-        if(callSocket) callSocket.close();
-        if(rawStream) rawStream.getTracks().forEach(t => t.stop());
-        if(localStream) localStream.getTracks().forEach(t => t.stop());
-        
-        // Reset Variables
-        peerConnections = {};
-        rawStream = null;
-        localStream = null;
-        
-        // Reset UI
-        document.getElementById("video-grid").innerHTML = "";
-        document.getElementById("global-call-overlay").style.display = "none";
-        document.getElementById("status-text").innerText = "Initializing...";
-        document.getElementById("status-text").style.display = "block";
-    };
-
-    function addRemoteVideo(peerName, stream) {
-        const grid = document.getElementById("video-grid");
-        if (document.getElementById(`wrapper-${peerName}`)) return;
-        
-        const wrapper = document.createElement("div");
-        wrapper.className = "remote-video-wrapper";
-        wrapper.id = `wrapper-${peerName}`;
-
-        const video = document.createElement("video");
-        video.autoplay = true;
-        video.playsInline = true;
-        video.srcObject = stream;
-
-        const label = document.createElement("div");
-        label.className = "remote-label";
-        label.innerText = currentCallUser || "User";
-
-        wrapper.appendChild(video);
-        wrapper.appendChild(label);
-        grid.appendChild(wrapper);
-    }
-
-    // --- TOGGLES & FEATURES ---
+    // ============================================
+    // 7. UI CONTROLS (Toggles, Drag, End)
+    // ============================================
     window.toggleVideo = async function() {
         const btn = document.getElementById('btn-video');
         const isOff = btn.classList.contains('btn-off');
-        if (rawStream) rawStream.getVideoTracks().forEach(t => t.stop());
-        if (localStream) localStream.getVideoTracks().forEach(t => t.stop());
-        await initMedia(isOff);
-        // Replace tracks in existing connections (simplified for brevity)
+        if (rawStream) rawStream.getTracks().forEach(t => t.stop());
+        if (localStream) localStream.getTracks().forEach(t => t.stop());
+        await initMedia(isOff); 
     };
 
     window.toggleAudio = function() {
         if (!localStream) return;
         const track = localStream.getAudioTracks()[0];
         track.enabled = !track.enabled;
-        const btn = document.getElementById('btn-audio');
-        btn.classList.toggle('btn-active');
-        btn.classList.toggle('btn-off');
+        document.getElementById('btn-audio').classList.toggle('btn-active');
     };
 
+    window.endCall = function() {
+        if(rawStream) rawStream.getTracks().forEach(t => t.stop());
+        if(localStream) localStream.getTracks().forEach(t => t.stop());
+        for (let key in peerConnections) peerConnections[key].close();
+        peerConnections = {};
+        document.getElementById("video-grid").innerHTML = "";
+        document.getElementById("global-call-overlay").style.display = "none";
+        document.getElementById("status-text").style.display = "block";
+    };
+
+    function addRemoteVideo(peerName, stream) {
+        const grid = document.getElementById("video-grid");
+        if (document.getElementById(`wrapper-${peerName}`)) return;
+        const wrapper = document.createElement("div");
+        wrapper.className = "remote-video-wrapper";
+        wrapper.id = `wrapper-${peerName}`;
+        const video = document.createElement("video");
+        video.autoplay = true; video.playsInline = true; video.srcObject = stream;
+        const label = document.createElement("div");
+        label.className = "remote-label"; label.innerText = peerName || "User";
+        wrapper.appendChild(video); wrapper.appendChild(label); grid.appendChild(wrapper);
+    }
+
+    // Extras
     window.cycleFlash = function() {
         const flashModes = [{ color: '#111', name: 'Off' }, { color: '#fff', name: 'Bright' }, { color: '#ffe4b5', name: 'Warm' }];
         let text = document.getElementById('menu-text-flash').innerText;
@@ -391,106 +488,33 @@
         document.getElementById('global-call-overlay').style.background = flashModes[i].color;
         document.getElementById('menu-text-flash').innerText = `Flash: ${flashModes[i].name}`;
     };
-
     window.cycleFilters = function() { currentFilterIndex = (currentFilterIndex + 1) % filters.length; };
-    window.toggleMoreMenu = function() { 
-        const m = document.getElementById("more-menu"); 
-        m.style.display = m.style.display === "flex" ? "none" : "flex"; 
-    };
+    window.toggleMoreMenu = function() { const m = document.getElementById("more-menu"); m.style.display = m.style.display === "flex" ? "none" : "flex"; };
     window.openSettings = function() { document.getElementById("settings-modal").style.display = "flex"; };
     window.closeSettings = function() { document.getElementById("settings-modal").style.display = "none"; };
     window.applySettings = function() { closeSettings(); window.toggleVideo(); };
 
-    // --- DRAG LOGIC ---
-    let isDragging = false, dragOffsetX, dragOffsetY;
-    const dragItem = document.getElementById("localVideoWrapper");
-    window.startDrag = function(e) {
-        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-        const rect = dragItem.getBoundingClientRect();
-        dragOffsetX = clientX - rect.left;
-        dragOffsetY = clientY - rect.top;
-        isDragging = true;
-        document.addEventListener('mousemove', onDrag);
-        document.addEventListener('mouseup', stopDrag);
-        document.addEventListener('touchmove', onDrag);
-        document.addEventListener('touchend', stopDrag);
-    };
-    function onDrag(e) {
-        if (!isDragging) return;
-        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-        dragItem.style.left = (clientX - dragOffsetX) + 'px';
-        dragItem.style.top = (clientY - dragOffsetY) + 'px';
-        dragItem.style.bottom = 'auto'; dragItem.style.right = 'auto';
-    }
-    function stopDrag() { isDragging = false; }
-
-
-    // ============================================
-    // 4. NOTIFICATION & STATUS LOGIC (Original Base)
-    // ============================================
-    {% if user.is_authenticated %}
-    (function() {
-        let currentCount = parseInt("{{ unread_count|default:0 }}");
-        updateBadge(currentCount);
-
-        const protocol = window.location.protocol === "https:" ? "wss://" : "ws://";
-        const statusSocket = new WebSocket(protocol + window.location.host + '/ws/online-status/');
-
-        statusSocket.onmessage = function(e) {
-            const data = JSON.parse(e.data);
-            if (data.type === "notification") {
-                const event = new CustomEvent('chatNotification', { detail: data });
-                document.dispatchEvent(event);
-                updateBadge(data.count);
-                const onChatPage = window.location.pathname.includes("/chat/" + data.sender + "/");
-                if (!onChatPage) showToast(data.sender, data.message);
-            }
-            if (data.type === "incoming_call") {
-                showIncomingCallPopup(data.caller);
-            }
-        };
-
-        function updateBadge(count) {
-            const badge = document.getElementById("msg-badge");
-            if (count > 0) { badge.innerText = count; badge.style.display = "inline-block"; } 
-            else { badge.style.display = "none"; }
+    // Drag
+    document.addEventListener("DOMContentLoaded", () => {
+        const dragItem = document.getElementById("localVideoWrapper");
+        if(dragItem) {
+            let isDragging = false, startX, startY, initialLeft, initialTop;
+            dragItem.addEventListener("mousedown", (e) => {
+                isDragging = true; startX = e.clientX; startY = e.clientY;
+                initialLeft = dragItem.offsetLeft; initialTop = dragItem.offsetTop; e.preventDefault();
+            });
+            document.addEventListener("mousemove", (e) => {
+                if (!isDragging) return;
+                const dx = e.clientX - startX;
+                const dy = e.clientY - startY;
+                dragItem.style.left = `${initialLeft + dx}px`;
+                dragItem.style.top = `${initialTop + dy}px`;
+                dragItem.style.bottom = "auto"; 
+                dragItem.style.right = "auto";
+            });
+            document.addEventListener("mouseup", () => isDragging = false);
         }
-
-        function showToast(sender, message) {
-            const container = document.getElementById("toast-container");
-            const shortMsg = message.length > 30 ? message.substring(0, 30) + "..." : message;
-            const toast = document.createElement("div");
-            toast.className = "toast";
-            toast.innerHTML = `<div class="toast-avatar">${sender[0].toUpperCase()}</div><div><strong style="display:block; font-size:13px;">${sender}</strong><span style="font-size:12px; opacity:0.9;">${shortMsg}</span></div>`;
-            container.appendChild(toast);
-            setTimeout(() => toast.classList.add("show"), 10);
-            setTimeout(() => { toast.classList.remove("show"); setTimeout(() => toast.remove(), 300); }, 3000);
-            toast.onclick = function() { window.location.href = `/chat/${sender}/`; };
-            toast.style.cursor = "pointer";
-        }
-        
-        function showIncomingCallPopup(callerName) {
-            const ringtone = new Audio('{% static "ringtone.mp3" %}');
-            ringtone.loop = true;
-            ringtone.play().catch(e => console.log("Audio play failed", e));
-
-            const modal = document.createElement('div');
-            modal.style.cssText = `position: fixed; top: 20px; right: 20px; z-index: 99999; background: #fff; padding: 20px; border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.2); border: 1px solid #eee; font-family: sans-serif; min-width: 250px; animation: slideIn 0.5s ease-out;`;
-            modal.innerHTML = `<div style="text-align:center; margin-bottom:15px;"><div style="font-size:16px; font-weight:bold; margin-bottom:5px;">Incoming Call...</div><div style="font-size:14px; color:#666;">${callerName} is calling you</div></div><div style="display:flex; justify-content:space-around;"><button id="decline-btn" style="background:#ff3b30; color:white; border:none; padding:10px 20px; border-radius:20px; cursor:pointer;">Decline</button><button id="accept-btn" style="background:#34c759; color:white; border:none; padding:10px 20px; border-radius:20px; cursor:pointer;">Accept</button></div>`;
-            document.body.appendChild(modal);
-        
-            document.getElementById('accept-btn').onclick = () => {
-                ringtone.pause(); modal.remove();
-                
-                // TRIGGER GLOBAL CALL FUNCTION
-                window.startGlobalCall(callerName, 'video');
-            };
-            document.getElementById('decline-btn').onclick = () => { ringtone.pause(); modal.remove(); };
-        }
-    })();
-    {% endif %}
+    });
 </script>
 </body>
 </html>

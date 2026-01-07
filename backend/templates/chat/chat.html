@@ -41,16 +41,13 @@
         border-bottom: 1px solid #efefef;
         display: flex;
         align-items: center;
-        justify-content: space-between; /* Pushes content to edges */
+        justify-content: space-between;
         flex-shrink: 0;
         background: #fff;
         border-radius: 8px 8px 0 0;
     }
 
-    .header-user-info {
-        display: flex;
-        align-items: center;
-    }
+    .header-user-info { display: flex; align-items: center; }
 
     #chat-box {
         flex: 1;
@@ -95,9 +92,7 @@
     .received-bubble .msg-footer { color: #8e8e8e; }
 
     /* Tick Styling */
-    .tick {
-        font-size: 14px; margin-left: 3px; font-weight: bold; line-height: 10px;
-    }
+    .tick { font-size: 14px; margin-left: 3px; font-weight: bold; line-height: 10px; }
     .tick.read { color: #4fc3f7; }
     .tick.delivered { color: #e0e0e0; }
 
@@ -113,11 +108,8 @@
     }
 </style>
 
-
 <div class="chat-container">
-    
     <div class="chat-header">
-        
         <div class="header-user-info">
             <div style="width: 32px; height: 32px; border-radius: 50%; background: #dbdbdb; margin-right: 10px; display: flex; align-items: center; justify-content: center; overflow: hidden;">
                  <svg aria-label="Profile" color="#fff" fill="#fff" height="24" viewBox="0 0 48 48" width="24"><path d="M24 0C10.7 0 0 10.7 0 24s10.7 24 24 24 24-10.7 24-24S37.3 0 24 0zm0 7.2c4.1 0 7.4 3.3 7.4 7.4 0 4.1-3.3 7.4-7.4 7.4-4.1 0-7.4-3.3-7.4-7.4 0-4.1 3.3-7.4 7.4-7.4zm0 33.6c-5.3 0-10-2.3-13.2-5.9 1-5.1 5.5-9 10.8-9h4.8c5.3 0 9.8 3.8 10.8 9-3.2 3.6-7.9 5.9-13.2 5.9z"></path></svg>
@@ -125,7 +117,6 @@
             
             <div style="display: flex; flex-direction: column;">
                 <strong style="font-size: 16px;">{{ other_user.username }}</strong>
-                
                 <span id="user-status" style="font-size:12px; color:#8e8e8e; height: 14px;">
                     {% if other_user.is_online %}
                         <span style="color: #25D366; font-weight: 500;">Active now</span>
@@ -133,23 +124,14 @@
                         {{ last_seen_text }}
                     {% endif %}
                 </span>
-                
                 <span id="typing-indicator" style="font-size:12px; color:#8e8e8e; display:none;">typing...</span>
             </div>
         </div>
 
         <div style="display: flex; gap: 15px;">
-            <button onclick="initiateCall('audio')" title="Voice Call" 
-                    style="background:none; border:none; cursor:pointer; font-size:22px;">
-                📞
-            </button>
-            
-            <button onclick="initiateCall('video')" title="Video Call" 
-                    style="background:none; border:none; cursor:pointer; font-size:24px;">
-                📹
-            </button>
+            <button onclick="initiateCall('audio')" title="Voice Call" style="background:none; border:none; cursor:pointer; font-size:22px;">📞</button>
+            <button onclick="initiateCall('video')" title="Video Call" style="background:none; border:none; cursor:pointer; font-size:24px;">📹</button>
         </div>
-
     </div>
 
     <div id="chat-box"></div>
@@ -164,15 +146,15 @@
 </div>
 
 <script>
+// --- GLOBAL VARS ---
 const otherUser = "{{ other_user.username }}"; 
-const currentUser = "{{ user.username }}";
+// We use currentUserName from base.html to avoid redefining it
 const chatBox = document.getElementById("chat-box");
 const typingIndicator = document.getElementById("typing-indicator");
 const statusSpan = document.getElementById("user-status"); 
 const input = document.getElementById("msg-input");
 const sendBtn = document.getElementById("send-btn");
 
-// Pagination Variables
 let currentPage = 1;
 let hasNextPage = true;
 let isLoading = false;
@@ -186,7 +168,8 @@ function getTickIcon(isRead) {
 }
 
 function createMessageHTML(msg) {
-    const isMe = msg.sender === currentUser;
+    // FIX: Use currentUserName (from base.html)
+    const isMe = msg.sender === currentUserName;
     const tickHtml = isMe ? getTickIcon(msg.is_read) : "";
     return `
         <div class="msg-row ${isMe ? 'sent-row' : 'received-row'}">
@@ -239,20 +222,17 @@ chatBox.addEventListener('scroll', () => {
     }
 });
 
-
 // =======================
 // WEBSOCKET LOGIC
 // =======================
 const protocol = window.location.protocol === "https:" ? "wss://" : "ws://";
-const socket = new WebSocket(
-    protocol + window.location.host + "/ws/chat/" + otherUser + "/"
-);
+const socket = new WebSocket(protocol + window.location.host + "/ws/chat/" + otherUser + "/");
 
 socket.onmessage = (e) => {
     const data = JSON.parse(e.data);
 
-    // 1. TYPING INDICATOR
-    if (data.type === "typing" && data.user !== currentUser) {
+    // 1. TYPING
+    if (data.type === "typing" && data.user !== currentUserName) {
         if (statusSpan) statusSpan.style.display = "none";
         typingIndicator.style.display = "block";
         typingIndicator.innerText = "typing...";
@@ -267,7 +247,7 @@ socket.onmessage = (e) => {
     
     // 2. READ RECEIPT
     if (data.type === "message_read") {
-        if (data.reader !== currentUser) {
+        if (data.reader !== currentUserName) {
             const bubble = document.getElementById(`msg-${data.message_id}`);
             if (bubble) {
                 const tick = bubble.querySelector(".tick");
@@ -295,7 +275,8 @@ socket.onmessage = (e) => {
         chatBox.appendChild(div.firstElementChild);
         chatBox.scrollTop = chatBox.scrollHeight;
 
-        if (data.sender !== currentUser) {
+        // Send Read Receipt if msg is from other user
+        if (data.sender !== currentUserName) {
             socket.send(JSON.stringify({
                 command: "read_receipt",
                 message_id: data.id
@@ -322,20 +303,14 @@ input.addEventListener("keypress", (e) => {
 });
 
 // =======================
-// CALL LOGIC (AUDIO & VIDEO)
+// CALL LOGIC
 // =======================
-
 function initiateCall(callType) {
-    // callType should be 'audio' or 'video'
-    
-    // 1. Notify Receiver (via existing socket)
-    socket.send(JSON.stringify({
-        command: "call_notification", 
-        type: callType // Pass 'audio' or 'video' so receiver knows
-    }));
-
-    // 2. Show the Overlay (No redirect!)
-    window.startGlobalCall(otherUser, callType)
+    if (typeof window.startGlobalCall === "function") {
+        window.startGlobalCall(otherUser, callType);
+    } else {
+        alert("System loading...");
+    }
 }
 </script>
 

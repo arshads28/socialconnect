@@ -8,6 +8,7 @@ from django.utils import timezone
 
 User = get_user_model()
 
+# CHAT CONSUMER (Handles Text, Images, Typing, Read Receipts)
 class ChatConsumer(AsyncWebsocketConsumer):
     async def connect(self):
         self.user = self.scope["user"]
@@ -27,6 +28,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
             await self.close()
             return
 
+        # Sort IDs to ensure Room Name is always "chat_1_2" regardless of who connects
         user_ids = sorted([str(self.user.id), str(self.other_user.id)])
         self.room_name = f"chat_{user_ids[0]}_{user_ids[1]}"
         self.room_group_name = self.room_name
@@ -44,6 +46,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
     async def receive(self, text_data):
         data = json.loads(text_data)
 
+        # TYPING INDICATOR
         if data.get("typing"):
             await self.channel_layer.group_send(
                 self.room_group_name,
@@ -54,8 +57,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
             )
             return
 
-        #  READ RECEIPT (New Addition for Blue Ticks)
-        # This handles when the frontend says "I read message #123"
+        # READ RECEIPT
         if data.get("command") == "read_receipt":
             await self.channel_layer.group_send(
                 self.room_group_name,
@@ -67,27 +69,20 @@ class ChatConsumer(AsyncWebsocketConsumer):
             )
             return
         
-        if data.get("command") == "call_notification":
-            await self.channel_layer.group_send(
-                f"user_{self.other_user.id}", 
-                {
-                    "type": "incoming_call",
-                    "caller": self.user.username,
-                }
-            )
-            return
 
+
+        #  CHAT MESSAGE
         message = data.get("message")
         if not message:
             return
 
-        # Assigned to 'msg_instance' to get the ID
         msg_instance = await sync_to_async(Message.objects.create)(
             sender=self.user,
             receiver=self.other_user,
             content=message
         )
 
+        # Send to Chat Room (Updates chat box)
         await self.channel_layer.group_send(
             self.room_group_name,
             {
@@ -99,36 +94,33 @@ class ChatConsumer(AsyncWebsocketConsumer):
             }
         )
 
-        #Send Notification to Receiver's Global Group
-        # unread_count = await sync_to_async(Message.objects.filter(receiver=self.other_user, is_read=False).count)()
-        
+        # end Notification to Receiver's Global Group (Updates Badges/Toasts)
         await self.channel_layer.group_send(
             f"user_{self.other_user.id}",
             {
-                "type": "new_message_notification", # Matches handler in OnlineStatusConsumer
+                "type": "new_message_notification", 
                 "message": message,
                 "sender": self.user.username,
-                # "count": unread_count   # We calculate on frontend.
             }
         )
 
+    # HANDLERS
     async def chat_message(self, event):
         await self.send(text_data=json.dumps({
-            "type": "chat_message", # Added type identifier
+            "type": "chat_message",
             "message": event["message"],
             "sender": event["sender"],
-            "id": event["id"], # Added ID
-            "timestamp": event["timestamp"], # Added Timestamp
+            "id": event["id"],
+            "timestamp": event["timestamp"],
         }))
 
     async def typing(self, event):
         await self.send(text_data=json.dumps({
-            "type": "typing", # Added type identifier
+            "type": "typing",
             "typing": True,
             "user": event["user"],
         }))
 
-    # New Handler for Read Receipts
     async def message_read(self, event):
         await self.send(text_data=json.dumps({
             "type": "message_read",
@@ -137,45 +129,79 @@ class ChatConsumer(AsyncWebsocketConsumer):
         }))
 
 
+# ONLINE STATUS CONSUMER (Handles Online/Offline, Global Notifications, WebRTC)
 
 class OnlineStatusConsumer(AsyncWebsocketConsumer):
     async def connect(self):
         self.user = self.scope["user"]
         if self.user.is_authenticated:
-            # 1. Join a private group for this user (for notifications)
+            # Join personal group (e.g. "user_45")
             self.group_name = f"user_{self.user.id}"
             await self.channel_layer.group_add(self.group_name, self.channel_name)
-
-            # 2. Update Online Status
-            await self.update_user_status(True)
             await self.accept()
+            
+            # Set Online
+            await self.update_user_status(True)
+            print(f"✅ Connected: {self.user.username}")
         else:
             await self.close()
 
     async def disconnect(self, close_code):
         if self.user.is_authenticated:
-            # Leave group
             await self.channel_layer.group_discard(self.group_name, self.channel_name)
+            # Set Offline
             await self.update_user_status(False)
 
+    async def receive(self, text_data):
+        try:
+            data = json.loads(text_data)
+            command = data.get("command")
+
+            #ALL SIGNALING (WebRTC)
+            if command == "call_signal":
+                target_username = data.get("target")
+                signal_data = data.get("data")
+
+                # Find Target User
+                try:
+                    target_user = await sync_to_async(User.objects.get)(username__iexact=target_username)
+                    
+                    # Forward Signal to Target's Personal Group
+                    await self.channel_layer.group_send(
+                        f"user_{target_user.id}",
+                        {
+                            "type": "webrtc_signal_message",
+                            "data": signal_data,
+                            "sender": self.user.username
+                        }
+                    )
+                except User.DoesNotExist:
+                    print(f"❌ Target '{target_username}' not found")
+
+        except Exception as e:
+            print(f"❌ Error in OnlineStatusConsumer: {e}")
+
+    # HANDLERS
+    async def webrtc_signal_message(self, event):
+        # Forward the WebRTC signal to the frontend
+        await self.send(text_data=json.dumps({
+            "type": "call_signal", 
+            "data": event["data"],
+            "sender": event["sender"]
+        }))
+
     async def new_message_notification(self, event):
-        # Send notification data to the frontend
+        # Forward the text notification to the frontend
         await self.send(text_data=json.dumps({
             "type": "notification",
             "message": event["message"],
             "sender": event["sender"],
-            # "count": event["count"]
         }))
 
     @sync_to_async
     def update_user_status(self, is_online):
+        # Direct DB update is efficient here
         User.objects.filter(id=self.user.id).update(
             is_online=is_online,
             last_seen=timezone.now()
         )
-
-    async def incoming_call(self, event):
-        await self.send(text_data=json.dumps({
-            "type": "incoming_call",
-            "caller": event["caller"]
-        }))
