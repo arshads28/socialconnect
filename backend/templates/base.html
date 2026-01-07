@@ -32,14 +32,15 @@
         {% if user.is_authenticated %}
             <a href="/">Home</a>
             <a href="/auth/profile/">Profile</a>
-            <a href="{% url 'inbox' %}">Messages <span id="msg-badge" class="badge">0</span></a>
+            
+            <a href="#" onclick="toggleInbox(event)">
+                Messages <span id="msg-badge" class="badge">0</span>
+            </a>
+
             <form method="POST" action="/auth/logout/" style="display:inline;">
                 {% csrf_token %}
-                <button type="submit" style="background:none; border:none; color:#262626; font-size:16px; font-weight: 500; cursor:pointer; padding:0; margin-left: 15px;">Logout</button>
+                <button type="submit" style="background:none; border:none; cursor:pointer; font-weight:500;">Logout</button>
             </form>
-        {% else %}
-            <a href="/auth/login/">Login</a>
-            <a href="/auth/signup/">Sign Up</a>
         {% endif %}
     </div>
 </div>
@@ -47,6 +48,8 @@
 <div id="toast-container"></div>
 
 {% include "call_interface.html" %}
+{% include "chat/inbox.html" %}
+{% include "chat/chat.html" %}
 
 <main>{% block content %}{% endblock %}</main>
 
@@ -98,17 +101,31 @@
             try {
                 const data = JSON.parse(e.data);
 
-                // Notifications
+                // ==============================
+                //  A. HANDLE ONLINE/OFFLINE STATUS
+                // ==============================
+                if (data.type === "user_status") {
+                    updateUserStatusUI(data.username, data.is_online, data.last_seen);
+                }
+
+                // ==============================
+                //  B. NOTIFICATIONS (Badge & Toast)
+                // ==============================
                 if (data.type === "notification") {
                     document.dispatchEvent(new CustomEvent('chatNotification', { detail: data }));
                     updateBadge(data.count || 1);
-                    if (!window.location.pathname.includes("/chat/" + data.sender + "/")) {
+                    
+                    // Show Toast unless we are currently chatting with this person
+                    // (Assuming activeChatUser is global from chat_interface logic, otherwise check URL/Popup)
+                    const activeChat = (typeof activeChatUser !== 'undefined') ? activeChatUser : null;
+                    if (activeChat !== data.sender) {
                         showToast(data.sender, data.message);
                     }
                 }
 
-                // Call Signal
-                // Note: handleCallSignal is defined in the included call_interface.html
+                // ==============================
+                //  C. CALL SIGNALS (WebRTC)
+                // ==============================
                 if (data.type === "call_signal") {
                     if (typeof handleCallSignal === "function") {
                         handleCallSignal(data.data, data.sender);
@@ -116,9 +133,44 @@
                         console.error("Call interface not loaded");
                     }
                 }
+
             } catch (err) { console.error("Socket Error:", err); }
         };
     }
+
+    // --- UI UPDATER FUNCTION ---
+    function updateUserStatusUI(username, isOnline, lastSeenTime) {
+        
+        // 1. Update INBOX List (Targeting the new 'u-status' class)
+        const inboxRow = document.querySelector(`.user-row[data-username="${username}"]`);
+        if (inboxRow) {
+            // Precise selection
+            const statusDiv = inboxRow.querySelector('.u-status');
+            if (statusDiv) {
+                if (isOnline) {
+                    statusDiv.innerHTML = `<span style="color:#25D366">● Online</span>`;
+                } else {
+                    statusDiv.innerText = `Last seen today at ${lastSeenTime}`;
+                }
+            }
+        }
+
+        // 2. Update CHAT HEADER (No changes here, this was working)
+        const chatHeaderName = document.getElementById("chat-header-name");
+        if (chatHeaderName && chatHeaderName.innerText === username) {
+            const statusText = document.getElementById("chat-header-status");
+            if (statusText) {
+                if (isOnline) {
+                    statusText.innerText = "Active now";
+                    statusText.style.color = "#25D366";
+                } else {
+                    statusText.innerText = `Last seen today at ${lastSeenTime}`;
+                    statusText.style.color = "gray";
+                }
+            }
+        }
+    }
+
     connectSocket();
     {% endif %}
 </script>
