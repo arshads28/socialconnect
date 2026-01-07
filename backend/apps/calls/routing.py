@@ -1,6 +1,8 @@
+# chat/routing.py
 from django.urls import re_path
 from .consumers import CallConsumer
 
 websocket_urlpatterns = [
-    re_path(r"ws/call/(?P<call_id>\w+)/$", CallConsumer.as_asgi()),
+    # Change <call_id> to <username> and allow special chars for email/username lookup
+    re_path(r"ws/call/(?P<username>[\w.@+-]+)/$", CallConsumer.as_asgi()),
 ]

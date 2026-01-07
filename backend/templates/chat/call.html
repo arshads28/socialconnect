@@ -1,0 +1,203 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Video Call</title>
+    <style>
+        body { margin: 0; background: #000; font-family: -apple-system, sans-serif; overflow: hidden; }
+        
+        /* Main Container */
+        .video-wrapper { 
+            position: relative; width: 100vw; height: 100vh; 
+            display: flex; justify-content: center; align-items: center; 
+        }
+
+        /* Remote Video (Full Screen) */
+        #remote-video {
+            width: 100%; height: 100%; object-fit: cover;
+        }
+
+        /* Local Video (Picture-in-Picture) */
+        #local-video {
+            position: absolute; top: 20px; right: 20px;
+            width: 140px; height: 190px;
+            background: #222; border-radius: 12px;
+            border: 2px solid rgba(255,255,255,0.3);
+            object-fit: cover; z-index: 10;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.5);
+            transform: scaleX(-1); /* Mirror effect */
+        }
+
+        /* Call Controls */
+        .controls {
+            position: absolute; bottom: 40px; 
+            display: flex; gap: 20px; z-index: 20;
+            background: rgba(255,255,255,0.15);
+            padding: 15px 30px; border-radius: 50px;
+            backdrop-filter: blur(10px);
+        }
+
+        .btn {
+            width: 50px; height: 50px; border-radius: 50%; border: none;
+            font-size: 20px; cursor: pointer; color: white;
+            display: flex; justify-content: center; align-items: center;
+            transition: 0.2s;
+        }
+
+        .btn-mic { background: #333; }
+        .btn-end { background: #ff3b30; transform: rotate(135deg); }
+        .btn-end:hover { background: #d63026; }
+        .btn-cam { background: #333; }
+        .btn-active { background: #fff; color: #000; } /* State for muted */
+
+        /* Status Text (Ringing...) */
+        #status-text {
+            position: absolute; top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            color: white; font-size: 22px; font-weight: 400;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.8);
+            z-index: 5;
+        }
+        .pulse { animation: pulse 1.5s infinite; }
+        @keyframes pulse { 0% { opacity: 0.6; } 50% { opacity: 1; } 100% { opacity: 0.6; } }
+    </style>
+</head>
+<body>
+
+    <div class="video-wrapper">
+        <video id="remote-video" autoplay playsinline></video>
+        <video id="local-video" autoplay playsinline muted></video>
+
+        <div id="status-text" class="pulse">Connecting...</div>
+
+        <div class="controls">
+            <button id="btn-mic" class="btn btn-mic" onclick="toggleMic()">🎤</button>
+            <button class="btn btn-end" onclick="endCall()">📞</button>
+            <button id="btn-cam" class="btn btn-cam" onclick="toggleCam()">📷</button>
+        </div>
+    </div>
+
+    <script>
+        const ROOM_ID = "{{ room_id }}"; 
+        
+        // WebSocket Connection
+        const otherUser = "{{ other_user }}"; 
+
+        const socket = new WebSocket(
+            "ws://" + window.location.host + "/ws/call/" + otherUser + "/"
+        );
+        
+        let localStream;
+        let peerConnection;
+        // Google's public STUN servers
+        const config = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+
+        const remoteVideo = document.getElementById('remote-video');
+        const localVideo = document.getElementById('local-video');
+        const statusText = document.getElementById('status-text');
+
+        // 1. Start Camera & Microphone
+        async function start() {
+            try {
+                localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                localVideo.srcObject = localStream;
+            } catch (e) {
+                statusText.innerText = "Error: Camera Access Denied";
+                return;
+            }
+
+            // Wait for WebSocket to open
+            if (socket.readyState === WebSocket.OPEN) joinRoom();
+            else socket.onopen = () => joinRoom();
+        }
+
+        function joinRoom() {
+            // Send "join" signal. If someone else is there, we will start the handshake.
+            sendSignal('join', {});
+        }
+
+        // 2. Handle Signaling (The "Handshake")
+        socket.onmessage = async (e) => {
+            const data = JSON.parse(e.data);
+            const type = data.type;
+            const payload = data.data; 
+
+            // A. Peer Joined -> We act as the Caller
+            if (type === 'signal' && payload.type === 'join') {
+                statusText.innerText = "Ringing...";
+                if (!peerConnection) createPeer();
+                
+                const offer = await peerConnection.createOffer();
+                await peerConnection.setLocalDescription(offer);
+                sendSignal('offer', offer);
+            }
+
+            // B. Offer Received -> We act as the Receiver
+            if (type === 'signal' && payload.type === 'offer') {
+                statusText.innerText = "Connecting...";
+                if (!peerConnection) createPeer();
+                
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(payload));
+                const answer = await peerConnection.createAnswer();
+                await peerConnection.setLocalDescription(answer);
+                sendSignal('answer', answer);
+            }
+
+            // C. Answer Received -> Connection Established
+            if (type === 'signal' && payload.type === 'answer') {
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(payload));
+            }
+
+            // D. ICE Candidate -> Network Routing
+            if (type === 'signal' && payload.type === 'candidate') {
+                if (peerConnection) {
+                    await peerConnection.addIceCandidate(new RTCIceCandidate(payload));
+                }
+            }
+        };
+
+        function sendSignal(type, data) {
+            socket.send(JSON.stringify({ type: type, ...data }));
+        }
+
+        function createPeer() {
+            peerConnection = new RTCPeerConnection(config);
+            
+            // Add local tracks to the connection
+            localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+
+            // When we find a network route (ICE candidate), send it to peer
+            peerConnection.onicecandidate = (e) => {
+                if (e.candidate) sendSignal('candidate', e.candidate);
+            };
+
+            // When we receive remote video stream
+            peerConnection.ontrack = (e) => {
+                remoteVideo.srcObject = e.streams[0];
+                statusText.style.display = 'none'; // Hide "Connecting..." text
+            };
+        }
+
+        function endCall() {
+            if (peerConnection) peerConnection.close();
+            if (localStream) localStream.getTracks().forEach(t => t.stop());
+            window.close(); // Close the window
+        }
+
+        function toggleMic() {
+            const track = localStream.getAudioTracks()[0];
+            track.enabled = !track.enabled;
+            document.getElementById('btn-mic').classList.toggle('btn-active');
+        }
+
+        function toggleCam() {
+            const track = localStream.getVideoTracks()[0];
+            track.enabled = !track.enabled;
+            document.getElementById('btn-cam').classList.toggle('btn-active');
+        }
+
+        start();
+    </script>
+</body>
+</html>

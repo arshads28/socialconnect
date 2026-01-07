@@ -349,6 +349,9 @@
                     showToast(data.sender, data.message);
                 }
             }
+            if (data.type === "incoming_call") {
+                showIncomingCallPopup(data.caller);
+            }
         };
 
         // --- Helper Functions for UI ---
@@ -398,6 +401,50 @@
             };
             toast.style.cursor = "pointer";
         }
+        
+        function showIncomingCallPopup(callerName) {
+                // 1. Play Ringtone
+                const ringtone = new Audio('/static/ringtone.mp3'); 
+                ringtone.loop = true;
+                ringtone.play().catch(err => console.log("User interaction required for audio"));
+            
+                // 2. Create Modal HTML
+                const modal = document.createElement('div');
+                modal.style.cssText = `
+                    position: fixed; top: 20px; right: 20px; z-index: 99999;
+                    background: #fff; padding: 20px; border-radius: 12px;
+                    box-shadow: 0 10px 40px rgba(0,0,0,0.2); border: 1px solid #eee;
+                    font-family: sans-serif; min-width: 250px;
+                    animation: slideIn 0.5s ease-out;
+                `;
+
+                modal.innerHTML = `
+                    <div style="text-align:center; margin-bottom:15px;">
+                        <div style="font-size:16px; font-weight:bold; margin-bottom:5px;">Incoming Call...</div>
+                        <div style="font-size:14px; color:#666;">${callerName} is calling you</div>
+                    </div>
+                    <div style="display:flex; justify-content:space-around;">
+                        <button id="decline-btn" style="background:#ff3b30; color:white; border:none; padding:10px 20px; border-radius:20px; cursor:pointer;">Decline</button>
+                        <button id="accept-btn" style="background:#34c759; color:white; border:none; padding:10px 20px; border-radius:20px; cursor:pointer;">Accept</button>
+                    </div>
+                `;
+            
+                document.body.appendChild(modal);
+            
+                // 3. Handle Buttons
+                document.getElementById('accept-btn').onclick = () => {
+                    ringtone.pause();
+                    modal.remove();
+                    // Open Call Window
+                    const url = `/call/${callerName}/`; 
+                    window.open(url, '_blank', 'width=900,height=600,menubar=no,toolbar=no,location=no,status=no');
+                };
+            
+                document.getElementById('decline-btn').onclick = () => {
+                    ringtone.pause();
+                    modal.remove();
+                };
+            }
 
     })();
     {% endif %}

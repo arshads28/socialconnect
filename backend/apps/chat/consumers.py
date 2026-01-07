@@ -66,6 +66,16 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 }
             )
             return
+        
+        if data.get("command") == "call_notification":
+            await self.channel_layer.group_send(
+                f"user_{self.other_user.id}", 
+                {
+                    "type": "incoming_call",
+                    "caller": self.user.username,
+                }
+            )
+            return
 
         message = data.get("message")
         if not message:
@@ -164,4 +174,8 @@ class OnlineStatusConsumer(AsyncWebsocketConsumer):
             last_seen=timezone.now()
         )
 
-
+    async def incoming_call(self, event):
+        await self.send(text_data=json.dumps({
+            "type": "incoming_call",
+            "caller": event["caller"]
+        }))
