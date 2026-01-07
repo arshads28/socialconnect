@@ -1,218 +1,94 @@
-{% comment %} base.html {% endcomment %}
+{% load static %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}SocialConnect{% endblock %}</title>
 
     <style>
         /* ====================
-           GLOBAL & RESET
+           1. GLOBAL & RESET
            ==================== */
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-            font-family: Arial, sans-serif;
-        }
-
-        body {
-            background: #fafafa;
-        }
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+        body { background: #fafafa; }
 
         /* ====================
-           NAVBAR
+           2. NAVBAR & UI ELEMENTS
            ==================== */
-        .navbar {
-            position: fixed;
-            top: 0;
-            width: 100%;
-            height: 60px;
-            background: #fff;
-            border-bottom: 1px solid #dbdbdb;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 0 20px;
-            z-index: 100;
-        }
+        .navbar { position: fixed; top: 0; width: 100%; height: 60px; background: #fff; border-bottom: 1px solid #dbdbdb; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; z-index: 100; }
+        .nav-right a { margin-left: 15px; text-decoration: none; color: #262626; font-weight: 500; position: relative; display: inline-block; }
+        .badge { position: absolute; top: -5px; right: -10px; background: red; color: white; border-radius: 50%; padding: 2px 6px; font-size: 10px; display: none; }
+        main { margin-top: 80px; display: flex; justify-content: center; }
 
-        .nav-right a {
-            margin-left: 15px;
-            text-decoration: none;
-            color: #262626;
-            font-weight: 500;
-            position: relative; /* For badge positioning */
-            display: inline-block;
-        }
+        /* Toast */
+        #toast-container { position: fixed; top: 70px; right: 20px; z-index: 1000; }
+        .toast { background: #333; color: white; padding: 15px 20px; border-radius: 8px; margin-bottom: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); display: flex; align-items: center; opacity: 0; transform: translateY(-20px); transition: all 0.3s ease; min-width: 250px; }
+        .toast.show { opacity: 1; transform: translateY(0); }
+        .toast-avatar { width: 30px; height: 30px; border-radius: 50%; background: #fff; color: #333; display: flex; justify-content: center; align-items: center; margin-right: 12px; font-weight: bold; }
 
         /* ====================
-           BADGE COUNT
+           3. CALL OVERLAY STYLES (Merged from call.html)
            ==================== */
-        .badge {
-            position: absolute;
-            top: -5px;
-            right: -10px;
-            background: red;
-            color: white;
-            border-radius: 50%;
-            padding: 2px 6px;
-            font-size: 10px;
+        #global-call-overlay {
             display: none; /* Hidden by default */
+            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            background: #111; z-index: 99999;
+            flex-direction: column; justify-content: center; align-items: center;
+            transition: background 0.3s ease; color: white;
         }
 
-        /* ====================
-           MAIN LAYOUT
-           ==================== */
-        main {
-            margin-top: 80px;
-            display: flex;
-            justify-content: center;
-        }
+        #hidden-media { display: none; }
 
-        /* ====================
-           TOAST NOTIFICATION
-           ==================== */
-        #toast-container {
-            position: fixed;
-            top: 70px; /* Below navbar */
-            right: 20px;
-            z-index: 1000;
-        }
+        /* Video Grid */
+        #video-container { display: flex; width: 100%; height: 100%; position: relative; justify-content: center; align-items: center; }
+        #video-grid { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; align-content: center; gap: 16px; padding: 20px; width: 100%; height: 100%; overflow-y: auto; }
+        
+        .remote-video-wrapper { position: relative; background: #202124; border-radius: 12px; overflow: hidden; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 4px 12px rgba(0,0,0,0.5); width: 100%; max-width: 1200px; aspect-ratio: 16/9; max-height: 85vh; display: flex; justify-content: center; align-items: center; transition: all 0.4s ease; }
+        .remote-video-wrapper video { width: 100%; height: 100%; object-fit: contain; background: #000; }
+        .remote-label { position: absolute; bottom: 12px; left: 12px; background: rgba(0,0,0,0.6); padding: 6px 14px; border-radius: 20px; font-size: 13px; font-weight: 500; backdrop-filter: blur(4px); pointer-events: none; }
 
-        .toast {
-            background: #333;
-            color: white;
-            padding: 15px 20px;
-            border-radius: 8px;
-            margin-bottom: 10px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-            display: flex;
-            align-items: center;
-            opacity: 0;
-            transform: translateY(-20px);
-            transition: all 0.3s ease;
-            font-family: sans-serif;
-            min-width: 250px;
-        }
+        /* Local Video (Draggable) */
+        #localVideoWrapper { position: absolute; bottom: 100px; right: 20px; width: 140px; height: 200px; border-radius: 15px; overflow: hidden; box-shadow: 0 8px 25px rgba(0,0,0,0.7); border: 2px solid rgba(255,255,255,0.3); cursor: grab; z-index: 501; background: #000; transition: transform 0.1s; }
+        #localVideoWrapper:active { cursor: grabbing; transform: scale(0.95); }
+        #localVideo { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
 
-        .toast.show {
-            opacity: 1;
-            transform: translateY(0);
-        }
+        /* Controls */
+        .video-controls { position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); display: flex; gap: 15px; z-index: 502; background: rgba(0,0,0,0.6); padding: 10px 20px; border-radius: 40px; backdrop-filter: blur(10px); }
+        .ctrl-btn { width: 50px; height: 50px; border-radius: 50%; border: none; font-size: 20px; cursor: pointer; display: flex; align-items: center; justify-content: center; background: #333; color: white; transition: 0.3s; }
+        .ctrl-btn:hover { background: #555; }
+        .btn-end-call { background: #ff3b30; }
+        .btn-active { background: #fff; color: #000; }
+        .btn-off { background: #444; color: #ff3b30; text-decoration: line-through; }
 
-        .toast-avatar {
-            width: 30px; 
-            height: 30px;
-            border-radius: 50%;
-            background: #fff;
-            color: #333;
-            display: flex; 
-            justify-content: center; 
-            align-items: center;
-            margin-right: 12px;
-            font-weight: bold;
-        }
+        /* Menus */
+        #more-menu { display: none; position: absolute; bottom: 90px; left: 50%; transform: translateX(-50%); background: rgba(20, 20, 20, 0.95); backdrop-filter: blur(10px); border: 1px solid #333; border-radius: 12px; padding: 8px; width: 200px; flex-direction: column; gap: 5px; z-index: 505; }
+        #more-menu button { background: transparent; border: none; color: white; padding: 12px 15px; text-align: left; font-size: 14px; cursor: pointer; border-radius: 8px; display: flex; align-items: center; gap: 12px; width: 100%; }
+        #more-menu button:hover { background: rgba(255,255,255,0.1); }
+        
+        #settings-modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 6000; justify-content: center; align-items: center; backdrop-filter: blur(5px); }
+        .settings-content { background: #1f2936; color: white; padding: 25px; border-radius: 12px; width: 90%; max-width: 400px; border: 1px solid #333; }
+        .setting-group { margin-bottom: 15px; }
+        .setting-group label { display: block; font-size: 12px; color: #aaa; margin-bottom: 5px; }
+        .setting-group select { width: 100%; padding: 10px; background: #0e1621; color: white; border: 1px solid #333; border-radius: 6px; }
+        .btn-save { width: 100%; padding: 12px; background: #0088cc; color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; margin-top: 10px; }
 
-        /* ====================
-           CHAT MODAL
-           ==================== */
-        .chat-modal {
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            width: 320px;
-            height: 420px;
-            background: #fff;
-            border: 1px solid #dbdbdb;
-            display: flex;
-            flex-direction: column;
-            z-index: 999;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-        }
-
-        .chat-modal.hidden {
-            display: none;
-        }
-
-        .chat-header {
-            padding: 10px;
-            border-bottom: 1px solid #dbdbdb;
-            display: flex;
-            justify-content: space-between;
-            font-weight: bold;
-            background: #f0f0f0;
-        }
-
-        .chat-box {
-            flex: 1;
-            padding: 10px;
-            overflow-y: auto;
-            background: #fafafa;
-        }
-
-        .chat-box div {
-            margin-bottom: 6px;
-            padding: 6px 10px;
-            background: #e4e6eb;
-            border-radius: 12px;
-            max-width: 80%;
-        }
-
-        .chat-input {
-            display: flex;
-            border-top: 1px solid #dbdbdb;
-        }
-
-        .chat-input input {
-            flex: 1;
-            border: none;
-            padding: 10px;
-            outline: none;
-        }
-
-        .chat-input button {
-            border: none;
-            background: #0095f6;
-            color: white;
-            padding: 0 15px;
-            cursor: pointer;
-        }
+        #status-text { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-size: 22px; font-weight: 400; text-shadow: 0 2px 4px rgba(0,0,0,0.8); z-index: 5; pointer-events: none; }
     </style>
 </head>
-
 <body>
 
 <div class="navbar">
     <div class="logo">SocialConnect</div>
-    
     <div class="nav-right">
         {% if user.is_authenticated %}
             <a href="/">Home</a>
             <a href="/auth/profile/">Profile</a>
-            
-            <a href="{% url 'inbox' %}">
-                Messages
-                <span id="msg-badge" class="badge">0</span>
-            </a>
-
+            <a href="{% url 'inbox' %}">Messages <span id="msg-badge" class="badge">0</span></a>
             <form method="POST" action="/auth/logout/" style="display:inline;">
                 {% csrf_token %}
-                <button type="submit"
-                    style="
-                        background:none;
-                        border:none;
-                        color:#262626;
-                        font-size:16px;
-                        font-weight: 500;
-                        cursor:pointer;
-                        padding:0;
-                        margin-left: 15px;
-                    ">
-                    Logout
-                </button>
+                <button type="submit" style="background:none; border:none; color:#262626; font-size:16px; font-weight: 500; cursor:pointer; padding:0; margin-left: 15px;">Logout</button>
             </form>
-
         {% else %}
             <a href="/auth/login/">Login</a>
             <a href="/auth/signup/">Sign Up</a>
@@ -222,235 +98,399 @@
 
 <div id="toast-container"></div>
 
-<main>
-    {% block content %}{% endblock %}
-</main>
-
-<div id="chat-modal" class="chat-modal hidden">
-    <div class="chat-header">
-        <span id="chat-username">Chat</span>
-        <button onclick="closeChat()" style="border:none;background:none;cursor:pointer;font-size:16px;">✕</button>
+<div id="global-call-overlay">
+    <div id="hidden-media">
+        <canvas id="processorCanvas"></canvas>
+        <video id="rawVideo" autoplay playsinline muted></video>
     </div>
 
-    <div id="chat-box" class="chat-box"></div>
-    <div id="typing-indicator" style="font-size:12px;color:#666;padding:0 10px;"></div>
+    <div id="video-container">
+        <div id="video-grid"></div>
+        <div id="status-text">Initializing...</div>
 
-    <div class="chat-input">
-        <input
-            type="text"
-            id="chat-message-input"
-            placeholder="Message..."
-            onkeydown="handleEnter(event)"
-            oninput="handleTyping()"
-        >
-        <button onclick="sendChatMessage()">Send</button>
+        <div id="localVideoWrapper" onmousedown="startDrag(event)" ontouchstart="startDrag(event)">
+            <video id="localVideo" autoplay playsinline muted></video>
+            <div style="position:absolute; bottom:5px; right:5px; color:white; font-size:10px; background:rgba(0,0,0,0.5); padding:2px 5px; border-radius:3px;">You</div>
+        </div>
+
+        <div class="video-controls">
+            <button class="ctrl-btn btn-active" onclick="toggleAudio()" id="btn-audio">🎤</button>
+            <button class="ctrl-btn btn-active" onclick="toggleVideo()" id="btn-video">📷</button>
+            <button class="ctrl-btn" onclick="toggleMoreMenu()" id="btn-more">☰</button>
+            <button class="ctrl-btn btn-end-call" onclick="endCall()">📞</button>
+        </div>
+
+        <div id="more-menu">
+            <button onclick="cycleFlash()"><span>🔦</span> <span id="menu-text-flash">Flash: Off</span></button>
+            <button onclick="cycleFilters()"><span>✨</span> <span>Filters</span></button>
+            <button onclick="togglePiP(); toggleMoreMenu()"><span>🖼️</span> <span>Picture-in-Picture</span></button>
+            <button onclick="openSettings(); toggleMoreMenu()"><span>⚙️</span> <span>Settings</span></button>
+        </div>
+    </div>
+
+    <div id="settings-modal">
+        <div class="settings-content">
+            <h3>Call Settings</h3>
+            <div class="setting-group">
+                <label>Video Quality</label>
+                <select id="set-quality">
+                    <option value="fhd">Full HD+ (1080p)</option>
+                    <option value="hd">HD (720p)</option>
+                    <option value="vga" selected>VGA (480p) - Fast</option>
+                </select>
+            </div>
+            <div class="setting-group">
+                <label>Frame Rate</label>
+                <select id="set-fps">
+                    <option value="30">30 FPS</option>
+                    <option value="20" selected>20 FPS</option>
+                </select>
+            </div>
+            <button class="btn-save" onclick="applySettings()">Apply</button>
+            <button class="btn-save" style="background:#333" onclick="closeSettings()">Cancel</button>
+        </div>
     </div>
 </div>
+<main>{% block content %}{% endblock %}</main>
 
 <script>
     // ============================================
-    // 1. CHAT MODAL LOGIC (Original)
+    // 1. GLOBAL VARIABLES FOR CALLING
     // ============================================
-    let chatSocket = null;
-    let currentRoom = null;
+    let callSocket = null;
+    let localStream = null;
+    let rawStream = null;
+    let peerConnections = {};
+    const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+    let currentCallUser = null;
 
-
-    function closeChat() {
-        if (chatSocket) chatSocket.close();
-        document.getElementById("chat-modal").classList.add("hidden");
-    }
-
-    function sendChatMessage() {
-        const input = document.getElementById("chat-message-input");
-        const message = input.value.trim();
-
-        if (message && chatSocket) {
-            chatSocket.send(JSON.stringify({ message }));
-            input.value = "";
-        }
-    }
-
-    function appendMessage(message, sender) {
-        const box = document.getElementById("chat-box");
-        const div = document.createElement("div");
-        div.innerHTML = `<strong>${sender}:</strong> ${message}`;
-        box.appendChild(div);
-        box.scrollTop = box.scrollHeight;
-    }
-
-    function handleEnter(event) {
-        if (event.key === "Enter") {
-            sendChatMessage();
-        }
-    }
-
-    function handleTyping() {
-        if (chatSocket) {
-            chatSocket.send(JSON.stringify({ typing: true }));
-        }
-    }
-
+    // Filters & Flash
+    const filters = ['none', 'contrast(1.1) brightness(0.95) saturate(1.2) blur(1px)', 'grayscale(1)', 'sepia(0.6)'];
+    let currentFilterIndex = 0;
 
     // ============================================
-    // 2. GLOBAL ONLINE STATUS & NOTIFICATIONS (Merged)
+    // 2. PUBLIC FUNCTION: START CALL
+    // ============================================
+    window.startGlobalCall = function(targetUser, mode) {
+        currentCallUser = targetUser;
+        document.getElementById('global-call-overlay').style.display = 'flex';
+        
+        // Connect Socket
+        const protocol = window.location.protocol === "https:" ? "wss://" : "ws://";
+        callSocket = new WebSocket(protocol + window.location.host + "/ws/call/" + targetUser + "/");
+
+        callSocket.onopen = () => {
+            console.log("Call Socket Connected");
+            initMedia(mode === 'video').then(() => {
+                sendSignal('join', {});
+            });
+        };
+
+        callSocket.onmessage = async (e) => {
+            const msg = JSON.parse(e.data);
+            handleCallSignal(msg.type, msg.data);
+        };
+        
+        callSocket.onclose = () => {
+            console.log("Call Socket Closed");
+            window.endCall(); // Ensure cleanup
+        };
+    };
+
+    // ============================================
+    // 3. CALL LOGIC (Merged from call.html)
+    // ============================================
+    function sendSignal(type, data) {
+        if(callSocket && callSocket.readyState === WebSocket.OPEN){
+            callSocket.send(JSON.stringify({ type: 'signal', data: { type: type, ...data } }));
+        }
+    }
+
+    async function handleCallSignal(type, payload) {
+        if (type === 'signal') {
+            const signal = payload;
+            const sender = "peer"; 
+            
+            if (signal.type === 'join') {
+                document.getElementById('status-text').innerText = "Connecting...";
+                await createPeerConnection(sender);
+                const offer = await peerConnection.createOffer();
+                await peerConnection.setLocalDescription(offer);
+                sendSignal('offer', offer);
+            } 
+            else if (signal.type === 'offer') {
+                document.getElementById('status-text').style.display = "none";
+                if (!peerConnections[sender]) await createPeerConnection(sender);
+                await peerConnections[sender].setRemoteDescription(new RTCSessionDescription(signal));
+                const answer = await peerConnections[sender].createAnswer();
+                await peerConnections[sender].setLocalDescription(answer);
+                sendSignal('answer', answer);
+            } 
+            else if (signal.type === 'answer') {
+                document.getElementById('status-text').style.display = "none";
+                if(peerConnections[sender]) await peerConnections[sender].setRemoteDescription(new RTCSessionDescription(signal));
+            } 
+            else if (signal.type === 'candidate') {
+                if (peerConnections[sender] && peerConnections[sender].remoteDescription) {
+                    await peerConnections[sender].addIceCandidate(new RTCIceCandidate(signal));
+                }
+            }
+        }
+    }
+
+    async function createPeerConnection(peerName) {
+        if (peerConnections[peerName]) return peerConnections[peerName];
+        
+        const pc = new RTCPeerConnection(rtcConfig);
+        peerConnections[peerName] = pc;
+
+        if (localStream) {
+            localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+        }
+
+        pc.ontrack = event => {
+            if (event.streams && event.streams[0]) {
+                addRemoteVideo(peerName, event.streams[0]);
+            }
+        };
+
+        pc.onicecandidate = event => {
+            if (event.candidate) sendSignal('candidate', event.candidate);
+        };
+        
+        pc.onconnectionstatechange = () => {
+             if(pc.connectionState === "disconnected") {
+                 document.getElementById('status-text').innerText = "Call Ended";
+                 document.getElementById('status-text').style.display = "block";
+                 setTimeout(endCall, 2000);
+             }
+        };
+        return pc;
+    }
+
+    // --- MEDIA PROCESSING ---
+    async function initMedia(videoEnabled) {
+        try {
+            const qualityVal = document.getElementById("set-quality").value;
+            const fpsVal = parseInt(document.getElementById("set-fps").value);
+            const resMap = { 'fhd': { w: 1920, h: 1080 }, 'hd': { w: 1280, h: 720 }, 'vga': { w: 640, h: 480 } };
+            const targetRes = resMap[qualityVal];
+
+            const constraints = {
+                audio: true,
+                video: videoEnabled ? { width: { ideal: targetRes.w }, height: { ideal: targetRes.h }, frameRate: { ideal: fpsVal } } : false
+            };
+
+            rawStream = await navigator.mediaDevices.getUserMedia(constraints);
+            const rawVideo = document.getElementById('rawVideo');
+            rawVideo.srcObject = rawStream;
+            await rawVideo.play();
+
+            if (videoEnabled) {
+                const canvas = document.getElementById('processorCanvas');
+                const ctx = canvas.getContext('2d', { alpha: false });
+                
+                function processFrame() {
+                    if (rawVideo.paused || rawVideo.ended) return;
+                    if (canvas.width !== rawVideo.videoWidth) {
+                        canvas.width = rawVideo.videoWidth;
+                        canvas.height = rawVideo.videoHeight;
+                    }
+                    ctx.filter = filters[currentFilterIndex];
+                    ctx.drawImage(rawVideo, 0, 0, canvas.width, canvas.height);
+                    requestAnimationFrame(processFrame);
+                }
+                processFrame();
+
+                const canvasStream = canvas.captureStream(fpsVal);
+                const audioTrack = rawStream.getAudioTracks()[0];
+                if (audioTrack) canvasStream.addTrack(audioTrack);
+                localStream = canvasStream;
+                
+                document.getElementById("localVideo").srcObject = localStream;
+                document.getElementById('btn-video').classList.remove('btn-off');
+                document.getElementById('btn-video').classList.add('btn-active');
+            } else {
+                localStream = rawStream;
+                document.getElementById("localVideo").srcObject = null;
+                document.getElementById('btn-video').classList.remove('btn-active');
+                document.getElementById('btn-video').classList.add('btn-off');
+            }
+            document.getElementById('status-text').innerText = "Waiting for answer...";
+        } catch (e) {
+            console.error(e);
+            alert("Camera Error: " + e.message);
+            window.endCall();
+        }
+    }
+
+    // --- UI FUNCTIONS ---
+    window.endCall = function() {
+        if(callSocket) callSocket.close();
+        if(rawStream) rawStream.getTracks().forEach(t => t.stop());
+        if(localStream) localStream.getTracks().forEach(t => t.stop());
+        
+        // Reset Variables
+        peerConnections = {};
+        rawStream = null;
+        localStream = null;
+        
+        // Reset UI
+        document.getElementById("video-grid").innerHTML = "";
+        document.getElementById("global-call-overlay").style.display = "none";
+        document.getElementById("status-text").innerText = "Initializing...";
+        document.getElementById("status-text").style.display = "block";
+    };
+
+    function addRemoteVideo(peerName, stream) {
+        const grid = document.getElementById("video-grid");
+        if (document.getElementById(`wrapper-${peerName}`)) return;
+        
+        const wrapper = document.createElement("div");
+        wrapper.className = "remote-video-wrapper";
+        wrapper.id = `wrapper-${peerName}`;
+
+        const video = document.createElement("video");
+        video.autoplay = true;
+        video.playsInline = true;
+        video.srcObject = stream;
+
+        const label = document.createElement("div");
+        label.className = "remote-label";
+        label.innerText = currentCallUser || "User";
+
+        wrapper.appendChild(video);
+        wrapper.appendChild(label);
+        grid.appendChild(wrapper);
+    }
+
+    // --- TOGGLES & FEATURES ---
+    window.toggleVideo = async function() {
+        const btn = document.getElementById('btn-video');
+        const isOff = btn.classList.contains('btn-off');
+        if (rawStream) rawStream.getVideoTracks().forEach(t => t.stop());
+        if (localStream) localStream.getVideoTracks().forEach(t => t.stop());
+        await initMedia(isOff);
+        // Replace tracks in existing connections (simplified for brevity)
+    };
+
+    window.toggleAudio = function() {
+        if (!localStream) return;
+        const track = localStream.getAudioTracks()[0];
+        track.enabled = !track.enabled;
+        const btn = document.getElementById('btn-audio');
+        btn.classList.toggle('btn-active');
+        btn.classList.toggle('btn-off');
+    };
+
+    window.cycleFlash = function() {
+        const flashModes = [{ color: '#111', name: 'Off' }, { color: '#fff', name: 'Bright' }, { color: '#ffe4b5', name: 'Warm' }];
+        let text = document.getElementById('menu-text-flash').innerText;
+        let i = flashModes.findIndex(m => text.includes(m.name)) + 1;
+        if (i >= flashModes.length) i = 0;
+        document.getElementById('global-call-overlay').style.background = flashModes[i].color;
+        document.getElementById('menu-text-flash').innerText = `Flash: ${flashModes[i].name}`;
+    };
+
+    window.cycleFilters = function() { currentFilterIndex = (currentFilterIndex + 1) % filters.length; };
+    window.toggleMoreMenu = function() { 
+        const m = document.getElementById("more-menu"); 
+        m.style.display = m.style.display === "flex" ? "none" : "flex"; 
+    };
+    window.openSettings = function() { document.getElementById("settings-modal").style.display = "flex"; };
+    window.closeSettings = function() { document.getElementById("settings-modal").style.display = "none"; };
+    window.applySettings = function() { closeSettings(); window.toggleVideo(); };
+
+    // --- DRAG LOGIC ---
+    let isDragging = false, dragOffsetX, dragOffsetY;
+    const dragItem = document.getElementById("localVideoWrapper");
+    window.startDrag = function(e) {
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        const rect = dragItem.getBoundingClientRect();
+        dragOffsetX = clientX - rect.left;
+        dragOffsetY = clientY - rect.top;
+        isDragging = true;
+        document.addEventListener('mousemove', onDrag);
+        document.addEventListener('mouseup', stopDrag);
+        document.addEventListener('touchmove', onDrag);
+        document.addEventListener('touchend', stopDrag);
+    };
+    function onDrag(e) {
+        if (!isDragging) return;
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        dragItem.style.left = (clientX - dragOffsetX) + 'px';
+        dragItem.style.top = (clientY - dragOffsetY) + 'px';
+        dragItem.style.bottom = 'auto'; dragItem.style.right = 'auto';
+    }
+    function stopDrag() { isDragging = false; }
+
+
+    // ============================================
+    // 4. NOTIFICATION & STATUS LOGIC (Original Base)
     // ============================================
     {% if user.is_authenticated %}
     (function() {
-        // Initial Badge Load
         let currentCount = parseInt("{{ unread_count|default:0 }}");
         updateBadge(currentCount);
 
-        // Connect to the global online status socket
         const protocol = window.location.protocol === "https:" ? "wss://" : "ws://";
-        const statusSocket = new WebSocket(
-            protocol + window.location.host + '/ws/online-status/'
-        );
+        const statusSocket = new WebSocket(protocol + window.location.host + '/ws/online-status/');
 
-        statusSocket.onopen = function(e) {
-            console.log("Global Online Status: Connected");
-        };
-
-        statusSocket.onclose = function(e) {
-            console.log("Global Online Status: Disconnected");
-        };
-        
-        statusSocket.onerror = function(err) {
-            console.error("Status Socket Error:", err);
-        };
-
-        // Handle Incoming Global Events (Notifications)
         statusSocket.onmessage = function(e) {
             const data = JSON.parse(e.data);
-
             if (data.type === "notification") {
-                
-                // 1. Play Sound (Optional)
-                // new Audio('/static/notification.mp3').play();
-
-                // This creates a custom event that inbox.html can hear
                 const event = new CustomEvent('chatNotification', { detail: data });
                 document.dispatchEvent(event);
-
-                // 2. Update Badge Count
                 updateBadge(data.count);
-
-                // 3. Show Toast ONLY if we are NOT currently chatting with that user
-                // Logic: 
-                // A) Check if URL is /chat/USERNAME/ (Full Page Chat)
-                // B) Check if Chat Modal is OPEN and username matches (Modal Chat)
-                
                 const onChatPage = window.location.pathname.includes("/chat/" + data.sender + "/");
-                
-                // Also check if modal is open for this user
-                const modalOpen = !document.getElementById("chat-modal").classList.contains("hidden");
-                const modalUser = document.getElementById("chat-username").innerText;
-                const chattingInModal = modalOpen && modalUser === data.sender;
-
-                if (!onChatPage && !chattingInModal) {
-                    showToast(data.sender, data.message);
-                }
+                if (!onChatPage) showToast(data.sender, data.message);
             }
             if (data.type === "incoming_call") {
                 showIncomingCallPopup(data.caller);
             }
         };
 
-        // --- Helper Functions for UI ---
-
         function updateBadge(count) {
             const badge = document.getElementById("msg-badge");
-            if (count > 0) {
-                badge.innerText = count;
-                badge.style.display = "inline-block";
-            } else {
-                badge.style.display = "none";
-            }
+            if (count > 0) { badge.innerText = count; badge.style.display = "inline-block"; } 
+            else { badge.style.display = "none"; }
         }
 
         function showToast(sender, message) {
             const container = document.getElementById("toast-container");
-
-            // Truncate message
             const shortMsg = message.length > 30 ? message.substring(0, 30) + "..." : message;
-
             const toast = document.createElement("div");
             toast.className = "toast";
-            toast.innerHTML = `
-                <div class="toast-avatar">${sender[0].toUpperCase()}</div>
-                <div>
-                    <strong style="display:block; font-size:13px;">${sender}</strong>
-                    <span style="font-size:12px; opacity:0.9;">${shortMsg}</span>
-                </div>
-            `;
-
+            toast.innerHTML = `<div class="toast-avatar">${sender[0].toUpperCase()}</div><div><strong style="display:block; font-size:13px;">${sender}</strong><span style="font-size:12px; opacity:0.9;">${shortMsg}</span></div>`;
             container.appendChild(toast);
-
-            // Animation In
             setTimeout(() => toast.classList.add("show"), 10);
-
-            // Remove after 3 seconds
-            setTimeout(() => {
-                toast.classList.remove("show");
-                setTimeout(() => toast.remove(), 300);
-            }, 3000);
-            
-            // Click to open chat
-            toast.onclick = function() {
-                
-                // Redirect to Chat Page (Per your new template logic)
-                window.location.href = `/chat/${sender}/`;
-            };
+            setTimeout(() => { toast.classList.remove("show"); setTimeout(() => toast.remove(), 300); }, 3000);
+            toast.onclick = function() { window.location.href = `/chat/${sender}/`; };
             toast.style.cursor = "pointer";
         }
         
         function showIncomingCallPopup(callerName) {
-                // 1. Play Ringtone
-                const ringtone = new Audio('/static/ringtone.mp3'); 
-                ringtone.loop = true;
-                ringtone.play().catch(err => console.log("User interaction required for audio"));
-            
-                // 2. Create Modal HTML
-                const modal = document.createElement('div');
-                modal.style.cssText = `
-                    position: fixed; top: 20px; right: 20px; z-index: 99999;
-                    background: #fff; padding: 20px; border-radius: 12px;
-                    box-shadow: 0 10px 40px rgba(0,0,0,0.2); border: 1px solid #eee;
-                    font-family: sans-serif; min-width: 250px;
-                    animation: slideIn 0.5s ease-out;
-                `;
+            const ringtone = new Audio('{% static "ringtone.mp3" %}');
+            ringtone.loop = true;
+            ringtone.play().catch(e => console.log("Audio play failed", e));
 
-                modal.innerHTML = `
-                    <div style="text-align:center; margin-bottom:15px;">
-                        <div style="font-size:16px; font-weight:bold; margin-bottom:5px;">Incoming Call...</div>
-                        <div style="font-size:14px; color:#666;">${callerName} is calling you</div>
-                    </div>
-                    <div style="display:flex; justify-content:space-around;">
-                        <button id="decline-btn" style="background:#ff3b30; color:white; border:none; padding:10px 20px; border-radius:20px; cursor:pointer;">Decline</button>
-                        <button id="accept-btn" style="background:#34c759; color:white; border:none; padding:10px 20px; border-radius:20px; cursor:pointer;">Accept</button>
-                    </div>
-                `;
-            
-                document.body.appendChild(modal);
-            
-                // 3. Handle Buttons
-                document.getElementById('accept-btn').onclick = () => {
-                    ringtone.pause();
-                    modal.remove();
-                    // Open Call Window
-                    const url = `/call/${callerName}/`; 
-                    window.open(url, '_blank', 'width=900,height=600,menubar=no,toolbar=no,location=no,status=no');
-                };
-            
-                document.getElementById('decline-btn').onclick = () => {
-                    ringtone.pause();
-                    modal.remove();
-                };
-            }
-
+            const modal = document.createElement('div');
+            modal.style.cssText = `position: fixed; top: 20px; right: 20px; z-index: 99999; background: #fff; padding: 20px; border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.2); border: 1px solid #eee; font-family: sans-serif; min-width: 250px; animation: slideIn 0.5s ease-out;`;
+            modal.innerHTML = `<div style="text-align:center; margin-bottom:15px;"><div style="font-size:16px; font-weight:bold; margin-bottom:5px;">Incoming Call...</div><div style="font-size:14px; color:#666;">${callerName} is calling you</div></div><div style="display:flex; justify-content:space-around;"><button id="decline-btn" style="background:#ff3b30; color:white; border:none; padding:10px 20px; border-radius:20px; cursor:pointer;">Decline</button><button id="accept-btn" style="background:#34c759; color:white; border:none; padding:10px 20px; border-radius:20px; cursor:pointer;">Accept</button></div>`;
+            document.body.appendChild(modal);
+        
+            document.getElementById('accept-btn').onclick = () => {
+                ringtone.pause(); modal.remove();
+                
+                // TRIGGER GLOBAL CALL FUNCTION
+                window.startGlobalCall(callerName, 'video');
+            };
+            document.getElementById('decline-btn').onclick = () => { ringtone.pause(); modal.remove(); };
+        }
     })();
     {% endif %}
-
 </script>
-
 </body>
 </html>

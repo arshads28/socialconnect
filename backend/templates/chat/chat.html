@@ -334,12 +334,8 @@ function initiateCall(callType) {
         type: callType // Pass 'audio' or 'video' so receiver knows
     }));
 
-    // 2. Open Call Window for Sender
-    // We pass ?mode=audio or ?mode=video to the call page
-    const url = `/call/${otherUser}/?mode=${callType}`; 
-    
-    // Open a popup window
-    window.open(url, '_blank', 'width=900,height=600,menubar=no,toolbar=no,location=no,status=no');
+    // 2. Show the Overlay (No redirect!)
+    window.startGlobalCall(otherUser, callType)
 }
 </script>
 
