@@ -243,8 +243,9 @@ chatBox.addEventListener('scroll', () => {
 // =======================
 // WEBSOCKET LOGIC
 // =======================
+const protocol = window.location.protocol === "https:" ? "wss://" : "ws://";
 const socket = new WebSocket(
-    "ws://" + window.location.host + "/ws/chat/" + otherUser + "/"
+    protocol + window.location.host + "/ws/chat/" + otherUser + "/"
 );
 
 socket.onmessage = (e) => {

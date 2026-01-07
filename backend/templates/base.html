@@ -301,8 +301,9 @@
         updateBadge(currentCount);
 
         // Connect to the global online status socket
+        const protocol = window.location.protocol === "https:" ? "wss://" : "ws://";
         const statusSocket = new WebSocket(
-            'ws://' + window.location.host + '/ws/online-status/'
+            protocol + window.location.host + '/ws/online-status/'
         );
 
         statusSocket.onopen = function(e) {

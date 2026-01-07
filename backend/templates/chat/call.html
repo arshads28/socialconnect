@@ -84,8 +84,9 @@
         // WebSocket Connection
         const otherUser = "{{ other_user }}"; 
 
+        const protocol = window.location.protocol === "https:" ? "wss://" : "ws://";
         const socket = new WebSocket(
-            "ws://" + window.location.host + "/ws/call/" + otherUser + "/"
+            protocol + window.location.host + "/ws/call/" + otherUser + "/"
         );
         
         let localStream;
