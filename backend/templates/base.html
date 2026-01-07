@@ -153,23 +153,29 @@
     let rawStream = null;
     let peerConnections = {};
     const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+    
     let currentCallUser = null;
     let pendingOffer = null;
     let pendingCaller = null;
+    let isCallAccepted = false; 
+
+
+    // We use a public URL so you don't need a local file
+    let ringtone = new Audio("https://assets.mixkit.co/active_storage/sfx/1359/1359-preview.mp3");
+    ringtone.loop = true;
 
     // Filters
     const filters = ['none', 'contrast(1.1) brightness(0.95) saturate(1.2) blur(1px)', 'grayscale(1)', 'sepia(0.6)'];
     let currentFilterIndex = 0;
 
     // ============================================
-    // 2. SOCKET & NOTIFICATIONS (Global Scope)
+    // 2. SOCKET & NOTIFICATIONS
     // ============================================
-    
     function updateBadge(count) {
         const badge = document.getElementById("msg-badge");
         if (badge) {
-            if (count > 0) { badge.innerText = count; badge.style.display = "inline-block"; } 
-            else { badge.style.display = "none"; }
+            badge.innerText = count; 
+            badge.style.display = count > 0 ? "inline-block" : "none";
         }
     }
 
@@ -179,39 +185,38 @@
         const shortMsg = message.length > 30 ? message.substring(0, 30) + "..." : message;
         const toast = document.createElement("div");
         toast.className = "toast";
-        toast.innerHTML = `<div class="toast-avatar">${sender[0].toUpperCase()}</div><div><strong style="display:block; font-size:13px;">${sender}</strong><span style="font-size:12px; opacity:0.9;">${shortMsg}</span></div>`;
+        toast.innerHTML = `<div class="toast-avatar">${sender[0].toUpperCase()}</div><div><strong>${sender}</strong><span style="display:block;font-size:12px;">${shortMsg}</span></div>`;
         container.appendChild(toast);
         setTimeout(() => toast.classList.add("show"), 10);
         setTimeout(() => { toast.classList.remove("show"); setTimeout(() => toast.remove(), 300); }, 3000);
     }
 
-    // INITIALIZE SOCKET
     {% if user.is_authenticated %}
     function connectSocket() {
         const protocol = window.location.protocol === "https:" ? "wss://" : "ws://";
         globalStatusSocket = new WebSocket(protocol + window.location.host + '/ws/online-status/');
 
-        globalStatusSocket.onopen = function(e) { console.log("✅ Global Socket Connected"); };
+        globalStatusSocket.onopen = () => console.log("✅ Global Socket Connected");
         
-        globalStatusSocket.onclose = function(e) { 
+        globalStatusSocket.onclose = () => { 
             console.log("⚠️ Socket disconnected, retrying...");
             setTimeout(connectSocket, 3000); 
         };
 
-        globalStatusSocket.onmessage = function(e) {
+        globalStatusSocket.onmessage = (e) => {
             try {
                 const data = JSON.parse(e.data);
 
-                // A. Notifications
+                // Notifications
                 if (data.type === "notification") {
-                    const event = new CustomEvent('chatNotification', { detail: data });
-                    document.dispatchEvent(event);
+                    document.dispatchEvent(new CustomEvent('chatNotification', { detail: data }));
                     updateBadge(data.count || 1);
-                    const onChatPage = window.location.pathname.includes("/chat/" + data.sender + "/");
-                    if (!onChatPage) showToast(data.sender, data.message);
+                    if (!window.location.pathname.includes("/chat/" + data.sender + "/")) {
+                        showToast(data.sender, data.message);
+                    }
                 }
 
-                // B. Signaling (Call)
+                // Call Signal
                 if (data.type === "call_signal") {
                      handleCallSignal(data.data, data.sender);
                 }
@@ -222,7 +227,7 @@
     {% endif %}
 
     // ============================================
-    // 3. PUBLIC CALL FUNCTION (Triggered by chat.html)
+    // 3. START CALL (Sender Logic)
     // ============================================
     window.startGlobalCall = function(targetUser, mode) {
         console.log("📞 Starting call with:", targetUser);
@@ -230,10 +235,10 @@
         document.getElementById('global-call-overlay').style.display = 'flex';
         document.getElementById('status-text').innerText = "Dialing...";
         
-        // 1. Send Immediate Invite
+        // 1. Send Invite (Ringing)
         sendSignal('new_call_invite', { mode: mode }, targetUser);
 
-        // 2. Init Media -> Then Send Offer
+        // 2. Init Media -> Send Offer
         initMedia(mode === 'video').then(() => {
             createPeerConnection(targetUser).then(pc => {
                 pc.createOffer().then(offer => {
@@ -245,7 +250,7 @@
     };
 
     // ============================================
-    // 4. WEBRTC LOGIC
+    // 4. SIGNAL HANDLING (Receiver Logic)
     // ============================================
     function sendSignal(type, payload, target) {
         if (globalStatusSocket && globalStatusSocket.readyState === WebSocket.OPEN) {
@@ -254,69 +259,78 @@
                 target: target,
                 data: { type: type, ...payload }
             }));
-        } else {
-            console.error("Socket not ready to send signal");
         }
     }
 
     async function handleCallSignal(signal, sender) {
-        console.log("📩 Signal received:", signal.type, "from", sender);
+        // --- INCOMING CALL ---
+        if (signal.type === 'new_call_invite' || signal.type === 'offer') {
+            
+            // Save Offer if available
+            if (signal.type === 'offer') pendingOffer = signal;
+            
+            // If already accepted, process immediately
+            if (isCallAccepted && signal.type === 'offer') {
+                processOffer(sender, signal);
+                return;
+            }
 
-        // A. IMMEDIATE RINGING (New Call Invite)
-        if (signal.type === 'new_call_invite') {
-            // FIX: Check if display is NOT flex (handles empty string & none)
+            // Show Popup if not visible
             const overlay = document.getElementById('global-call-overlay');
-            if (overlay.style.display !== 'flex') {
-                 showIncomingCallPopup(sender, signal);
+            const popup = document.getElementById('incoming-modal');
+            
+            // Fix: Check computed style to be sure
+            const style = window.getComputedStyle(overlay);
+            if (style.display === 'none' && !popup) {
+                 showIncomingCallPopup(sender);
             }
             return;
         }
 
-        // B. Incoming Offer
-        if (signal.type === 'offer') {
-            const overlay = document.getElementById('global-call-overlay');
-            if (overlay.style.display !== 'flex') {
-                 showIncomingCallPopup(sender, signal);
-                 return;
-            }
-            // Already accepted via popup
-            await createPeerConnection(sender);
-            await peerConnections[sender].setRemoteDescription(new RTCSessionDescription(signal));
-            const answer = await peerConnections[sender].createAnswer();
-            await peerConnections[sender].setLocalDescription(answer);
-            sendSignal('answer', answer, sender);
+        // --- CALL REJECTED ---
+        if (signal.type === 'call_rejected') {
+            alert(`${sender} declined the call.`);
+            window.endCall();
+            return;
         }
-        // C. Incoming Answer
-        else if (signal.type === 'answer') {
+
+        // --- ANSWER ---
+        if (signal.type === 'answer') {
             document.getElementById('status-text').style.display = "none";
             if (peerConnections[sender]) {
                 await peerConnections[sender].setRemoteDescription(new RTCSessionDescription(signal));
             }
         }
-        // D. Candidate
-        else if (signal.type === 'candidate') {
+        
+        // --- CANDIDATE ---
+        if (signal.type === 'candidate') {
             if (peerConnections[sender] && signal.candidate) { 
                 try {
                     await peerConnections[sender].addIceCandidate(new RTCIceCandidate(signal));
-                } catch(e) { console.log("Candidate Error:", e); }
+                } catch(e) {}
             }
         }
     }
 
     // ============================================
-    // 5. INCOMING POPUP LOGIC (Global Scope)
+    // 5. POPUP LOGIC (Fixed)
     // ============================================
-    function showIncomingCallPopup(callerName, offerSignal) {
-        pendingOffer = offerSignal.type === 'offer' ? offerSignal : null;
+    function showIncomingCallPopup(callerName) {
         pendingCaller = callerName;
+        isCallAccepted = false; 
 
-        const ringtone = new Audio('{% static "ringtone.mp3" %}');
-        ringtone.loop = true;
-        ringtone.play().catch(e => console.log("Audio autoplay blocked"));
+        // Play Sound (Handle browser block policy)
+        ringtone.currentTime = 0;
+        ringtone.play().catch(e => console.log("Audio autoplay blocked, waiting for interaction"));
 
         const modal = document.createElement('div');
         modal.id = "incoming-modal";
-        modal.style.cssText = `position: fixed; top: 20px; right: 20px; z-index: 99999; background: #fff; padding: 20px; border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.2); border: 1px solid #eee; font-family: sans-serif; min-width: 250px; animation: slideIn 0.5s ease-out;`;
+        modal.style.cssText = `
+            position: fixed; top: 20px; right: 20px; z-index: 99999; 
+            background: #fff; padding: 20px; border-radius: 12px; 
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2); border: 1px solid #eee; 
+            font-family: sans-serif; min-width: 250px; animation: slideIn 0.5s ease-out;
+        `;
         
         modal.innerHTML = `
             <div style="text-align:center; margin-bottom:15px;">
@@ -324,40 +338,50 @@
                 <div style="font-size:14px; color:#666;">${callerName} is calling you</div>
             </div>
             <div style="display:flex; justify-content:space-around;">
-                <button id="decline-btn" style="background:#ff3b30; color:white; border:none; padding:10px 20px; border-radius:20px; cursor:pointer;">Decline</button>
-                <button id="accept-btn" style="background:#34c759; color:white; border:none; padding:10px 20px; border-radius:20px; cursor:pointer;">Accept</button>
+                <button id="btn-decline-call" style="background:#ff3b30; color:white; border:none; padding:10px 20px; border-radius:20px; cursor:pointer;">Decline</button>
+                <button id="btn-accept-call" style="background:#34c759; color:white; border:none; padding:10px 20px; border-radius:20px; cursor:pointer;">Accept</button>
             </div>
         `;
         document.body.appendChild(modal);
     
-        document.getElementById('accept-btn').onclick = async () => {
-            ringtone.pause(); 
+        // --- DECLINE ---
+        document.getElementById('btn-decline-call').onclick = function() {
+            ringtone.pause();
+            modal.remove();
+            sendSignal('call_rejected', {}, pendingCaller);
+        };
+
+        // --- ACCEPT ---
+        document.getElementById('btn-accept-call').onclick = async function() {
+            ringtone.pause();
             modal.remove();
             
+            isCallAccepted = true;
             currentCallUser = pendingCaller;
             document.getElementById('global-call-overlay').style.display = 'flex';
             document.getElementById('status-text').innerText = "Connecting...";
             
-            // Assume video for answer
             await initMedia(true); 
 
             if(pendingOffer) {
-                await handleCallSignal(pendingOffer, pendingCaller);
+                processOffer(pendingCaller, pendingOffer);
             }
-        };
-    
-        document.getElementById('decline-btn').onclick = () => {
-            ringtone.pause();
-            modal.remove();
         };
     }
 
+    async function processOffer(sender, offerSignal) {
+        await createPeerConnection(sender);
+        await peerConnections[sender].setRemoteDescription(new RTCSessionDescription(offerSignal));
+        const answer = await peerConnections[sender].createAnswer();
+        await peerConnections[sender].setLocalDescription(answer);
+        sendSignal('answer', answer, sender);
+    }
+
     // ============================================
-    // 6. MEDIA HELPERS
+    // 6. MEDIA & UI HELPER FUNCTIONS
     // ============================================
     async function createPeerConnection(peerName) {
         if (peerConnections[peerName]) return peerConnections[peerName];
-
         const pc = new RTCPeerConnection(rtcConfig);
         peerConnections[peerName] = pc;
 
@@ -373,26 +397,18 @@
         };
 
         pc.onicecandidate = event => {
-            if (event.candidate) {
-                sendSignal('candidate', event.candidate.toJSON(), peerName);
-            }
+            if (event.candidate) sendSignal('candidate', event.candidate.toJSON(), peerName);
         };
         
         pc.onconnectionstatechange = () => {
-             if(pc.connectionState === "disconnected" || pc.connectionState === "failed") {
-                 window.endCall();
-             }
+             if(pc.connectionState === "disconnected" || pc.connectionState === "failed") window.endCall();
         };
         return pc;
     }
 
     async function initMedia(videoEnabled) {
         try {
-            const constraints = {
-                audio: true,
-                video: videoEnabled ? { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 24 } } : false
-            };
-
+            const constraints = { audio: true, video: videoEnabled ? { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 24 } } : false };
             rawStream = await navigator.mediaDevices.getUserMedia(constraints);
             
             if (videoEnabled) {
@@ -421,32 +437,26 @@
                 localStream = canvasStream;
                 
                 document.getElementById("localVideo").srcObject = localStream;
-                document.getElementById('btn-video').classList.remove('btn-off');
                 document.getElementById('btn-video').classList.add('btn-active');
             } else {
                 localStream = rawStream;
                 document.getElementById("localVideo").srcObject = null;
                 document.getElementById('btn-video').classList.remove('btn-active');
-                document.getElementById('btn-video').classList.add('btn-off');
             }
             
             document.getElementById('status-text').innerText = "Calling...";
         } catch (e) {
-            console.error(e);
             alert("Camera Error: " + e.message);
             window.endCall();
         }
     }
 
-    // ============================================
-    // 7. UI CONTROLS (Toggles, Drag, End)
-    // ============================================
+    // UI Controls
     window.toggleVideo = async function() {
-        const btn = document.getElementById('btn-video');
-        const isOff = btn.classList.contains('btn-off');
+        const isOff = !document.getElementById('btn-video').classList.contains('btn-active');
         if (rawStream) rawStream.getTracks().forEach(t => t.stop());
         if (localStream) localStream.getTracks().forEach(t => t.stop());
-        await initMedia(isOff); 
+        await initMedia(!isOff); 
     };
 
     window.toggleAudio = function() {
@@ -457,13 +467,24 @@
     };
 
     window.endCall = function() {
+        ringtone.pause(); 
+        ringtone.currentTime = 0;
+        
         if(rawStream) rawStream.getTracks().forEach(t => t.stop());
         if(localStream) localStream.getTracks().forEach(t => t.stop());
         for (let key in peerConnections) peerConnections[key].close();
         peerConnections = {};
+        
         document.getElementById("video-grid").innerHTML = "";
         document.getElementById("global-call-overlay").style.display = "none";
         document.getElementById("status-text").style.display = "block";
+        
+        // Notify other user to hang up
+        if (currentCallUser) sendSignal('call_rejected', {}, currentCallUser);
+        
+        isCallAccepted = false;
+        pendingOffer = null;
+        currentCallUser = null;
     };
 
     function addRemoteVideo(peerName, stream) {
@@ -481,7 +502,7 @@
 
     // Extras
     window.cycleFlash = function() {
-        const flashModes = [{ color: '#111', name: 'Off' }, { color: '#fff', name: 'Bright' }, { color: '#ffe4b5', name: 'Warm' }];
+        const flashModes = [{ color: '#111', name: 'Off' }, { color: '#fff', name: 'Bright' }];
         let text = document.getElementById('menu-text-flash').innerText;
         let i = flashModes.findIndex(m => text.includes(m.name)) + 1;
         if (i >= flashModes.length) i = 0;
