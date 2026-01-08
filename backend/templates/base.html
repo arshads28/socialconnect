@@ -173,6 +173,54 @@
 
     connectSocket();
     {% endif %}
+    
+    // ==========================================
+    // BROWSER BACK BUTTON HANDLING (History API)
+    // ==========================================
+    
+    // 1. When opening Inbox, push state
+    const originalToggleInbox = window.toggleInbox;
+    window.toggleInbox = function(e) {
+        if (originalToggleInbox) originalToggleInbox(e);
+        
+        const inbox = document.getElementById('inbox-overlay');
+        if (inbox.style.display === 'flex') {
+            // Push "inbox" state so Back button works
+            history.pushState({ modal: 'inbox' }, null, ""); 
+        }
+    };
+
+    // 2. When opening Chat, push state
+    const originalOpenChat = window.openChatPopup;
+    window.openChatPopup = async function(username, avatarUrl) {
+        // Call original function
+        if (originalOpenChat) await originalOpenChat(username, avatarUrl);
+        
+        // Push "chat" state
+        history.pushState({ modal: 'chat' }, null, "");
+    };
+
+    // 3. LISTEN FOR BACK BUTTON
+    window.addEventListener('popstate', function(event) {
+        const inbox = document.getElementById('inbox-overlay');
+        const chat = document.getElementById('chat-overlay');
+
+        // If Chat is open, close it and show Inbox (if that was previous state)
+        if (chat && chat.style.display === 'flex') {
+            chat.style.display = 'none';
+            if (activeChatSocket) { activeChatSocket.close(); activeChatUser = null; }
+            
+            // If we are going back, usually we want to see the inbox
+            if (inbox) inbox.style.display = 'flex';
+            return;
+        }
+
+        // If Inbox is open, just close it
+        if (inbox && inbox.style.display === 'flex') {
+            inbox.style.display = 'none';
+            return;
+        }
+    });
 </script>
 </body>
 </html>

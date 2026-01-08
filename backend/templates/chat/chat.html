@@ -193,7 +193,10 @@
 
     // 2. CLOSE CHAT
     function closeChatPopup() {
+        // Hide Chat
         document.getElementById('chat-overlay').style.display = 'none';
+        // SHOW INBOX AGAIN
+        document.getElementById('inbox-overlay').style.display = 'flex';
         if(activeChatSocket) activeChatSocket.close();
         activeChatUser = null;
     }
