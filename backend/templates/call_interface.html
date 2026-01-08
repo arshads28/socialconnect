@@ -437,7 +437,14 @@
         if (signal.type === 'call_rejected') {
             clearTimeout(outgoingCallTimeout);
             outgoingCallTimeout = null;
+            showToastMsg("Call declined");
             // Stop everything immediately
+            window.endCall();
+            return;
+        }
+        
+        if (signal.type === "call_ended") {
+            showToastMsg("Call ended");
             window.endCall();
             return;
         }
@@ -487,6 +494,10 @@
                 data: { type: type, ...payload }
             }));
         }
+    }
+    function sendCallEnded(target) {
+        if (!target) return;
+        sendSignal("call_ended", {}, target);
     }
 
 
@@ -788,12 +799,18 @@
     }
 
     window.endCall = function() {
+        //Prevent duplicate / invalid end calls
+        if (!activeCall) return;
         clearTimeout(outgoingCallTimeout);
         clearTimeout(incomingCallTimeout);
         outgoingCallTimeout = null;
         incomingCallTimeout = null;
         ringtone.pause(); 
         ringtone.currentTime = 0;
+
+        if (activeCall && currentCallUser) {
+            sendCallEnded(currentCallUser);
+        }
         
         // Stop Hardware
         if(rawStream) rawStream.getTracks().forEach(t => t.stop());
@@ -807,7 +824,7 @@
         document.getElementById("video-grid").innerHTML = "";
         document.getElementById("global-call-overlay").style.display = "none";
         
-        if (currentCallUser) sendSignal('call_rejected', {}, currentCallUser);
+        //if (currentCallUser) sendSignal('call_rejected', {}, currentCallUser);
         
         isCallAccepted = false;
         currentCallUser = null;
