@@ -1,45 +1,210 @@
 <style>
-    /* 3. CALL OVERLAY STYLES */
+    /* ============================
+       1. GLOBAL & LAYOUT
+       ============================ */
     #global-call-overlay {
-        display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-        background: #111; z-index: 99999; flex-direction: column; justify-content: center; align-items: center;
-        transition: background 0.3s ease; color: white;
+        display: none; 
+        position: fixed; top: 0; left: 0; width: 100vw; 
+        /* FIX: Use dvh for mobile browsers (accounts for URL bar) */
+        height: 100vh; height: 100dvh; 
+        background: #000; 
+        z-index: 99999; 
+        flex-direction: column; 
+        overflow: hidden;
+        /* FIX: Prevents page scrolling while call is active */
+        touch-action: none; 
     }
-    #hidden-media { display: none; }
-    #video-container { display: flex; width: 100%; height: 100%; position: relative; justify-content: center; align-items: center; }
-    #video-grid { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; align-content: center; gap: 16px; padding: 20px; width: 100%; height: 100%; overflow-y: auto; }
-    
-    .remote-video-wrapper { position: relative; background: #202124; border-radius: 12px; overflow: hidden; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 4px 12px rgba(0,0,0,0.5); width: 100%; max-width: 1200px; aspect-ratio: 16/9; max-height: 85vh; display: flex; justify-content: center; align-items: center; transition: all 0.4s ease; }
-    .remote-video-wrapper video { width: 100%; height: 100%; object-fit: contain; background: #000; }
-    .remote-label { position: absolute; bottom: 12px; left: 12px; background: rgba(0,0,0,0.6); padding: 6px 14px; border-radius: 20px; font-size: 13px; font-weight: 500; backdrop-filter: blur(4px); pointer-events: none; }
 
-    #localVideoWrapper { position: absolute; bottom: 100px; right: 20px; width: 140px; height: 200px; border-radius: 15px; overflow: hidden; box-shadow: 0 8px 25px rgba(0,0,0,0.7); border: 2px solid rgba(255,255,255,0.3); cursor: grab; z-index: 501; background: #000; transition: transform 0.1s; }
-    #localVideoWrapper:active { cursor: grabbing; transform: scale(0.95); }
+    /* ============================
+       2. VIDEO GRID (Fixed for Orientation)
+       ============================ */
+    #video-container { 
+        position: relative; width: 100%; height: 100%; 
+        display: flex; justify-content: center; align-items: center; 
+    }
+    
+    #video-grid { 
+        width: 100%; height: 100%; 
+        display: flex; flex-wrap: wrap; 
+        justify-content: center; align-items: center; 
+        gap: 0; 
+    }
+
+    /* REMOTE VIDEO - FIX: object-fit: contain ensures full video is seen */
+    .remote-video-wrapper { 
+        position: relative; 
+        width: 100%; height: 100%; 
+        max-width: 100%; max-height: 100%;
+        display: flex; justify-content: center; align-items: center; 
+        background: transparent;
+    }
+    .remote-video-wrapper video { 
+        width: 100%; height: 100%; 
+        /* FIX: 'contain' stops zooming/cropping on different devices */
+        object-fit: contain; 
+    }
+    
+    .remote-label { 
+        position: absolute; top: 40px; left: 20px; 
+        color: rgba(255,255,255,0.8); font-weight: 600; 
+        text-shadow: 0 2px 10px rgba(0,0,0,0.5);
+        font-size: 18px; pointer-events: none; z-index: 10;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        text-shadow: 0 2px 8px rgba(0,0,0,1);
+    }
+
+    /* ============================
+       3. LOCAL VIDEO (PiP)
+       ============================ */
+    #localVideoWrapper { 
+        position: absolute; bottom: 140px; right: 20px; 
+        width: 110px; height: 160px; 
+        border-radius: 12px; overflow: hidden; 
+        box-shadow: 0 10px 30px rgba(0,0,0,0.5); 
+        border: 1px solid rgba(255,255,255,0.15); 
+        cursor: grab; z-index: 501; background: #222; 
+        /* FIX: Critical for mobile drag to work smoothly */
+        touch-action: none; 
+    }
+    #localVideoWrapper:active { cursor: grabbing; transform: scale(0.98); }
     #localVideo { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
 
-    .video-controls { position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); display: flex; gap: 15px; z-index: 502; background: rgba(0,0,0,0.6); padding: 10px 20px; border-radius: 40px; backdrop-filter: blur(10px); }
-    .ctrl-btn { width: 50px; height: 50px; border-radius: 50%; border: none; font-size: 20px; cursor: pointer; display: flex; align-items: center; justify-content: center; background: #333; color: white; transition: 0.3s; }
-    .ctrl-btn:hover { background: #555; }
-    .btn-end-call { background: #ff3b30; }
-    .btn-active { background: #fff; color: #000; }
-    .btn-off { background: #444; color: #ff3b30; text-decoration: line-through; }
-
-    /* Menus */
-    #more-menu { display: none; position: absolute; bottom: 90px; left: 50%; transform: translateX(-50%); background: rgba(20, 20, 20, 0.95); backdrop-filter: blur(10px); border: 1px solid #333; border-radius: 12px; padding: 8px; width: 200px; flex-direction: column; gap: 5px; z-index: 505; }
-    #more-menu button { background: transparent; border: none; color: white; padding: 12px 15px; text-align: left; font-size: 14px; cursor: pointer; border-radius: 8px; display: flex; align-items: center; gap: 12px; width: 100%; }
-    #more-menu button:hover { background: rgba(255,255,255,0.1); }
+    /* ============================
+       4. INSTAGRAM STYLE CONTROLS
+       ============================ */
+    .video-controls { 
+        position: absolute; bottom: 40px; left: 50%; transform: translateX(-50%); 
+        display: flex; gap: 25px; z-index: 502; 
+        background: rgba(15, 15, 15, 0.9); 
+        padding: 15px 30px; border-radius: 40px; 
+        backdrop-filter: blur(20px); 
+        border: 1px solid rgba(255,255,255,0.08);
+        box-shadow: 0 10px 40px rgba(0,0,0,0.6);
+    }
     
-    #settings-modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 6000; justify-content: center; align-items: center; backdrop-filter: blur(5px); }
-    .settings-content { background: #1f2936; color: white; padding: 25px; border-radius: 12px; width: 90%; max-width: 400px; border: 1px solid #333; }
-    .setting-group { margin-bottom: 15px; }
-    .setting-group label { display: block; font-size: 12px; color: #aaa; margin-bottom: 5px; }
-    .setting-group select { width: 100%; padding: 10px; background: #0e1621; color: white; border: 1px solid #333; border-radius: 6px; }
-    .btn-save { width: 100%; padding: 12px; background: #0088cc; color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; margin-top: 10px; }
+    .ctrl-btn { 
+        width: 55px; height: 55px; border-radius: 50%; border: none; 
+        cursor: pointer; display: flex; align-items: center; justify-content: center; 
+        background: rgba(255,255,255,0.12); /* Glassy Grey */
+        color: white; transition: all 0.2s ease;
+        -webkit-tap-highlight-color: transparent;
+    }
+    
+    .ctrl-btn svg { width: 26px; height: 26px; fill: currentColor; }
 
-    #status-text { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-size: 22px; font-weight: 400; text-shadow: 0 2px 4px rgba(0,0,0,0.8); z-index: 5; pointer-events: none; }
+    .ctrl-btn:active { transform: scale(0.92); }
+
+    /* Active State (White bg, Black icon) */
+    .btn-active { background: #ffffff; color: #000000; }
+    
+    /* Off State (Translucent Grey, White icon, Strikethrough implicit in logic) */
+    .btn-off { background: rgba(50, 50, 50, 0.8); color: #fff; }
+    
+    /* End Call (Red) */
+    .btn-end-call { background: #FF3B30 !important; color: white !important; }
+
+    /* ============================
+       5. POPUP & MENUS
+       ============================ */
+    #incoming-modal {
+        animation: bounceIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+    @keyframes bounceIn { from { transform: scale(0.8); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+    
+    /* Status Text */
+    #status-text { 
+        position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); 
+        color: white; font-size: 18px; font-weight: 500; 
+        display: flex; flex-direction: column; align-items: center; gap: 15px;
+        z-index: 5; pointer-events: none;
+        text-shadow: 0 2px 10px rgba(0,0,0,0.9);
+    }
+    #status-text::before {
+        content: ''; width: 50px; height: 50px; border-radius: 50%;
+        border: 3px solid rgba(255,255,255,0.2); border-top-color: #fff;
+        animation: spin 1s infinite linear;
+    }
+    @keyframes spin { 100% { transform: rotate(360deg); } }
+
+    /* Settings & Menus (Hidden Media) */
+    #hidden-media { display: none; }
+    #more-menu { 
+        display: none; position: absolute; bottom: 120px; left: 50%; transform: translateX(-50%); 
+        background: rgba(30, 30, 30, 0.95); backdrop-filter: blur(20px); 
+        border-radius: 16px; padding: 8px; width: 220px; flex-direction: column; gap: 4px; z-index: 505; 
+        box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+    }
+    #more-menu button { 
+        background: transparent; border: none; color: #eee; padding: 12px; 
+        text-align: left; font-size: 15px; border-radius: 8px; display: flex; align-items: center; gap: 15px; width: 100%; 
+    }
+    #more-menu button:hover { background: rgba(255,255,255,0.1); }
+
+    /* Settings Modal */
+    #settings-modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 6000; justify-content: center; align-items: center; backdrop-filter: blur(5px); }
+    .settings-content { background: #1c1c1e; color: white; padding: 25px; border-radius: 18px; width: 90%; max-width: 320px; border: 1px solid rgba(255,255,255,0.1); }
+    .setting-group { margin-bottom: 20px; }
+    .setting-group label { display: block; color: #8e8e93; font-size: 12px; font-weight: 600; text-transform: uppercase; margin-bottom: 8px; }
+    .setting-group select { width: 100%; background: #2c2c2e; border: none; color: white; padding: 12px; border-radius: 10px; font-size: 15px; outline: none; }
+    .btn-save { width: 100%; padding: 12px; background: #007aff; border-radius: 12px; color: white; border: none; font-size: 16px; font-weight: 500; cursor: pointer; }
+    /* ============================
+       FLASH GLOW OVERLAY
+       ============================ */
+    #flash-overlay {
+        position: absolute;
+        inset: 0; /* Full screen */
+        pointer-events: none; /* Click through it */
+        z-index: 504; /* Above video, below controls/menus */
+        
+        /* Transition for smooth color changing */
+        transition: box-shadow 0.3s ease, background 0.3s ease;
+
+        /* Logic: 
+           1. We use a huge inset box-shadow to create the "sides/corners" glow.
+           2. The center remains transparent so you can see the video.
+        */
+        box-shadow: inset 0 0 0 0 transparent;
+    }
+
+    /* When Flash is Active (Class added by JS) */
+    .flash-active #flash-overlay {
+        /* This creates a 50px solid border of light + 150px soft glow inward */
+        box-shadow: inset 0 0 100px 40px var(--flash-color);
+        
+        /* Optional: Slight tint on the whole screen to boost brightness */
+        background: radial-gradient(circle, transparent 30%, var(--flash-color-transparent) 100%);
+    }
+
+    /* ============================
+       TAP TO HIDE UI LOGIC
+       ============================ */
+    
+    /* 1. Add transition to elements we want to hide */
+    .video-controls, 
+    #localVideoWrapper, 
+    .btn-end-call {
+        transition: all 0.3s cubic-bezier(0.4, 0.0, 0.2, 1);
+    }
+
+    /* 2. State: UI Hidden */
+    /* When the parent container has class 'ui-hidden', apply these styles */
+    
+    .ui-hidden .video-controls {
+        opacity: 0;
+        transform: translate(-50%, 60px); /* Slide down off screen */
+        pointer-events: none; /* Prevent clicking while hidden */
+    }
+
+    
+    /* Optional: Hide status text too if you want full immersion */
+    .ui-hidden #status-text {
+        opacity: 0;
+        transition: opacity 0.3s;
+    }
 </style>
 
 <div id="global-call-overlay">
+    <div id="flash-overlay"></div>
     <div id="hidden-media">
         <canvas id="processorCanvas"></canvas>
         <video id="rawVideo" autoplay playsinline muted></video>
@@ -47,22 +212,37 @@
 
     <div id="video-container">
         <div id="video-grid"></div>
-        <div id="status-text">Initializing...</div>
+        
+        <div id="status-text">Connecting...</div>
 
-        <div id="localVideoWrapper" onmousedown="startDrag(event)" ontouchstart="startDrag(event)">
+        <div id="localVideoWrapper">
             <video id="localVideo" autoplay playsinline muted></video>
-            <div style="position:absolute; bottom:5px; right:5px; color:white; font-size:10px; background:rgba(0,0,0,0.5); padding:2px 5px; border-radius:3px;">You</div>
         </div>
 
         <div class="video-controls">
-            <button class="ctrl-btn btn-active" onclick="toggleAudio()" id="btn-audio">🎤</button>
-            <button class="ctrl-btn btn-active" onclick="toggleVideo()" id="btn-video">📷</button>
-            <button class="ctrl-btn" onclick="toggleMoreMenu()" id="btn-more">☰</button>
-            <button class="ctrl-btn btn-end-call" onclick="endCall()">📞</button>
+            <button class="ctrl-btn btn-active" onclick="toggleAudio()" id="btn-audio" title="Mic">
+                <svg viewBox="0 0 24 24"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/><path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>
+            </button>
+
+            <button class="ctrl-btn btn-active" onclick="toggleVideo()" id="btn-video" title="Camera">
+                <svg viewBox="0 0 24 24"><path d="M15 8v8H5V8h10m1-2H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4V7c0-.55-.45-1-1-1z"/></svg>
+            </button>
+
+            <button class="ctrl-btn" onclick="toggleMoreMenu()" id="btn-more" title="More">
+                <svg viewBox="0 0 24 24"><path d="M6 10c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm12 0c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm-6 0c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg>
+            </button>
+
+            <button class="ctrl-btn btn-end-call" onclick="endCall()" title="End Call">
+                <svg viewBox="0 0 24 24"><path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 1.85-.18.18-.43.28-.7.28-.28 0-.53-.11-.71-.29L.29 13.08c-.18-.17-.29-.42-.29-.7 0-.28.11-.53.29-.71C3.34 8.78 7.46 7 12 7s8.66 1.78 11.71 4.67c.18.18.29.43.29.71 0 .28-.11.53-.29.71l-2.48 2.48c-.18.18-.43.29-.71.29-.27 0-.52-.11-.7-.28-.79-.74-1.69-1.36-2.67-1.85-.33-.16-.56-.5-.56-.9v-3.1C15.15 9.25 13.6 9 12 9z"/></svg>
+            </button>
         </div>
 
         <div id="more-menu">
-            <button onclick="cycleFlash()"><span>🔦</span> <span id="menu-text-flash">Flash: Off</span></button>
+            <button class="ctrl-btn" onclick="cycleFlash()" id="btn-flash" title="Flash">
+                <svg viewBox="0 0 24 24" id="icon-flash-svg">
+                    <path d="M7 2v11h3v9l7-12h-4l4-8z"/>
+                </svg>
+            </button>
             <button onclick="cycleFilters()"><span>✨</span> <span>Filters</span></button>
             <button onclick="togglePiP(); toggleMoreMenu()"><span>🖼️</span> <span>Picture-in-Picture</span></button>
             <button onclick="openSettings(); toggleMoreMenu()"><span>⚙️</span> <span>Settings</span></button>
@@ -71,7 +251,8 @@
 
     <div id="settings-modal">
         <div class="settings-content">
-            <h3>Call Settings</h3>
+            <h3 style="margin-bottom:20px; font-weight:700;">Call Settings</h3>
+            
             <div class="setting-group">
                 <label>Video Quality</label>
                 <select id="set-quality">
@@ -80,6 +261,7 @@
                     <option value="vga" selected>VGA (480p) - Fast</option>
                 </select>
             </div>
+            
             <div class="setting-group">
                 <label>Frame Rate</label>
                 <select id="set-fps">
@@ -87,49 +269,67 @@
                     <option value="20" selected>20 FPS</option>
                 </select>
             </div>
-            <button class="btn-save" onclick="applySettings()">Apply</button>
-            <button class="btn-save" style="background:#333" onclick="closeSettings()">Cancel</button>
+            
+            <div style="display:flex; gap:10px; margin-top:20px;">
+                <button class="btn-save" onclick="applySettings()">Apply</button>
+                <button class="btn-save" style="background:#3a3a3c;" onclick="closeSettings()">Cancel</button>
+            </div>
         </div>
     </div>
 </div>
 
 <script>
     // ============================================
-    // CALL VARIABLES & LOGIC
+    // 1. VARIABLES & CONFIG
     // ============================================
-    
-    // Global Call State
     let localStream = null;
-    let rawStream = null;
+    let rawStream = null; // Hardware stream
     let peerConnections = {};
     const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
     
     let currentCallUser = null;
     let pendingOffer = null;
     let pendingCaller = null;
-    let isCallAccepted = false; 
+    let isCallAccepted = false;
+    let activeCall = false;
 
-    // Ringtone
+    // Audio
     let ringtone = new Audio("https://assets.mixkit.co/active_storage/sfx/1359/1359-preview.mp3");
     ringtone.loop = true;
 
     // Filters
-    const filters = ['none', 'contrast(1.1) brightness(0.95) saturate(1.2) blur(1px)', 'grayscale(1)', 'sepia(0.6)'];
+    const filters = [ 'none', 'contrast(1.1) brightness(0.95) saturate(1.2) blur(1px)', 'grayscale(1)', 'sepia(0.6)' ];
     let currentFilterIndex = 0;
 
+    // Flash
+    const flashModes = [
+        { color: 'transparent', icon: 'off', name: 'Off' },
+        { color: '#ffffff', icon: 'on',  name: 'Bright' }, 
+        { color: '#ffe4b5', icon: 'on',  name: 'Warm' },   
+        { color: '#e0ffff', icon: 'on',  name: 'Cool' },   
+        { color: '#ffcfb3', icon: 'on',  name: 'Skin' },    
+        { color: '#ffb74d', icon: 'on',  name: 'CTO' },      
+        { color: '#90ee90', icon: 'on',  name: 'CTG' },      
+        { color: '#4fc3f7', icon: 'on',  name: 'CTB' }       
+    ];
+    let currentFlashIndex = 0;
+
     // ============================================
-    // 3. START CALL (Sender Logic)
+    // 2. SIGNALING
     // ============================================
+    
+    // --- SENDER: Start Call ---
     window.startGlobalCall = function(targetUser, mode) {
-        console.log("📞 Starting call with:", targetUser);
+        if(!targetUser) return;
         currentCallUser = targetUser;
+        activeCall = true;
+
         document.getElementById('global-call-overlay').style.display = 'flex';
-        document.getElementById('status-text').innerText = "Dialing...";
+        document.getElementById('status-text').style.display = "flex";
+        document.getElementById('status-text').innerHTML = `Calling ${targetUser}...`;
         
-        // 1. Send Invite (Ringing)
         sendSignal('new_call_invite', { mode: mode }, targetUser);
 
-        // 2. Init Media -> Send Offer
         initMedia(mode === 'video').then(() => {
             createPeerConnection(targetUser).then(pc => {
                 pc.createOffer().then(offer => {
@@ -140,132 +340,59 @@
         });
     };
 
-    // ============================================
-    // 4. SIGNAL HANDLING (Receiver Logic)
-    // ============================================
-    // NOTE: globalStatusSocket is defined in base.html
-    function sendSignal(type, payload, target) {
-        // Safety check: Don't send if target is missing
-        if (!target) {
-            console.error("❌ Attempted to send signal to NULL target");
-            return;
-        }
-        if (typeof globalStatusSocket !== 'undefined' && globalStatusSocket.readyState === WebSocket.OPEN) {
-            globalStatusSocket.send(JSON.stringify({
-                command: "call_signal",
-                target: target,
-                data: { type: type, ...payload }
-            }));
-        } else {
-            console.error("Global Socket not connected, cannot send signal");
-        }
-    }
-
+    // --- RECEIVER: Handle Signals ---
+    // Called by base.html socket listener
     async function handleCallSignal(signal, sender) {
-        // --- INCOMING CALL ---
+        if (!signal) return;
+
+        // INCOMING
         if (signal.type === 'new_call_invite' || signal.type === 'offer') {
-            
-            // Save Offer if available
             if (signal.type === 'offer') pendingOffer = signal;
             
-            // If already accepted, process immediately
+            // If already accepted (race condition or re-negotiation), process
             if (isCallAccepted && signal.type === 'offer') {
                 processOffer(sender, signal);
                 return;
             }
 
-            // Show Popup if not visible
-            const overlay = document.getElementById('global-call-overlay');
-            const popup = document.getElementById('incoming-modal');
-            
-            // Fix: Check computed style to be sure
-            const style = window.getComputedStyle(overlay);
-            if (style.display === 'none' && !popup) {
+            // Show Popup if not already visible
+            if (!document.getElementById('incoming-modal')) {
                  showIncomingCallPopup(sender);
             }
             return;
         }
 
-        // --- CALL REJECTED ---
+        // REJECTED
         if (signal.type === 'call_rejected') {
-            alert(`${sender} declined the call.`);
+            // Stop everything immediately
             window.endCall();
             return;
         }
 
-        // --- ANSWER ---
+        // ANSWER & CANDIDATES
         if (signal.type === 'answer') {
             document.getElementById('status-text').style.display = "none";
             if (peerConnections[sender]) {
                 await peerConnections[sender].setRemoteDescription(new RTCSessionDescription(signal));
             }
         }
-        
-        // --- CANDIDATE ---
         if (signal.type === 'candidate') {
             if (peerConnections[sender] && signal.candidate) { 
-                try {
-                    await peerConnections[sender].addIceCandidate(new RTCIceCandidate(signal));
-                } catch(e) {}
+                try { await peerConnections[sender].addIceCandidate(new RTCIceCandidate(signal)); } catch(e) {}
             }
         }
     }
 
-    // ============================================
-    // 5. POPUP LOGIC (Fixed)
-    // ============================================
-    function showIncomingCallPopup(callerName) {
-        pendingCaller = callerName;
-        isCallAccepted = false; 
-
-        // Play Sound (Handle browser block policy)
-        ringtone.currentTime = 0;
-        ringtone.play().catch(e => console.log("Audio autoplay blocked, waiting for interaction"));
-
-        const modal = document.createElement('div');
-        modal.id = "incoming-modal";
-        modal.style.cssText = `
-            position: fixed; top: 20px; right: 20px; z-index: 99999; 
-            background: #fff; padding: 20px; border-radius: 12px; 
-            box-shadow: 0 10px 40px rgba(0,0,0,0.2); border: 1px solid #eee; 
-            font-family: sans-serif; min-width: 250px; animation: slideIn 0.5s ease-out;
-        `;
-        
-        modal.innerHTML = `
-            <div style="text-align:center; margin-bottom:15px;">
-                <div style="font-size:16px; font-weight:bold; margin-bottom:5px;">Incoming Call...</div>
-                <div style="font-size:14px; color:#666;">${callerName} is calling you</div>
-            </div>
-            <div style="display:flex; justify-content:space-around;">
-                <button id="btn-decline-call" style="background:#ff3b30; color:white; border:none; padding:10px 20px; border-radius:20px; cursor:pointer;">Decline</button>
-                <button id="btn-accept-call" style="background:#34c759; color:white; border:none; padding:10px 20px; border-radius:20px; cursor:pointer;">Accept</button>
-            </div>
-        `;
-        document.body.appendChild(modal);
-    
-        // --- DECLINE ---
-        document.getElementById('btn-decline-call').onclick = function() {
-            ringtone.pause();
-            modal.remove();
-            sendSignal('call_rejected', {}, pendingCaller);
-        };
-
-        // --- ACCEPT ---
-        document.getElementById('btn-accept-call').onclick = async function() {
-            ringtone.pause();
-            modal.remove();
-            
-            isCallAccepted = true;
-            currentCallUser = pendingCaller;
-            document.getElementById('global-call-overlay').style.display = 'flex';
-            document.getElementById('status-text').innerText = "Connecting...";
-            
-            await initMedia(true); 
-
-            if(pendingOffer) {
-                processOffer(pendingCaller, pendingOffer);
-            }
-        };
+    // Helper to send via Global Socket
+    function sendSignal(type, payload, target) {
+        if (!target) return;
+        if (typeof globalStatusSocket !== 'undefined' && globalStatusSocket.readyState === WebSocket.OPEN) {
+            globalStatusSocket.send(JSON.stringify({
+                command: "call_signal",
+                target: target,
+                data: { type: type, ...payload }
+            }));
+        }
     }
 
     async function processOffer(sender, offerSignal) {
@@ -277,7 +404,195 @@
     }
 
     // ============================================
-    // 6. MEDIA & UI HELPER FUNCTIONS
+    // 3. INCOMING POPUP
+    // ============================================
+    function showIncomingCallPopup(callerName) {
+        pendingCaller = callerName;
+        isCallAccepted = false; 
+
+        // Sound
+        ringtone.currentTime = 0;
+        ringtone.play().catch(e => console.log("Autoplay blocked"));
+
+        const modal = document.createElement('div');
+        modal.id = "incoming-modal";
+        // Modern Floating Card
+        modal.style.cssText = `
+            position: fixed; top: 20px; right: 20px; z-index: 100000; 
+            background: rgba(255,255,255,0.95); padding: 20px 25px; border-radius: 20px; 
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3); border: 1px solid rgba(0,0,0,0.1); 
+            backdrop-filter: blur(10px); min-width: 280px; text-align: center;
+        `;
+        
+        modal.innerHTML = `
+            <div style="font-size:18px; font-weight:700; color:#000; margin-bottom:5px;">${callerName}</div>
+            <div style="font-size:14px; color:#666; margin-bottom:20px;">Incoming Video Call...</div>
+            <div style="display:flex; justify-content:center; gap:30px;">
+                <button id="btn-decline-call" style="background:#ff3b30; color:white; border:none; width:60px; height:60px; border-radius:50%; font-size:24px; cursor:pointer; box-shadow:0 4px 15px rgba(255,59,48,0.4); display:flex; align-items:center; justify-content:center;">
+                    <svg style="fill:white; width:28px; height:28px;" viewBox="0 0 24 24"><path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 1.85-.18.18-.43.28-.7.28-.28 0-.53-.11-.71-.29L.29 13.08c-.18-.17-.29-.42-.29-.7 0-.28.11-.53.29-.71C3.34 8.78 7.46 7 12 7s8.66 1.78 11.71 4.67c.18.18.29.43.29.71 0 .28-.11.53-.29.71l-2.48 2.48c-.18.18-.43.29-.71.29-.27 0-.52-.11-.7-.28-.79-.74-1.69-1.36-2.67-1.85-.33-.16-.56-.5-.56-.9v-3.1C15.15 9.25 13.6 9 12 9z"/></svg>
+                </button>
+                <button id="btn-accept-call" style="background:#34c759; color:white; border:none; width:60px; height:60px; border-radius:50%; font-size:24px; cursor:pointer; box-shadow:0 4px 15px rgba(52,199,89,0.4); display:flex; align-items:center; justify-content:center;">
+                    <svg style="fill:white; width:28px; height:28px;" viewBox="0 0 24 24"><path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z"/></svg>
+                </button>
+            </div>
+        `;
+        document.body.appendChild(modal);
+    
+        // Decline
+        document.getElementById('btn-decline-call').onclick = function() {
+            ringtone.pause();
+            ringtone.currentTime = 0;
+            if(modal) modal.remove();
+            
+            // 1. Notify sender
+            if(pendingCaller) sendSignal('call_rejected', {}, pendingCaller);
+            
+            // 2. Reset local state
+            pendingCaller = null;
+            isCallAccepted = false;
+        };
+
+        // Accept
+        document.getElementById('btn-accept-call').onclick = async function() {
+            ringtone.pause();
+            ringtone.currentTime = 0;
+            if(modal) modal.remove();
+            
+            isCallAccepted = true;
+            currentCallUser = pendingCaller;
+            activeCall = true;
+
+            document.getElementById('global-call-overlay').style.display = 'flex';
+            document.getElementById('status-text').innerHTML = "Connecting..."; 
+            
+            // Init robust media
+            await initMedia(true); 
+
+            if(pendingOffer) {
+                processOffer(pendingCaller, pendingOffer);
+            }
+        };
+    }
+
+    // ============================================
+    // 4. MEDIA LOGIC
+    // ============================================
+    async function initMedia(videoEnabled) {
+        try {
+            if (!localStream) {
+                // 1. Config
+                const qualityVal = document.getElementById("set-quality").value || 'vga';
+                const fpsVal = parseInt(document.getElementById("set-fps").value) || 20;
+                
+                // Res Map
+                const resMap = {
+                    'fhd': { width: 1920, height: 1080 },
+                    'hd':  { width: 1280, height: 720 },
+                    'vga': { width: 640, height: 480 }
+                };
+                const targetRes = resMap[qualityVal];
+
+                if (!videoEnabled) {
+                    // Audio Only
+                    localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    document.getElementById('btn-video').classList.remove('btn-active');
+                    document.getElementById('btn-video').classList.add('btn-off');
+                    return;
+                }
+
+                // 2. Hardware Access
+                try {
+                    rawStream = await navigator.mediaDevices.getUserMedia({
+                        audio: true,
+                        video: {
+                            facingMode: "user",
+                            width: { ideal: targetRes.width },
+                            height: { ideal: targetRes.height },
+                            frameRate: { ideal: fpsVal }
+                        }
+                    });
+                } catch(e) {
+                     // Fallback
+                     rawStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+                }
+
+                // 3. Setup Canvas Processing
+                const rawVideo = document.getElementById('rawVideo');
+                rawVideo.srcObject = rawStream;
+                await rawVideo.play();
+
+                const canvas = document.getElementById('processorCanvas');
+                const ctx = canvas.getContext('2d', { alpha: false });
+
+                function processFrame() {
+                    if (rawVideo.paused || rawVideo.ended) return;
+                    if (canvas.width !== rawVideo.videoWidth) {
+                        canvas.width = rawVideo.videoWidth;
+                        canvas.height = rawVideo.videoHeight;
+                    }
+                    // Apply Filter
+                    ctx.filter = filters[currentFilterIndex];
+                    ctx.drawImage(rawVideo, 0, 0, canvas.width, canvas.height);
+                    requestAnimationFrame(processFrame);
+                }
+                processFrame();
+
+                // 4. Create Stream from Canvas
+                const canvasStream = canvas.captureStream(fpsVal);
+                const audioTrack = rawStream.getAudioTracks()[0];
+                if (audioTrack) canvasStream.addTrack(audioTrack);
+                
+                localStream = canvasStream;
+                
+                // Show Local
+                document.getElementById("localVideo").srcObject = localStream;
+                document.getElementById('btn-video').classList.add('btn-active');
+                document.getElementById('btn-video').classList.remove('btn-off');
+            }
+        } catch (e) {
+            alert("Camera Error: " + e.message);
+            window.endCall();
+        }
+    }
+
+    // --- TOGGLES (Using Track Replacement) ---
+    window.toggleVideo = async function() {
+        const btn = document.getElementById('btn-video');
+        const isOff = !btn.classList.contains('btn-active');
+
+        if (isOff) {
+            try {
+                const newStream = await navigator.mediaDevices.getUserMedia({ video: true });
+                const newTrack = newStream.getVideoTracks()[0];
+                if(rawStream) rawStream.addTrack(newTrack);
+                else rawStream = newStream;
+
+                const rawVideo = document.getElementById('rawVideo');
+                rawVideo.srcObject = rawStream;
+                await rawVideo.play();
+                
+                btn.classList.add('btn-active'); btn.classList.remove('btn-off');
+            } catch(e) {}
+        } else {
+            if(rawStream) rawStream.getVideoTracks().forEach(t => { t.stop(); rawStream.removeTrack(t); });
+            btn.classList.remove('btn-active'); btn.classList.add('btn-off');
+        }
+    };
+
+    window.toggleAudio = function() {
+        if (!localStream) return;
+        const track = localStream.getAudioTracks()[0];
+        track.enabled = !track.enabled;
+        const btn = document.getElementById('btn-audio');
+        if (track.enabled) {
+            btn.classList.add('btn-active'); btn.classList.remove('btn-off');
+        } else {
+            btn.classList.remove('btn-active'); btn.classList.add('btn-off');
+        }
+    };
+
+    // ============================================
+    // 5. WEBRTC & CLEANUP
     // ============================================
     async function createPeerConnection(peerName) {
         if (peerConnections[peerName]) return peerConnections[peerName];
@@ -300,146 +615,343 @@
         };
         
         pc.onconnectionstatechange = () => {
-             if(pc.connectionState === "disconnected" || pc.connectionState === "failed") window.endCall();
+             if(pc.connectionState === "failed") window.endCall();
         };
         return pc;
     }
 
-    async function initMedia(videoEnabled) {
-        try {
-            const constraints = { audio: true, video: videoEnabled ? { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 24 } } : false };
-            rawStream = await navigator.mediaDevices.getUserMedia(constraints);
-            
-            if (videoEnabled) {
-                const rawVideo = document.getElementById('rawVideo');
-                rawVideo.srcObject = rawStream;
-                await rawVideo.play();
-
-                const canvas = document.getElementById('processorCanvas');
-                const ctx = canvas.getContext('2d', { alpha: false });
-                
-                function processFrame() {
-                    if (rawVideo.paused || rawVideo.ended) return;
-                    if (canvas.width !== rawVideo.videoWidth) {
-                        canvas.width = rawVideo.videoWidth;
-                        canvas.height = rawVideo.videoHeight;
-                    }
-                    ctx.filter = filters[currentFilterIndex];
-                    ctx.drawImage(rawVideo, 0, 0, canvas.width, canvas.height);
-                    requestAnimationFrame(processFrame);
-                }
-                processFrame();
-
-                const canvasStream = canvas.captureStream(24);
-                const audioTrack = rawStream.getAudioTracks()[0];
-                if (audioTrack) canvasStream.addTrack(audioTrack);
-                localStream = canvasStream;
-                
-                document.getElementById("localVideo").srcObject = localStream;
-                document.getElementById('btn-video').classList.add('btn-active');
-            } else {
-                localStream = rawStream;
-                document.getElementById("localVideo").srcObject = null;
-                document.getElementById('btn-video').classList.remove('btn-active');
-            }
-            
-            document.getElementById('status-text').innerText = "Calling...";
-        } catch (e) {
-            alert("Camera Error: " + e.message);
-            window.endCall();
-        }
+    function addRemoteVideo(peerName, stream) {
+        const grid = document.getElementById("video-grid");
+        if (document.getElementById(`wrapper-${peerName}`)) return;
+        
+        const wrapper = document.createElement("div");
+        wrapper.className = "remote-video-wrapper";
+        wrapper.id = `wrapper-${peerName}`;
+        
+        const video = document.createElement("video");
+        video.id = "mainRemoteVideo"; 
+        video.autoplay = true; 
+        video.playsInline = true; 
+        video.srcObject = stream;
+        
+        const label = document.createElement("div");
+        label.className = "remote-label"; label.innerText = peerName;
+        
+        wrapper.appendChild(video); wrapper.appendChild(label); grid.appendChild(wrapper);
     }
-
-    // UI Controls
-    window.toggleVideo = async function() {
-        const isOff = !document.getElementById('btn-video').classList.contains('btn-active');
-        if (rawStream) rawStream.getTracks().forEach(t => t.stop());
-        if (localStream) localStream.getTracks().forEach(t => t.stop());
-        await initMedia(!isOff); 
-    };
-
-    window.toggleAudio = function() {
-        if (!localStream) return;
-        const track = localStream.getAudioTracks()[0];
-        track.enabled = !track.enabled;
-        document.getElementById('btn-audio').classList.toggle('btn-active');
-    };
 
     window.endCall = function() {
         ringtone.pause(); 
         ringtone.currentTime = 0;
         
+        // Stop Hardware
         if(rawStream) rawStream.getTracks().forEach(t => t.stop());
         if(localStream) localStream.getTracks().forEach(t => t.stop());
+        
+        // Close Peers
         for (let key in peerConnections) peerConnections[key].close();
         peerConnections = {};
         
+        // Reset UI
         document.getElementById("video-grid").innerHTML = "";
         document.getElementById("global-call-overlay").style.display = "none";
-        document.getElementById("status-text").style.display = "block";
         
-        // Notify other user to hang up
         if (currentCallUser) sendSignal('call_rejected', {}, currentCallUser);
         
         isCallAccepted = false;
         pendingOffer = null;
         currentCallUser = null;
+        activeCall = false;
+        localStream = null;
+        rawStream = null;
     };
 
-    function addRemoteVideo(peerName, stream) {
-        const grid = document.getElementById("video-grid");
-        if (document.getElementById(`wrapper-${peerName}`)) return;
-        const wrapper = document.createElement("div");
-        wrapper.className = "remote-video-wrapper";
-        wrapper.id = `wrapper-${peerName}`;
-        const video = document.createElement("video");
-        video.autoplay = true; video.playsInline = true; video.srcObject = stream;
-        const label = document.createElement("div");
-        label.className = "remote-label"; label.innerText = peerName || "User";
-        wrapper.appendChild(video); wrapper.appendChild(label); grid.appendChild(wrapper);
+    // ============================================
+    // 6. EXTRAS Flash, PiP, Drag
+    // ============================================
+    window.cycleFlash = function() {
+        currentFlashIndex = (currentFlashIndex + 1) % flashModes.length;
+        const mode = flashModes[currentFlashIndex];
+        const overlay = document.getElementById('global-call-overlay');
+        const flashLayer = document.getElementById('flash-overlay');
+        const btn = document.getElementById('btn-flash');
+        const svgPath = btn.querySelector('path'); // Assuming you used the SVG I gave you previously
+
+        // 1. SET CSS VARIABLES FOR THE GLOW
+        if (currentFlashIndex === 0) {
+            // --- FLASH OFF ---
+            overlay.classList.remove('flash-active');
+            flashLayer.style.removeProperty('--flash-color');
+            flashLayer.style.removeProperty('--flash-color-transparent');
+            
+            // Button Styling (Off)
+            btn.classList.remove('btn-active');
+            btn.style.backgroundColor = "rgba(255,255,255,0.12)";
+            btn.style.color = "white";
+            if(svgPath) {
+                svgPath.setAttribute('fill', 'none');
+                svgPath.setAttribute('stroke', 'currentColor');
+                svgPath.setAttribute('stroke-width', '2');
+            }
+            showToastMsg("Flash: Off");
+
+        } else {
+            // --- FLASH ON ---
+            overlay.classList.add('flash-active');
+            
+            // Set the solid glow color
+            flashLayer.style.setProperty('--flash-color', mode.color);
+            
+            // Convert Hex to RGBA for the gradient center (making it transparent)
+            // Simple hack: we just use the solid color for the shadow, 
+            // but for gradient we can rely on the box-shadow mostly.
+            flashLayer.style.setProperty('--flash-color-transparent', mode.color + '66'); // Adding alpha
+
+            // Button Styling (On)
+            btn.classList.add('btn-active');
+            btn.style.backgroundColor = "#ffffff";
+            btn.style.color = "#000000";
+            if(svgPath) {
+                svgPath.setAttribute('fill', 'currentColor');
+                svgPath.setAttribute('stroke', 'none');
+            }
+            showToastMsg(`Flash: ${mode.name}`);
+        }
+    };
+
+    // Helper Toast (Keep this if you haven't added it yet)
+    function showToastMsg(msg) {
+        let t = document.getElementById("temp-toast");
+        if(!t) {
+            t = document.createElement("div");
+            t.id = "temp-toast";
+            t.style.cssText = "position:absolute; top:120px; left:50%; transform:translateX(-50%); background:rgba(0,0,0,0.8); color:white; padding:10px 20px; border-radius:30px; font-size:14px; font-weight:600; pointer-events:none; z-index:99999; transition:opacity 0.3s; box-shadow: 0 5px 15px rgba(0,0,0,0.5);";
+            document.body.appendChild(t);
+        }
+        t.innerText = msg;
+        t.style.opacity = "1";
+        setTimeout(() => t.style.opacity = "0", 2000);
     }
 
-    // Extras
-    window.cycleFlash = function() {
-        const flashModes = [{ color: '#111', name: 'Off' }, { color: '#fff', name: 'Bright' }];
-        let text = document.getElementById('menu-text-flash').innerText;
-        let i = flashModes.findIndex(m => text.includes(m.name)) + 1;
-        if (i >= flashModes.length) i = 0;
-        document.getElementById('global-call-overlay').style.background = flashModes[i].color;
-        document.getElementById('menu-text-flash').innerText = `Flash: ${flashModes[i].name}`;
+    window.cycleFilters = function() { 
+        currentFilterIndex = (currentFilterIndex + 1) % filters.length; 
     };
-    window.cycleFilters = function() { currentFilterIndex = (currentFilterIndex + 1) % filters.length; };
-    window.toggleMoreMenu = function() { const m = document.getElementById("more-menu"); m.style.display = m.style.display === "flex" ? "none" : "flex"; };
+
+    window.togglePiP = async function() {
+        if ('documentPictureInPicture' in window) {
+            try {
+                const pipWindow = await documentPictureInPicture.requestWindow({ width: 400, height: 600 });
+                const grid = document.getElementById("video-grid");
+                pipWindow.document.body.append(grid);
+                pipWindow.addEventListener("pagehide", () => {
+                    const container = document.getElementById("video-container");
+                    const wrapper = document.getElementById("localVideoWrapper");
+                    container.insertBefore(grid, wrapper);
+                });
+                return;
+            } catch(e) {}
+        }
+        const v = document.querySelector("#video-grid video") || document.getElementById("localVideo");
+        if(v && v.requestPictureInPicture) v.requestPictureInPicture();
+    };
+
+
+    // ============================================
+    // UNIVERSAL DRAG & SWAP (FIXED)
+    // ============================================
+    const dragItem = document.getElementById("localVideoWrapper");
+    let isDragging = false;
+    let dragOffsetX, dragOffsetY; // Offset inside the element
+    let startX, startY;           // Initial Mouse/Touch Position
+    let hasMoved = false;
+    let lastTouchTime = 0;
+
+    // --- 1. START (Mouse Down / Touch Start) ---
+    function handleStart(e) {
+        // Stop the tap from hiding the UI controls
+        e.stopPropagation();
+
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+
+        isDragging = true;
+        hasMoved = false; 
+        
+        // Record where we started (Global Screen Coordinates)
+        startX = clientX;
+        startY = clientY;
+
+        // Calculate offset (Where inside the div we clicked)
+        // We need this to keep the div under the finger/mouse accurately
+        const rect = dragItem.getBoundingClientRect();
+        dragOffsetX = clientX - rect.left;
+        dragOffsetY = clientY - rect.top;
+    }
+
+    // --- 2. MOVE (Mouse Move / Touch Move) ---
+    function handleMove(e) {
+        if (!isDragging) return;
+
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+
+        // 1. Check Distance Moved (The Fix)
+        // We compare current mouse pos vs start mouse pos
+        const moveX = Math.abs(clientX - startX);
+        const moveY = Math.abs(clientY - startY);
+
+        // If moved less than 5px, ignore it (treat as static click)
+        if (moveX < 5 && moveY < 5) {
+            return; 
+        }
+
+        // If we are here, it's a real drag
+        hasMoved = true;
+        e.preventDefault(); // Stop scrolling only if we are actually dragging
+        if (e.stopPropagation) e.stopPropagation();
+
+        // 2. Calculate New Position
+        let nx = clientX - dragOffsetX;
+        let ny = clientY - dragOffsetY;
+        
+        // 3. Boundary Checks (Keep on screen)
+        nx = Math.max(0, Math.min(nx, window.innerWidth - dragItem.offsetWidth));
+        ny = Math.max(0, Math.min(ny, window.innerHeight - dragItem.offsetHeight));
+
+        // 4. Apply Styles
+        dragItem.style.left = `${nx}px`;
+        dragItem.style.top = `${ny}px`;
+        
+        // Reset CSS positioning so 'left/top' takes over
+        dragItem.style.bottom = 'auto'; 
+        dragItem.style.right = 'auto';
+    }
+
+    // --- 3. END (Mouse Up / Touch End) ---
+    function handleEnd(e) {
+        if (!isDragging) return;
+        
+        e.preventDefault();
+        e.stopPropagation();
+        isDragging = false;
+
+        // If we didn't move significantly, it's a CLICK -> Swap Video
+        if (!hasMoved) {
+            window.toggleSwap();
+        }
+    }
+
+    // TTACH LISTENERS
+    
+    // Mouse (Desktop)
+    dragItem.addEventListener('mousedown', handleStart);
+    document.addEventListener('mousemove', handleMove);
+    document.addEventListener('mouseup', handleEnd);
+
+    // Touch (Mobile)
+    dragItem.addEventListener('touchstart', handleStart, { passive: false });
+    document.addEventListener('touchmove', handleMove, { passive: false });
+    dragItem.addEventListener('touchend', handleEnd, { passive: false });
+    dragItem.addEventListener('touchstart', () => {
+    lastTouchTime = Date.now();
+    });
+
+
+    // Menus
+    window.toggleMoreMenu = function() { 
+        const m = document.getElementById("more-menu"); 
+        m.style.display = m.style.display === "flex" ? "none" : "flex"; 
+    };
     window.openSettings = function() { document.getElementById("settings-modal").style.display = "flex"; };
     window.closeSettings = function() { document.getElementById("settings-modal").style.display = "none"; };
     window.applySettings = function() { closeSettings(); window.toggleVideo(); };
+    // ============================================
+    // CLICK OUTSIDE TO CLOSE MENU
+    // ============================================
+    document.addEventListener('click', function(event) {
+        const menu = document.getElementById('more-menu');
+        const btn = document.getElementById('btn-more');
 
-    // Drag
-    window.startDrag = function(e) {
-        // Drag logic helper attached to window to ensure scope access
-         // Note: the original code attached event listeners inside DOMContentLoaded. 
-         // Since this is included via HTML, the original implementation is fine, 
-         // but I've kept the original event attachment below in the HTML tag
-    }
+        // 1. Check if menu and button exist
+        if (!menu || !btn) return;
 
-    document.addEventListener("DOMContentLoaded", () => {
-        const dragItem = document.getElementById("localVideoWrapper");
-        if(dragItem) {
-            let isDragging = false, startX, startY, initialLeft, initialTop;
-            dragItem.addEventListener("mousedown", (e) => {
-                isDragging = true; startX = e.clientX; startY = e.clientY;
-                initialLeft = dragItem.offsetLeft; initialTop = dragItem.offsetTop; e.preventDefault();
-            });
-            document.addEventListener("mousemove", (e) => {
-                if (!isDragging) return;
-                const dx = e.clientX - startX;
-                const dy = e.clientY - startY;
-                dragItem.style.left = `${initialLeft + dx}px`;
-                dragItem.style.top = `${initialTop + dy}px`;
-                dragItem.style.bottom = "auto"; 
-                dragItem.style.right = "auto";
-            });
-            document.addEventListener("mouseup", () => isDragging = false);
+        // 2. Only run logic if menu is currently OPEN
+        if (menu.style.display === 'flex') {
+            // 3. Check if the click target is NOT inside the menu AND NOT inside the button
+            if (!menu.contains(event.target) && !btn.contains(event.target)) {
+                menu.style.display = 'none';
+            }
         }
     });
+
+    // ============================================
+    // TOGGLE UI ON SCREEN TAP
+    // ============================================
+    document.getElementById('global-call-overlay').addEventListener('click', function(e) {
+        // 🔥 Ignore synthetic click after touch
+        if (Date.now() - lastTouchTime < 500) return;
+        
+        if (e.target.closest('#localVideoWrapper')) return;
+        if (e.target.closest('.video-controls') || 
+            e.target.closest('#more-menu') || 
+            e.target.closest('#settings-modal')) return;
+        
+        const overlay = document.getElementById('global-call-overlay');
+        const isHidden = overlay.classList.toggle('ui-hidden');
+        
+        if (isHidden) {
+            document.getElementById('more-menu').style.display = 'none';
+        }
+    });
+
+    // ============================================
+    // VIDEO SWAP LOGIC
+    // ============================================
+    
+    // State to track if we have swapped views
+    let isSwapped = false; 
+
+    window.toggleSwap = function() {
+        const localVideo = document.getElementById("localVideo");
+        const remoteVideo = document.getElementById("mainRemoteVideo");
+
+        // Safety Check
+        if (!remoteVideo || !localVideo.srcObject || !remoteVideo.srcObject) return;
+
+        // 1. Swap Streams
+        const tempStream = localVideo.srcObject;
+        localVideo.srcObject = remoteVideo.srcObject;
+        remoteVideo.srcObject = tempStream;
+
+        // 2. Toggle State
+        isSwapped = !isSwapped;
+
+        // 3. Apply Transforms based on NEW state
+        if (isSwapped) {
+            // STATE: Remote is Small (PiP), Local is Big
+            // Local (Big) -> No Mirror usually (or Mirror if you prefer selfie view big)
+            // Remote (Small) -> No Mirror
+            
+            // Actually, standard behavior:
+            // Big Screen (My Face): Mirrored
+            // Small Screen (Their Face): Normal
+            remoteVideo.style.transform = "scaleX(-1)"; // My face on big screen
+            localVideo.style.transform = "none";        // Their face in PiP
+            
+            // Audio: Mute Big (Me), Unmute Small (Them)
+            remoteVideo.muted = true; 
+            localVideo.muted = false;
+
+        } else {
+            // STATE: Remote is Big, Local is Small (Default)
+            // Big Screen (Their Face): Normal
+            // Small Screen (My Face): Mirrored
+            remoteVideo.style.transform = "none"; 
+            localVideo.style.transform = "scaleX(-1)";
+            
+            // Audio: Unmute Big (Them), Mute Small (Me)
+            remoteVideo.muted = false;
+            localVideo.muted = true;
+        }
+    };
 </script>
