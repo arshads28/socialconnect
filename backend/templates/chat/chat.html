@@ -323,8 +323,11 @@
     // 6. CALL TRIGGER
     function triggerCall(mode) {
         if(activeChatUser && window.startGlobalCall) {
+            //Save the username locally BEFORE closing the popup
+            const targetUser = activeChatUser;
+            //Close the popup (which sets activeChatUser to null)
             closeChatPopup(); 
-            window.startGlobalCall(activeChatUser, mode);
+            window.startGlobalCall(targetUser, mode);
         } else {
             alert("Call system initializing...");
         }

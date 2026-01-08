@@ -145,6 +145,11 @@
     // ============================================
     // NOTE: globalStatusSocket is defined in base.html
     function sendSignal(type, payload, target) {
+        // Safety check: Don't send if target is missing
+        if (!target) {
+            console.error("❌ Attempted to send signal to NULL target");
+            return;
+        }
         if (typeof globalStatusSocket !== 'undefined' && globalStatusSocket.readyState === WebSocket.OPEN) {
             globalStatusSocket.send(JSON.stringify({
                 command: "call_signal",
