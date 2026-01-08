@@ -65,8 +65,64 @@
         cursor: grab; z-index: 501; background: #222; 
         /* FIX: Critical for mobile drag to work smoothly */
         touch-action: none; 
+        transition:
+                transform 260ms cubic-bezier(0.22, 1.28, 0.36, 1),
+                box-shadow 260ms cubic-bezier(0.22, 1.28, 0.36, 1);
     }
-    #localVideoWrapper:active { cursor: grabbing; transform: scale(0.98); }
+
+    /* Compressed state */
+    .pip-spring {
+        transform: scale(0.92);
+        box-shadow: 0 6px 18px rgba(0,0,0,0.45);
+    }
+
+    .pip-spring::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        background: rgba(255,255,255,0.08);
+        pointer-events: none;
+    }
+
+    .pip-dragging {
+        transition: none !important;
+    }
+    .pip-snap {
+        transition:
+            left 420ms cubic-bezier(0.22, 1.2, 0.36, 1),
+            top 420ms cubic-bezier(0.22, 1.2, 0.36, 1);
+    }
+
+
+    #localVideoWrapper { 
+        position: absolute;
+        bottom: 140px;
+        right: 20px;
+
+        width: 110px;
+        height: 160px;
+
+        border-radius: 12px;
+        overflow: hidden;
+
+        background: #222;
+        z-index: 501;
+
+        border: 1px solid rgba(255,255,255,0.15);
+        box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+
+        cursor: grab;
+        touch-action: none;
+
+        transition:
+            transform 260ms cubic-bezier(0.22, 1.28, 0.36, 1),
+            box-shadow 260ms cubic-bezier(0.22, 1.28, 0.36, 1);
+    }
+
+    #localVideoWrapper:active {
+        cursor: grabbing;
+    }
     #localVideo { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
 
     /* ============================
@@ -757,104 +813,119 @@
 
 
     // ============================================
-    // UNIVERSAL DRAG & SWAP (FIXED)
+    // POINTER EVENTS DRAG + TAP-TO-SWAP (FINAL)
     // ============================================
+
     const dragItem = document.getElementById("localVideoWrapper");
-    let isDragging = false;
-    let dragOffsetX, dragOffsetY; // Offset inside the element
-    let startX, startY;           // Initial Mouse/Touch Position
+
+    let pointerDown = false;
     let hasMoved = false;
-    let lastTouchTime = 0;
 
-    // --- 1. START (Mouse Down / Touch Start) ---
-    function handleStart(e) {
-        // Stop the tap from hiding the UI controls
+    let startX = 0;
+    let startY = 0;
+    let offsetX = 0;
+    let offsetY = 0;
+
+    // Prevent browser gestures (critical for iOS)
+    dragItem.style.touchAction = "none";
+
+    // ---------- POINTER DOWN ----------
+    dragItem.addEventListener("pointerdown", (e) => {
         e.stopPropagation();
 
-        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        pointerDown = true;
+        hasMoved = false;
 
-        isDragging = true;
-        hasMoved = false; 
-        
-        // Record where we started (Global Screen Coordinates)
-        startX = clientX;
-        startY = clientY;
+        startX = e.clientX;
+        startY = e.clientY;
 
-        // Calculate offset (Where inside the div we clicked)
-        // We need this to keep the div under the finger/mouse accurately
         const rect = dragItem.getBoundingClientRect();
-        dragOffsetX = clientX - rect.left;
-        dragOffsetY = clientY - rect.top;
-    }
+        offsetX = e.clientX - rect.left;
+        offsetY = e.clientY - rect.top;
 
-    // --- 2. MOVE (Mouse Move / Touch Move) ---
-    function handleMove(e) {
-        if (!isDragging) return;
+        // Visual press feedback
+        dragItem.style.boxShadow = "0 18px 40px rgba(0,0,0,0.55)";
 
-        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-
-        // 1. Check Distance Moved (The Fix)
-        // We compare current mouse pos vs start mouse pos
-        const moveX = Math.abs(clientX - startX);
-        const moveY = Math.abs(clientY - startY);
-
-        // If moved less than 5px, ignore it (treat as static click)
-        if (moveX < 5 && moveY < 5) {
-            return; 
-        }
-
-        // If we are here, it's a real drag
-        hasMoved = true;
-        e.preventDefault(); // Stop scrolling only if we are actually dragging
-        if (e.stopPropagation) e.stopPropagation();
-
-        // 2. Calculate New Position
-        let nx = clientX - dragOffsetX;
-        let ny = clientY - dragOffsetY;
-        
-        // 3. Boundary Checks (Keep on screen)
-        nx = Math.max(0, Math.min(nx, window.innerWidth - dragItem.offsetWidth));
-        ny = Math.max(0, Math.min(ny, window.innerHeight - dragItem.offsetHeight));
-
-        // 4. Apply Styles
-        dragItem.style.left = `${nx}px`;
-        dragItem.style.top = `${ny}px`;
-        
-        // Reset CSS positioning so 'left/top' takes over
-        dragItem.style.bottom = 'auto'; 
-        dragItem.style.right = 'auto';
-    }
-
-    // --- 3. END (Mouse Up / Touch End) ---
-    function handleEnd(e) {
-        if (!isDragging) return;
-        
-        e.preventDefault();
-        e.stopPropagation();
-        isDragging = false;
-
-        // If we didn't move significantly, it's a CLICK -> Swap Video
-        if (!hasMoved) {
-            window.toggleSwap();
-        }
-    }
-
-    // TTACH LISTENERS
-    
-    // Mouse (Desktop)
-    dragItem.addEventListener('mousedown', handleStart);
-    document.addEventListener('mousemove', handleMove);
-    document.addEventListener('mouseup', handleEnd);
-
-    // Touch (Mobile)
-    dragItem.addEventListener('touchstart', handleStart, { passive: false });
-    document.addEventListener('touchmove', handleMove, { passive: false });
-    dragItem.addEventListener('touchend', handleEnd, { passive: false });
-    dragItem.addEventListener('touchstart', () => {
-    lastTouchTime = Date.now();
+        dragItem.setPointerCapture(e.pointerId);
     });
+
+    // ---------- POINTER MOVE ----------
+    dragItem.addEventListener("pointermove", (e) => {
+        if (!pointerDown) return;
+
+        const dx = Math.abs(e.clientX - startX);
+        const dy = Math.abs(e.clientY - startY);
+
+        // Threshold: tap vs drag
+        if (dx < 5 && dy < 5) return;
+
+        hasMoved = true;
+        e.preventDefault();
+
+        let x = e.clientX - offsetX;
+        let y = e.clientY - offsetY;
+
+        // Keep PiP inside viewport
+        x = Math.max(0, Math.min(x, window.innerWidth - dragItem.offsetWidth));
+        y = Math.max(0, Math.min(y, window.innerHeight - dragItem.offsetHeight));
+
+        dragItem.style.left = `${x}px`;
+        dragItem.style.top = `${y}px`;
+        dragItem.style.right = "auto";
+        dragItem.style.bottom = "auto";
+    });
+
+    dragItem.addEventListener("pointerdown", () => {
+    dragItem.classList.add("pip-dragging");
+    });
+
+    // ---------- POINTER UP / CANCEL ----------
+    function endPointer(e) {
+        if (!pointerDown) return;
+
+        pointerDown = false;
+        dragItem.classList.remove("pip-dragging");
+
+        try {
+            dragItem.releasePointerCapture(e.pointerId);
+        } catch (_) {}
+
+        // Reset press visuals
+        dragItem.style.boxShadow = "";
+
+        // TAP → spring + swap
+        if (!hasMoved) {
+            springSwapAnimation(dragItem, () => {
+                if (typeof window.toggleSwap === "function") {
+                    window.toggleSwap();
+                }
+            });
+        }
+    }
+
+    dragItem.addEventListener("pointerup", endPointer);
+    dragItem.addEventListener("pointercancel", endPointer);
+
+    // ============================================
+    // SPRING ANIMATION HELPER
+    // ============================================
+
+    function springSwapAnimation(el, onMidpoint) {
+        // Compress
+        el.classList.add("pip-spring");
+
+        // Midpoint → swap
+        setTimeout(() => {
+            if (onMidpoint) onMidpoint();
+        }, 90);
+
+        // Release
+        setTimeout(() => {
+            el.classList.remove("pip-spring");
+        }, 160);
+    }
+
+
 
 
     // Menus
@@ -888,8 +959,6 @@
     // TOGGLE UI ON SCREEN TAP
     // ============================================
     document.getElementById('global-call-overlay').addEventListener('click', function(e) {
-        // 🔥 Ignore synthetic click after touch
-        if (Date.now() - lastTouchTime < 500) return;
         
         if (e.target.closest('#localVideoWrapper')) return;
         if (e.target.closest('.video-controls') || 
