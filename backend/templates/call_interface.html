@@ -344,7 +344,7 @@
     const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
     
     let currentCallUser = null;
-    let pendingOffer = null;
+    let pendingRemoteOffer = null;
     let pendingCaller = null;
     let isCallAccepted = false;
     let activeCall = false;
@@ -375,7 +375,7 @@
     // ============================================
     
     // --- SENDER: Start Call ---
-    window.startGlobalCall = function(targetUser, mode) {
+    window.startGlobalCall = async function(targetUser, mode) {
         if(!targetUser) return;
         currentCallUser = targetUser;
         activeCall = true;
@@ -386,14 +386,9 @@
         
         sendSignal('new_call_invite', { mode: mode }, targetUser);
 
-        initMedia(mode === 'video').then(() => {
-            createPeerConnection(targetUser).then(pc => {
-                pc.createOffer().then(offer => {
-                    pc.setLocalDescription(offer);
-                    sendSignal('offer', offer, targetUser);
-                });
-            });
-        });
+        await initMedia(mode === 'video');
+        await createPeerConnection(targetUser);
+
     };
 
     // --- RECEIVER: Handle Signals ---
@@ -402,21 +397,29 @@
         if (!signal) return;
 
         // INCOMING
-        if (signal.type === 'new_call_invite' || signal.type === 'offer') {
-            if (signal.type === 'offer') pendingOffer = signal;
-            
-            // If already accepted (race condition or re-negotiation), process
-            if (isCallAccepted && signal.type === 'offer') {
-                processOffer(sender, signal);
-                return;
-            }
-
-            // Show Popup if not already visible
+        if (signal.type === "new_call_invite") {
             if (!document.getElementById('incoming-modal')) {
-                 showIncomingCallPopup(sender);
+                showIncomingCallPopup(sender);
             }
             return;
         }
+
+        if (signal.type === "offer") {
+            pendingRemoteOffer = { sender, offer: signal };
+        
+            // If user hasn't accepted yet, just show popup
+            if (!isCallAccepted) {
+                if (!document.getElementById("incoming-modal")) {
+                    showIncomingCallPopup(sender);
+                }
+                return;
+            }
+        
+            // If already accepted, process immediately
+            await acceptAndAnswerOffer(sender, signal);
+            return;
+        }
+
 
         // REJECTED
         if (signal.type === 'call_rejected') {
@@ -439,6 +442,24 @@
         }
     }
 
+    async function acceptAndAnswerOffer(sender, offerSignal) {
+        const pc = await createPeerConnection(sender);
+        const state = negotiationState[sender];
+
+        const offerCollision =
+            state.makingOffer || pc.signalingState !== "stable";
+
+        state.ignoreOffer = !state.polite && offerCollision;
+        if (state.ignoreOffer) return;
+
+        await pc.setRemoteDescription(new RTCSessionDescription(offerSignal));
+
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+
+        sendSignal("answer", answer, sender);
+    }
+
     // Helper to send via Global Socket
     function sendSignal(type, payload, target) {
         if (!target) return;
@@ -451,13 +472,6 @@
         }
     }
 
-    async function processOffer(sender, offerSignal) {
-        await createPeerConnection(sender);
-        await peerConnections[sender].setRemoteDescription(new RTCSessionDescription(offerSignal));
-        const answer = await peerConnections[sender].createAnswer();
-        await peerConnections[sender].setLocalDescription(answer);
-        sendSignal('answer', answer, sender);
-    }
 
     // ============================================
     // 3. INCOMING POPUP
@@ -524,10 +538,19 @@
             // Init robust media
             await initMedia(true); 
 
-            if(pendingOffer) {
-                processOffer(pendingCaller, pendingOffer);
+            // Create PC + add tracks
+            await createPeerConnection(pendingCaller);
+
+            // NOW answer the stored offer
+            if (pendingRemoteOffer) {
+                await acceptAndAnswerOffer(
+                    pendingRemoteOffer.sender,
+                    pendingRemoteOffer.offer
+                );
+                pendingRemoteOffer = null;
             }
         };
+
     }
 
     // ============================================
@@ -650,15 +673,43 @@
     // ============================================
     // 5. WEBRTC & CLEANUP
     // ============================================
+    const negotiationState = {};
+
     async function createPeerConnection(peerName) {
         if (peerConnections[peerName]) return peerConnections[peerName];
         const pc = new RTCPeerConnection(rtcConfig);
         peerConnections[peerName] = pc;
 
+        // Perfect Negotiation state
+        negotiationState[peerName] = {
+            makingOffer: false,
+            ignoreOffer: false,
+            polite: isCallAccepted // callee = polite, caller = impolite
+        };
+
         if (localStream) {
             localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
         }
 
+        // SAFE renegotiation trigger
+        pc.onnegotiationneeded = async () => {
+            const state = negotiationState[peerName];
+
+            try {
+                state.makingOffer = true;
+                const offer = await pc.createOffer();
+                if (pc.signalingState !== "stable") return;
+
+                await pc.setLocalDescription(offer);
+                sendSignal("offer", offer, peerName);
+            } catch (err) {
+                console.error("Negotiation error:", err);
+            } finally {
+                state.makingOffer = false;
+            }
+         };
+
+        // Track
         pc.ontrack = event => {
             if (event.streams && event.streams[0]) {
                 addRemoteVideo(peerName, event.streams[0]);
@@ -666,6 +717,7 @@
             }
         };
 
+        // ICE
         pc.onicecandidate = event => {
             if (event.candidate) sendSignal('candidate', event.candidate.toJSON(), peerName);
         };
@@ -715,7 +767,6 @@
         if (currentCallUser) sendSignal('call_rejected', {}, currentCallUser);
         
         isCallAccepted = false;
-        pendingOffer = null;
         currentCallUser = null;
         activeCall = false;
         localStream = null;
