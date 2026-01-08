@@ -341,7 +341,27 @@
     let localStream = null;
     let rawStream = null; // Hardware stream
     let peerConnections = {};
-    const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+
+    const candidateQueue = {};
+    const negotiationState = {};
+    const iceRestartInProgress = {};
+    const ICE_RESTART_DELAY = 3000;
+    let iceRestartTimer = {};
+    const usingTurn = {};
+    const rtcConfig = {
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        {
+          urls: [
+            'turn:openrelay.metered.ca:80?transport=udp', // Standard
+            'turn:openrelay.metered.ca:443?transport=tcp' // ★ REQUIRED for Mobile/4G
+          ],
+          username: 'openrelayproject',
+          credential: 'openrelayproject'
+        }
+      ],
+      iceCandidatePoolSize: 2 
+    };
     
     const CALL_TIMEOUT_MS = 30_000; 
 
@@ -407,8 +427,9 @@
     // Called by base.html socket listener
     async function handleCallSignal(signal, sender) {
         if (!signal) return;
+        const pc = peerConnections[sender];
 
-        // INCOMING
+        // --- INCOMING CALL POPUP ---
         if (signal.type === "new_call_invite") {
             if (!document.getElementById('incoming-modal')) {
                 showIncomingCallPopup(sender);
@@ -416,29 +437,45 @@
             return;
         }
 
+        // --- HANDLE OFFER ---
         if (signal.type === "offer") {
-            pendingRemoteOffer = { sender, offer: signal };
-        
-            // If user hasn't accepted yet, just show popup
-            if (!isCallAccepted) {
-                if (!document.getElementById("incoming-modal")) {
-                    showIncomingCallPopup(sender);
-                }
-                return;
+            const pc = peerConnections[sender];
+            
+            // 1. Get Negotiation State safely (default to false if missing)
+            const state = negotiationState[sender] || { polite: false, makingOffer: false };
+            const isPolite = state.polite;
+            const isMakingOffer = state.makingOffer;
+            
+            // 2. Get Signaling State safely
+            // If pc is undefined, it means this is a new call, so we treat it as "stable" (ready to accept)
+            const currentSignalingState = pc ? pc.signalingState : "stable";
+
+            // 3. Check for Collision
+            // If we are Impolite AND (Making an offer OR not stable), we ignore the incoming offer.
+            const ignoreOffer = !isPolite && (isMakingOffer || currentSignalingState !== "stable");
+            
+            if (ignoreOffer) {
+                console.warn("Ignoring colliding offer (Impolite peer wins)");
+                return; 
             }
-        
-            // If already accepted, process immediately
-            await acceptAndAnswerOffer(sender, signal);
+
+            // 4. Store and Process
+            pendingRemoteOffer = { sender, offer: signal };
+            
+            // Only auto-answer if the call is ALREADY accepted (e.g., during renegotiation/network switch)
+            if (isCallAccepted) {
+                 // Clear queue to prevent stale candidate errors
+                 candidateQueue[sender] = [];
+                 await acceptAndAnswerOffer(sender, signal);
+            }
             return;
         }
 
-
-        // REJECTED
+        // --- REJECTED / ENDED ---
         if (signal.type === 'call_rejected') {
             clearTimeout(outgoingCallTimeout);
             outgoingCallTimeout = null;
             showToastMsg("Call declined");
-            // Stop everything immediately
             window.endCall();
             return;
         }
@@ -449,39 +486,78 @@
             return;
         }
 
-        // ANSWER & CANDIDATES
+        // --- ANSWER ---
         if (signal.type === 'answer') {
             clearTimeout(outgoingCallTimeout);
             outgoingCallTimeout = null;
-            
             document.getElementById('status-text').style.display = "none";
-            if (peerConnections[sender]) {
-                await peerConnections[sender].setRemoteDescription(new RTCSessionDescription(signal));
+            
+            if (pc) {
+                await pc.setRemoteDescription(new RTCSessionDescription(signal));
+                await processBufferedCandidates(sender);
             }
         }
+
+        // --- CANDIDATES (FIXED) ---
         if (signal.type === 'candidate') {
-            if (peerConnections[sender] && signal.candidate) { 
-                try { await peerConnections[sender].addIceCandidate(new RTCIceCandidate(signal)); } catch(e) {}
+            // FIX 1: We must use the WHOLE signal object, not just signal.candidate
+            // The constructor needs { candidate: "...", sdpMid: "...", sdpMLineIndex: ... }
+            
+            if (!pc || !pc.remoteDescription || pc.signalingState !== "stable") {
+                if (!candidateQueue[sender]) candidateQueue[sender] = [];
+                // Push the WHOLE object
+                candidateQueue[sender].push(signal); 
+            } else {
+                try {
+                    // Pass the WHOLE object
+                    await pc.addIceCandidate(new RTCIceCandidate(signal));
+                } catch (e) {
+                    console.error("Error adding candidate:", e);
+                }
+            }
+        }
+    }
+
+    async function processBufferedCandidates(peerName) {
+        const pc = peerConnections[peerName];
+        if (!pc || !candidateQueue[peerName]) return;
+
+        console.log(`Processing ${candidateQueue[peerName].length} buffered candidates for ${peerName}`);
+
+        while (candidateQueue[peerName].length > 0) {
+            const cand = candidateQueue[peerName].shift();
+
+            // Ensure remote description is set before adding candidates
+            if(!pc.remoteDescription) {
+                console.warn("Remote description not set yet, re-queueing candidate");
+                candidateQueue[peerName].unshift(cand); // Put it back
+                break; // Stop processing and wait
+            }
+
+            try {
+                await pc.addIceCandidate(new RTCIceCandidate(cand));
+                console.log("Buffered candidate successfully added.");
+            } catch (e) {
+                console.error("Failed to add buffered candidate:", e);
             }
         }
     }
 
     async function acceptAndAnswerOffer(sender, offerSignal) {
         const pc = await createPeerConnection(sender);
-        const state = negotiationState[sender];
 
-        const offerCollision =
-            state.makingOffer || pc.signalingState !== "stable";
-
-        state.ignoreOffer = !state.polite && offerCollision;
-        if (state.ignoreOffer) return;
+        // If we are accepting an offer, we are NOT making one.
+        if(negotiationState[sender]) negotiationState[sender].makingOffer = false;
 
         await pc.setRemoteDescription(new RTCSessionDescription(offerSignal));
 
+        // If it's an ICE restart, the remote description resets the ICE agent.
+        // We must create an answer to finalize the handshake.
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
 
         sendSignal("answer", answer, sender);
+        await processBufferedCandidates(sender);
     }
 
     // Helper to send via Global Socket
@@ -655,13 +731,21 @@
 
                 function processFrame() {
                     if (rawVideo.paused || rawVideo.ended) return;
+                
+                    // Check if canvas size matches video size
                     if (canvas.width !== rawVideo.videoWidth) {
                         canvas.width = rawVideo.videoWidth;
                         canvas.height = rawVideo.videoHeight;
                     }
-                    // Apply Filter
+                
+                    // 1. APPLY FILTER (Even if it is 'none')
+                    // 'none' is a valid CSS filter value, so this works fine.
                     ctx.filter = filters[currentFilterIndex];
+                
+                    // 2. ALWAYS DRAW THE IMAGE
+                    // We must draw every frame, otherwise the stream is black.
                     ctx.drawImage(rawVideo, 0, 0, canvas.width, canvas.height);
+                
                     requestAnimationFrame(processFrame);
                 }
                 processFrame();
@@ -722,8 +806,8 @@
 
     // ============================================
     // 5. WEBRTC & CLEANUP
-    // ============================================
-    const negotiationState = {};
+    // ============================================   
+
 
     async function createPeerConnection(peerName) {
         if (peerConnections[peerName]) return peerConnections[peerName];
@@ -734,22 +818,22 @@
         negotiationState[peerName] = {
             makingOffer: false,
             ignoreOffer: false,
-            polite: isCallAccepted // callee = polite, caller = impolite
+            polite: isCallAccepted 
         };
 
+        // Add Local Tracks
         if (localStream) {
             localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
         }
 
-        // SAFE renegotiation trigger
+        // --- NEGOTIATION ---
         pc.onnegotiationneeded = async () => {
+            if (iceRestartInProgress[peerName]) return;
             const state = negotiationState[peerName];
-
             try {
                 state.makingOffer = true;
                 const offer = await pc.createOffer();
                 if (pc.signalingState !== "stable") return;
-
                 await pc.setLocalDescription(offer);
                 sendSignal("offer", offer, peerName);
             } catch (err) {
@@ -759,44 +843,139 @@
             }
          };
 
-        // Track
+        // --- TRACK RECEIVED ---
         pc.ontrack = event => {
             if (event.streams && event.streams[0]) {
+                console.log("Track received. Adding video...");
                 addRemoteVideo(peerName, event.streams[0]);
                 document.getElementById('status-text').style.display = "none";
             }
         };
 
-        // ICE
-        pc.onicecandidate = event => {
-            if (event.candidate) sendSignal('candidate', event.candidate.toJSON(), peerName);
+        // --- ICE CANDIDATES ---
+        pc.onicecandidate = e => {
+          if (e.candidate) {
+            sendSignal("candidate", e.candidate.toJSON(), peerName);
+          }
         };
         
-        pc.onconnectionstatechange = () => {
-             if(pc.connectionState === "failed") window.endCall();
+        // --- CONNECTION STATE CHANGES ---
+        pc.onconnectionstatechange = async () => {
+            console.log(`PC state for ${peerName}:`, pc.connectionState);
+        
+            if (pc.connectionState === "connected") {
+                clearTimeout(iceRestartTimer[peerName]);
+
+                // ★ FIX 1: Use the CORRECT ID ("mainRemoteVideo")
+                const remoteVideo = document.getElementById("mainRemoteVideo"); 
+                
+                if (remoteVideo && remoteVideo.srcObject) {
+                     console.log("Resuming video playback...");
+                     // Toggle play to wake up mobile browsers (Safari/Chrome Mobile)
+                     remoteVideo.play().catch(e => {
+                        console.log("Autoplay blocked, attempting mute-play", e);
+                        remoteVideo.muted = true; // Fallback
+                        remoteVideo.play();
+                     });
+                }
+
+                // ★ FIX 2: Check if Local Camera died (Common on Mobile network switch)
+                if (localStream) {
+                    const videoTrack = localStream.getVideoTracks()[0];
+                    if (videoTrack && videoTrack.readyState === 'ended') {
+                        console.warn("Local camera died during switch. Restarting...");
+                        await window.toggleVideo(); // Toggle Off
+                        await window.toggleVideo(); // Toggle On
+                    }
+                }
+            }
+        
+            if (pc.connectionState === "disconnected" || pc.connectionState === "failed") {
+                console.warn("Disconnected/Failed. Clearing queue & restarting ICE.");
+                candidateQueue[peerName] = []; // Clear stale candidates
+                
+                // Set timer to trigger restart
+                clearTimeout(iceRestartTimer[peerName]);
+                iceRestartTimer[peerName] = setTimeout(() => {
+                    if (pc.connectionState !== "connected") {
+                        restartIce(peerName);
+                    }
+                }, ICE_RESTART_DELAY);
+            }
         };
+
         return pc;
     }
 
+    async function restartIce(peerName) {
+      clearTimeout(iceRestartTimer[peerName]);
+    
+      const pc = peerConnections[peerName];
+      if (!pc) return;
+      if (pc.signalingState !== "stable") return;
+    
+      iceRestartInProgress[peerName] = true;
+    
+      try {
+        const offer = await pc.createOffer({ iceRestart: true });
+        await pc.setLocalDescription(offer);
+        sendSignal("offer", offer, peerName);
+      } finally {
+        iceRestartInProgress[peerName] = false;
+      }
+    }
+    
+    
+    function limitBitrate(pc, max = 800_000) {
+      pc.getSenders().forEach(sender => {
+        if (!sender.track) return;
+        const params = sender.getParameters();
+        if (!params.encodings) params.encodings = [{}];
+        params.encodings[0].maxBitrate = max;
+        sender.setParameters(params);
+      });
+    }
+
+
+
+
     function addRemoteVideo(peerName, stream) {
         const grid = document.getElementById("video-grid");
-        if (document.getElementById(`wrapper-${peerName}`)) return;
+        const wrapperId = `wrapper-${peerName}`;
+        let wrapper = document.getElementById(wrapperId);
+
+        // 1. If wrapper exists, UPDATE the video
+        if (wrapper) {
+            const existingVideo = wrapper.querySelector('video');
+            if (existingVideo) {
+                // Force update stream reference
+                existingVideo.srcObject = null; // Clear first
+                existingVideo.srcObject = stream; // Set new
+                existingVideo.play().catch(e => console.error("Play error:", e));
+                return; 
+            }
+        }
         
-        const wrapper = document.createElement("div");
+        // 2. If wrapper does not exist, CREATE it
+        wrapper = document.createElement("div");
         wrapper.className = "remote-video-wrapper";
-        wrapper.id = `wrapper-${peerName}`;
+        wrapper.id = wrapperId;
         
         const video = document.createElement("video");
-        video.id = "mainRemoteVideo"; 
+        video.id = "mainRemoteVideo"; // This ID MUST match the one in createPeerConnection
         video.autoplay = true; 
         video.playsInline = true; 
         video.srcObject = stream;
         
         const label = document.createElement("div");
-        label.className = "remote-label"; label.innerText = peerName;
+        label.className = "remote-label"; 
+        label.innerText = peerName;
         
-        wrapper.appendChild(video); wrapper.appendChild(label); grid.appendChild(wrapper);
+        wrapper.appendChild(video); 
+        wrapper.appendChild(label); 
+        grid.appendChild(wrapper);
     }
+        
 
     window.endCall = function() {
         //Prevent duplicate / invalid end calls
