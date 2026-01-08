@@ -343,6 +343,10 @@
     let peerConnections = {};
     const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
     
+    const CALL_TIMEOUT_MS = 30_000; 
+
+    let outgoingCallTimeout = null;
+    let incomingCallTimeout = null;
     let currentCallUser = null;
     let pendingRemoteOffer = null;
     let pendingCaller = null;
@@ -386,6 +390,14 @@
         
         sendSignal('new_call_invite', { mode: mode }, targetUser);
 
+        outgoingCallTimeout = setTimeout(() => {
+                console.warn("Call timed out (no answer)");
+        
+                showToastMsg("Call not answered");
+                currentCallUser = null;
+                endCall(); 
+            }, CALL_TIMEOUT_MS);
+
         await initMedia(mode === 'video');
         await createPeerConnection(targetUser);
 
@@ -423,6 +435,8 @@
 
         // REJECTED
         if (signal.type === 'call_rejected') {
+            clearTimeout(outgoingCallTimeout);
+            outgoingCallTimeout = null;
             // Stop everything immediately
             window.endCall();
             return;
@@ -430,6 +444,9 @@
 
         // ANSWER & CANDIDATES
         if (signal.type === 'answer') {
+            clearTimeout(outgoingCallTimeout);
+            outgoingCallTimeout = null;
+            
             document.getElementById('status-text').style.display = "none";
             if (peerConnections[sender]) {
                 await peerConnections[sender].setRemoteDescription(new RTCSessionDescription(signal));
@@ -484,7 +501,24 @@
         ringtone.currentTime = 0;
         ringtone.play().catch(e => console.log("Autoplay blocked"));
 
-        const modal = document.createElement('div');
+        //Incoming call timeout
+        incomingCallTimeout = setTimeout(() => {
+            console.warn("Incoming call timed out");
+        
+            if (modal) modal.remove();
+            ringtone.pause();
+            ringtone.currentTime = 0;
+        
+            // Notify caller
+            if (pendingCaller) {
+                sendSignal('call_rejected', {}, pendingCaller);
+            }
+        
+            pendingCaller = null;
+            isCallAccepted = false;
+        }, CALL_TIMEOUT_MS);
+
+        let modal = document.createElement('div');
         modal.id = "incoming-modal";
         // Modern Floating Card
         modal.style.cssText = `
@@ -512,6 +546,9 @@
         document.getElementById('btn-decline-call').onclick = function() {
             ringtone.pause();
             ringtone.currentTime = 0;
+            clearTimeout(incomingCallTimeout);
+            incomingCallTimeout = null;
+
             if(modal) modal.remove();
             
             // 1. Notify sender
@@ -524,6 +561,8 @@
 
         // Accept
         document.getElementById('btn-accept-call').onclick = async function() {
+            clearTimeout(incomingCallTimeout);
+            incomingCallTimeout = null;
             ringtone.pause();
             ringtone.currentTime = 0;
             if(modal) modal.remove();
@@ -749,6 +788,10 @@
     }
 
     window.endCall = function() {
+        clearTimeout(outgoingCallTimeout);
+        clearTimeout(incomingCallTimeout);
+        outgoingCallTimeout = null;
+        incomingCallTimeout = null;
         ringtone.pause(); 
         ringtone.currentTime = 0;
         
