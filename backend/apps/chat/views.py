@@ -170,3 +170,28 @@ def inbox_view(request):
                 continue
 
     return JsonResponse({"users": chat_users})
+
+
+def search_user(request):
+    query = request.GET.get('q', '')
+    data = []
+
+    if query:
+       
+        users = User.objects.filter(
+            username__icontains=query
+        ).exclude(id=request.user.id)[:20] 
+        
+        
+        for u in users:
+            avatar_url = ""
+            if hasattr(u, 'profile') and u.profile.image:
+                avatar_url = u.profile.image.url
+                
+            data.append({
+                "username": u.username,
+                "avatar_url": avatar_url,
+                "bio": u.profile.bio[:40] + "..." if hasattr(u, 'profile') and u.profile.bio else ""
+            })
+
+    return JsonResponse({"results": data})

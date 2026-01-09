@@ -3,224 +3,406 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}SocialConnect{% endblock %}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>{% block title %}Connect{% endblock %}</title>
 
     <style>
-        /* 1. GLOBAL & RESET */
-        * { margin: 0; padding: 0; box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-        body { background: #fafafa; }
+        /* ============================
+           1. PINTEREST + TWITTER HYBRID VARIABLES
+           ============================ */
+        :root {
+            --primary: #e60023; 
+            --primary-hover: #ad081b;
+            --text-dark: #111111;
+            --text-gray: #767676;
+            --bg-body: #ffffff;
+            --bg-hover: #f0f0f0;
+            
+            --sidebar-width: 270px;
+            --mobile-nav-height: 65px;
+            
+            --radius-btn: 32px;
+            --radius-card: 24px;
+        }
 
-        /* 2. NAVBAR */
-        .navbar { position: fixed; top: 0; width: 100%; height: 60px; background: #fff; border-bottom: 1px solid #dbdbdb; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; z-index: 100; }
-        .nav-right a { margin-left: 15px; text-decoration: none; color: #262626; font-weight: 500; position: relative; display: inline-block; }
-        .badge { position: absolute; top: -5px; right: -10px; background: red; color: white; border-radius: 50%; padding: 2px 6px; font-size: 10px; display: none; }
-        main { margin-top: 80px; display: flex; justify-content: center; }
+        /* RESET & GLOBAL */
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; -webkit-tap-highlight-color: transparent; }
+        
+        body { 
+            background: var(--bg-body); 
+            color: var(--text-dark); 
+            overflow-x: hidden; 
+        }
 
-        /* Toast */
-        #toast-container { position: fixed; top: 70px; right: 20px; z-index: 1000; }
-        .toast { background: #333; color: white; padding: 15px 20px; border-radius: 8px; margin-bottom: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); display: flex; align-items: center; opacity: 0; transform: translateY(-20px); transition: all 0.3s ease; min-width: 250px; }
+        a { text-decoration: none; color: inherit; cursor: pointer; }
+        button { border: none; background: none; cursor: pointer; outline: none; }
+
+        /* ============================
+           2. DESKTOP SIDEBAR
+           ============================ */
+        .sidebar {
+            position: fixed; top: 0; left: 0; height: 100vh; width: var(--sidebar-width);
+            display: flex; flex-direction: column; padding: 24px 16px;
+            background: #fff; z-index: 100;
+        }
+
+        .logo-area { padding: 0 12px 24px 12px; }
+        .logo-text { 
+            font-size: 24px; font-weight: 700; color: var(--primary); letter-spacing: -1px;
+            display: flex; align-items: center; gap: 8px;
+        }
+
+        .nav-menu { display: flex; flex-direction: column; gap: 8px; }
+        
+        .nav-link {
+            display: flex; align-items: center; padding: 12px 16px;
+            font-size: 18px; font-weight: 600; color: var(--text-dark);
+            border-radius: var(--radius-btn);
+            transition: background 0.2s ease, transform 0.1s ease;
+        }
+        .nav-link:hover { background-color: var(--bg-hover); }
+        .nav-link:active { transform: scale(0.96); }
+        
+        .nav-icon { width: 24px; height: 24px; margin-right: 16px; fill: currentColor; }
+        
+        .btn-create {
+            margin-top: 24px; background: var(--text-dark); color: white;
+            font-size: 16px; font-weight: 700; padding: 16px;
+            border-radius: var(--radius-btn); text-align: center;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+            transition: 0.2s;
+        }
+        .btn-create:hover { background: black; transform: translateY(-2px); }
+
+        .badge-wrap { position: relative; }
+        .badge-dot {
+            position: absolute; top: 10px; left: 30px; 
+            background: var(--primary); border: 2px solid #fff;
+            min-width: 10px; height: 10px; border-radius: 50%;
+            display: none; 
+        }
+
+        .user-pill {
+            margin-top: auto; display: flex; align-items: center;
+            padding: 8px; border-radius: var(--radius-btn);
+            cursor: pointer; transition: 0.2s;
+        }
+        .user-pill:hover { background: var(--bg-hover); }
+        .u-avatar-small { width: 40px; height: 40px; border-radius: 50%; background: #ddd; object-fit: cover; }
+        .u-meta { margin-left: 10px; display: flex; flex-direction: column; font-size: 14px; }
+
+        /* ============================
+           3. MOBILE HEADER & NAV
+           ============================ */
+        .mobile-header { display: none; }
+        .mobile-nav { display: none; }
+
+        @media (max-width: 768px) {
+            .sidebar { display: none; } 
+
+            .mobile-header {
+                position: fixed; top: 0; left: 0; width: 100%; height: 60px;
+                background: rgba(255,255,255,0.9); backdrop-filter: blur(10px);
+                display: flex; justify-content: space-between; align-items: center;
+                padding: 0 16px; z-index: 900;
+                border-bottom: 1px solid rgba(0,0,0,0.05);
+            }
+
+            .mobile-nav {
+                position: fixed; bottom: 0; left: 0; width: 100%; height: var(--mobile-nav-height);
+                background: #fff; display: flex; justify-content: space-around; align-items: center;
+                z-index: 900; border-top: 1px solid rgba(0,0,0,0.05);
+                padding-bottom: env(safe-area-inset-bottom);
+            }
+            
+            .m-link { padding: 10px; position: relative; color: var(--text-gray); transition: 0.2s; }
+            .m-link.active { color: var(--text-dark); }
+            .m-icon { width: 28px; height: 28px; fill: currentColor; }
+
+            .m-badge {
+                position: absolute; top: 5px; right: 5px;
+                background: var(--primary); color: white;
+                font-size: 10px; padding: 2px 5px; border-radius: 10px;
+                border: 2px solid white; display: none;
+            }
+        }
+
+        /* ============================
+           4. MAIN CONTENT AREA
+           ============================ */
+        main {
+            margin-left: var(--sidebar-width);
+            padding: 20px;
+            min-height: 100vh;
+            display: flex; justify-content: center;
+        }
+
+        @media (max-width: 768px) {
+            main { margin-left: 0; margin-top: 60px; margin-bottom: 70px; padding: 10px; }
+        }
+
+        /* ============================
+           5. TOAST NOTIFICATIONS
+           ============================ */
+        #toast-container { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%); z-index: 2000; display: flex; flex-direction: column; gap: 10px; width: 90%; max-width: 400px; pointer-events: none; }
+        .toast {
+            background: #212121; color: white;
+            padding: 14px 20px; border-radius: 50px; 
+            box-shadow: 0 8px 20px rgba(0,0,0,0.2);
+            display: flex; align-items: center; gap: 12px;
+            opacity: 0; transform: translateY(20px); transition: 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            pointer-events: auto; cursor: pointer;
+        }
         .toast.show { opacity: 1; transform: translateY(0); }
-        .toast-avatar { width: 30px; height: 30px; border-radius: 50%; background: #fff; color: #333; display: flex; justify-content: center; align-items: center; margin-right: 12px; font-weight: bold; }
+        .toast-avatar { width: 24px; height: 24px; border-radius: 50%; background: #444; display: flex; justify-content: center; align-items: center; font-size: 10px; font-weight: 700; color: #fff; }
+
     </style>
 </head>
 <body>
 
-<div class="navbar">
-    <div class="logo">SocialConnect</div>
-    <div class="nav-right">
-        {% if user.is_authenticated %}
-            <a href="/">Home</a>
-            <a href="/auth/profile/">Profile</a>
+    <nav class="sidebar">
+        <div class="logo-area">
+            <a href="/" class="logo-text">
+                <div style="width:32px; height:32px; background:var(--primary); border-radius:50%;"></div>
+                Connect
+            </a>
+        </div>
+
+        <div class="nav-menu">
+            <a href="/" class="nav-link">
+                <svg class="nav-icon" viewBox="0 0 24 24"><path d="M12 2L2 12h3v8h6v-6h2v6h6v-8h3L12 2z"></path></svg>
+                Home
+            </a>
             
-            <a href="#" onclick="toggleInbox(event)">
-                Messages <span id="msg-badge" class="badge">0</span>
+            <a href="#" onclick="toggleSearch(event)" class="nav-link">
+                <svg class="nav-icon" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-13h2v6h-2zm0 8h2v2h-2z"></path></svg>
+                Explore
             </a>
 
-            <form method="POST" action="/auth/logout/" style="display:inline;">
-                {% csrf_token %}
-                <button type="submit" style="background:none; border:none; cursor:pointer; font-weight:500;">Logout</button>
-            </form>
+            <div class="nav-link badge-wrap" onclick="toggleInbox(event)" style="cursor: pointer;">
+                <svg class="nav-icon" viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"></path></svg>
+                Messages
+                <span id="msg-badge-desktop" class="badge-dot"></span>
+            </div>
+
+            <a href="/auth/profile/" class="nav-link">
+                <svg class="nav-icon" viewBox="0 0 24 24"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"></path></svg>
+                Profile
+            </a>
+        </div>
+
+        <button class="btn-create">Create</button>
+
+        {% if user.is_authenticated %}
+        <div class="user-pill">
+             <div class="u-avatar-small" style="display:flex; justify-content:center; align-items:center; font-size:20px;">
+                {% if user.profile.image %}<img src="{{ user.profile.image.url }}" class="u-avatar-small">{% else %}👤{% endif %}
+             </div>
+             <div class="u-meta">
+                 <strong>{{ user.username }}</strong>
+                 <form method="POST" action="/auth/logout/">
+                     {% csrf_token %}
+                     <button type="submit" style="color:var(--text-gray); font-size:13px; font-weight:500;">Log out</button>
+                 </form>
+             </div>
+        </div>
         {% endif %}
+    </nav>
+
+    <div class="mobile-header">
+        <div style="font-weight:800; font-size:20px; color:var(--primary);">Connect</div>
+        <div style="position:relative;" onclick="toggleInbox(event)">
+            <svg style="width:28px; height:28px; fill:#333;" viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"></path></svg>
+            <span id="msg-badge-mobile" class="m-badge">0</span>
+        </div>
     </div>
-</div>
 
-<div id="toast-container"></div>
-
-{% include "call_interface.html" %}
-{% include "chat/inbox.html" %}
-{% include "chat/chat.html" %}
-
-<main>{% block content %}{% endblock %}</main>
-
-<script>
-    // ============================================
-    // 1. GLOBAL VARIABLES
-    // ============================================
-    var currentUserName = "{{ user.username|escapejs }}"; 
-    
-    // Global State
-    let globalStatusSocket = null;
-
-    // ============================================
-    // 2. SOCKET & NOTIFICATIONS
-    // ============================================
-    function updateBadge(count) {
-        const badge = document.getElementById("msg-badge");
-        if (badge) {
-            badge.innerText = count; 
-            badge.style.display = count > 0 ? "inline-block" : "none";
-        }
-    }
-
-    function showToast(sender, message) {
-        const container = document.getElementById("toast-container");
-        if (!container) return;
-        const shortMsg = message.length > 30 ? message.substring(0, 30) + "..." : message;
-        const toast = document.createElement("div");
-        toast.className = "toast";
-        toast.innerHTML = `<div class="toast-avatar">${sender[0].toUpperCase()}</div><div><strong>${sender}</strong><span style="display:block;font-size:12px;">${shortMsg}</span></div>`;
-        container.appendChild(toast);
-        setTimeout(() => toast.classList.add("show"), 10);
-        setTimeout(() => { toast.classList.remove("show"); setTimeout(() => toast.remove(), 300); }, 3000);
-    }
-
-    {% if user.is_authenticated %}
-    function connectSocket() {
-        const protocol = window.location.protocol === "https:" ? "wss://" : "ws://";
-        globalStatusSocket = new WebSocket(protocol + window.location.host + '/ws/online-status/');
-
-        globalStatusSocket.onopen = () => console.log("✅ Global Socket Connected");
+    <div class="mobile-nav">
+        <a href="/" class="m-link active">
+            <svg class="m-icon" viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"></path></svg>
+        </a>
         
-        globalStatusSocket.onclose = () => { 
-            console.log("⚠️ Socket disconnected, retrying...");
-            setTimeout(connectSocket, 3000); 
-        };
-
-        globalStatusSocket.onmessage = (e) => {
-            try {
-                const data = JSON.parse(e.data);
-
-                // ==============================
-                //  A. HANDLE ONLINE/OFFLINE STATUS
-                // ==============================
-                if (data.type === "user_status") {
-                    updateUserStatusUI(data.username, data.is_online, data.last_seen);
-                }
-
-                // ==============================
-                //  B. NOTIFICATIONS (Badge & Toast)
-                // ==============================
-                if (data.type === "notification") {
-                    document.dispatchEvent(new CustomEvent('chatNotification', { detail: data }));
-                    updateBadge(data.count || 1);
-                    
-                    // Show Toast unless we are currently chatting with this person
-                    // (Assuming activeChatUser is global from chat_interface logic, otherwise check URL/Popup)
-                    const activeChat = (typeof activeChatUser !== 'undefined') ? activeChatUser : null;
-                    if (activeChat !== data.sender) {
-                        showToast(data.sender, data.message);
-                    }
-                }
-
-                // ==============================
-                //  C. CALL SIGNALS (WebRTC)
-                // ==============================
-                if (data.type === "call_signal") {
-                    if (typeof handleCallSignal === "function") {
-                        handleCallSignal(data.data, data.sender);
-                    } else {
-                        console.error("Call interface not loaded");
-                    }
-                }
-
-            } catch (err) { console.error("Socket Error:", err); }
-        };
-    }
-
-    // --- UI UPDATER FUNCTION ---
-    function updateUserStatusUI(username, isOnline, lastSeenTime) {
+        <div onclick="toggleSearch(event)" class="m-link" style="cursor: pointer;">
+            <svg class="m-icon" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"></path></svg>
+        </div>
         
-        // 1. Update INBOX List (Targeting the new 'u-status' class)
-        const inboxRow = document.querySelector(`.user-row[data-username="${username}"]`);
-        if (inboxRow) {
-            // Precise selection
-            const statusDiv = inboxRow.querySelector('.u-status');
-            if (statusDiv) {
-                if (isOnline) {
-                    statusDiv.innerHTML = `<span style="color:#25D366">● Online</span>`;
-                } else {
-                    statusDiv.innerText = `Last seen today at ${lastSeenTime}`;
-                }
-            }
-        }
+        <a href="#" class="m-link">
+            <div style="background:var(--text-dark); width:45px; height:45px; border-radius:25px; display:flex; justify-content:center; align-items:center;">
+                 <svg style="width:24px; height:24px; fill:white;" viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"></path></svg>
+            </div>
+        </a>
+        <a href="/auth/profile/" class="m-link">
+            {% if user.profile.image %}
+                <img src="{{ user.profile.image.url }}" style="width:28px; height:28px; border-radius:50%; object-fit:cover;">
+            {% else %}
+                <svg class="m-icon" viewBox="0 0 24 24"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"></path></svg>
+            {% endif %}
+        </a>
+    </div>
 
-        // 2. Update CHAT HEADER (No changes here, this was working)
-        const chatHeaderName = document.getElementById("chat-header-name");
-        if (chatHeaderName && chatHeaderName.innerText === username) {
-            const statusText = document.getElementById("chat-header-status");
-            if (statusText) {
-                if (isOnline) {
-                    statusText.innerText = "Active now";
-                    statusText.style.color = "#25D366";
-                } else {
-                    statusText.innerText = `Last seen today at ${lastSeenTime}`;
-                    statusText.style.color = "gray";
-                }
-            }
-        }
-    }
+    <div id="toast-container"></div>
 
-    connectSocket();
-    {% endif %}
-    
-    // ==========================================
-    // BROWSER BACK BUTTON HANDLING (History API)
-    // ==========================================
-    
-    // 1. When opening Inbox, push state
-    const originalToggleInbox = window.toggleInbox;
-    window.toggleInbox = function(e) {
-        if (originalToggleInbox) originalToggleInbox(e);
+    {% include "call_interface.html" %}
+    {% include "chat/inbox.html" %}
+    {% include "chat/chat.html" %}
+    {% include "search.html" %} 
+
+    <main>{% block content %}{% endblock %}</main>
+
+    <script>
+        // ============================================
+        // 1. GLOBAL VARIABLES
+        // ============================================
+        var currentUserName = "{{ user.username|escapejs }}"; 
         
-        const inbox = document.getElementById('inbox-overlay');
-        if (inbox.style.display === 'flex') {
-            // Push "inbox" state so Back button works
-            history.pushState({ modal: 'inbox' }, null, ""); 
-        }
-    };
+        // Global State
+        let globalStatusSocket = null;
 
-    // 2. When opening Chat, push state
-    const originalOpenChat = window.openChatPopup;
-    window.openChatPopup = async function(username, avatarUrl) {
-        // Call original function
-        if (originalOpenChat) await originalOpenChat(username, avatarUrl);
-        
-        // Push "chat" state
-        history.pushState({ modal: 'chat' }, null, "");
-    };
-
-    // 3. LISTEN FOR BACK BUTTON
-    window.addEventListener('popstate', function(event) {
-        const inbox = document.getElementById('inbox-overlay');
-        const chat = document.getElementById('chat-overlay');
-
-        // If Chat is open, close it and show Inbox (if that was previous state)
-        if (chat && chat.style.display === 'flex') {
-            chat.style.display = 'none';
-            if (activeChatSocket) { activeChatSocket.close(); activeChatUser = null; }
+        // ============================================
+        // 2. SOCKET & NOTIFICATIONS
+        // ============================================
+        function updateBadge(count) {
+            const dBadge = document.getElementById("msg-badge-desktop");
+            const mBadge = document.getElementById("msg-badge-mobile");
             
-            // If we are going back, usually we want to see the inbox
-            if (inbox) inbox.style.display = 'flex';
-            return;
+            if (dBadge) {
+                dBadge.style.display = count > 0 ? "block" : "none";
+            }
+            if (mBadge) {
+                mBadge.innerText = count;
+                mBadge.style.display = count > 0 ? "block" : "none";
+            }
         }
 
-        // If Inbox is open, just close it
-        if (inbox && inbox.style.display === 'flex') {
-            inbox.style.display = 'none';
-            return;
+        function showToast(sender, message) {
+            const container = document.getElementById("toast-container");
+            if (!container) return;
+            const shortMsg = message.length > 30 ? message.substring(0, 30) + "..." : message;
+            const toast = document.createElement("div");
+            toast.className = "toast";
+            
+            toast.onclick = function() { openChatPopup(sender, ""); toast.remove(); };
+            
+            toast.innerHTML = `<div class="toast-avatar">${sender[0].toUpperCase()}</div><div><strong>${sender}</strong><span style="display:block;font-size:12px;opacity:0.8;">${shortMsg}</span></div>`;
+            container.appendChild(toast);
+            setTimeout(() => toast.classList.add("show"), 10);
+            setTimeout(() => { toast.classList.remove("show"); setTimeout(() => toast.remove(), 300); }, 3000);
         }
-    });
-</script>
+
+        {% if user.is_authenticated %}
+        function connectSocket() {
+            const protocol = window.location.protocol === "https:" ? "wss://" : "ws://";
+            globalStatusSocket = new WebSocket(protocol + window.location.host + '/ws/online-status/');
+
+            globalStatusSocket.onopen = () => console.log("✅ Global Socket Connected");
+            
+            globalStatusSocket.onclose = () => { 
+                console.log("⚠️ Socket disconnected, retrying...");
+                setTimeout(connectSocket, 3000); 
+            };
+
+            globalStatusSocket.onmessage = (e) => {
+                try {
+                    const data = JSON.parse(e.data);
+
+                    if (data.type === "user_status") {
+                        updateUserStatusUI(data.username, data.is_online, data.last_seen);
+                    }
+
+                    if (data.type === "notification") {
+                        document.dispatchEvent(new CustomEvent('chatNotification', { detail: data }));
+                        updateBadge(data.count || 1);
+                        
+                        const activeChat = (typeof activeChatUser !== 'undefined') ? activeChatUser : null;
+                        if (activeChat !== data.sender) {
+                            showToast(data.sender, data.message);
+                        }
+                    }
+
+                    if (data.type === "call_signal") {
+                        if (typeof handleCallSignal === "function") {
+                            handleCallSignal(data.data, data.sender);
+                        } else {
+                            console.error("Call interface not loaded");
+                        }
+                    }
+
+                } catch (err) { console.error("Socket Error:", err); }
+            };
+        }
+
+        function updateUserStatusUI(username, isOnline, lastSeenTime) {
+            const inboxRow = document.querySelector(`.user-row[data-username="${username}"]`);
+            if (inboxRow) {
+                const statusDiv = inboxRow.querySelector('.u-status');
+                if (statusDiv) {
+                    if (isOnline) {
+                        statusDiv.innerHTML = `<span style="color:#25D366">● Online</span>`;
+                    } else {
+                        statusDiv.innerText = `Last seen today at ${lastSeenTime}`;
+                    }
+                }
+            }
+
+            const chatHeaderName = document.getElementById("chat-header-name");
+            if (chatHeaderName && chatHeaderName.innerText === username) {
+                const statusText = document.getElementById("chat-header-status");
+                if (statusText) {
+                    if (isOnline) {
+                        statusText.innerText = "Active now";
+                        statusText.style.color = "#25D366";
+                    } else {
+                        statusText.innerText = `Last seen today at ${lastSeenTime}`;
+                        statusText.style.color = "gray";
+                    }
+                }
+            }
+        }
+
+        connectSocket();
+        {% endif %}
+        
+        // ==========================================
+        // BROWSER BACK BUTTON HANDLING
+        // ==========================================
+        const originalToggleInbox = window.toggleInbox;
+        window.toggleInbox = function(e) {
+            if (originalToggleInbox) originalToggleInbox(e);
+            
+            const inbox = document.getElementById('inbox-overlay');
+            if (inbox && inbox.style.display === 'flex') {
+                history.pushState({ modal: 'inbox' }, null, ""); 
+            }
+        };
+
+        const originalOpenChat = window.openChatPopup;
+        window.openChatPopup = async function(username, avatarUrl) {
+            if (originalOpenChat) await originalOpenChat(username, avatarUrl);
+            history.pushState({ modal: 'chat' }, null, "");
+        };
+
+        window.addEventListener('popstate', function(event) {
+            const inbox = document.getElementById('inbox-overlay');
+            const chat = document.getElementById('chat-overlay');
+            const search = document.getElementById('search-overlay'); // Also close search on back
+
+            if (chat && chat.style.display === 'flex') {
+                chat.style.display = 'none';
+                if (activeChatSocket) { activeChatSocket.close(); activeChatUser = null; }
+                if (inbox) inbox.style.display = 'flex';
+                return;
+            }
+
+            if (inbox && inbox.style.display === 'flex') {
+                inbox.style.display = 'none';
+                return;
+            }
+
+            if (search && search.style.display === 'flex') {
+                search.style.display = 'none';
+                return;
+            }
+        });
+    </script>
 </body>
 </html>

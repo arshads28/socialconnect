@@ -23,7 +23,7 @@
     .msg-bubble { 
         max-width: 70%; 
         padding: 10px 16px; 
-        border-radius: 22px; /* Super round pill shape */
+        border-radius: 22px; 
         font-size: 14px; 
         line-height: 1.4; 
         position: relative; 
@@ -33,9 +33,9 @@
     /* SENT: Instagram Gradient */
     .msg-sent { justify-content: flex-end; }
     .msg-sent .msg-bubble { 
-        background: linear-gradient(135deg, #962fbf, #4f5bd5); /* The Insta Gradient */
+        background: linear-gradient(135deg, #962fbf, #4f5bd5); 
         color: white; 
-        border-bottom-right-radius: 4px; /* Subtle visual anchor */
+        border-bottom-right-radius: 4px; 
     }
     
     /* RECEIVED: Light Grey */
@@ -52,35 +52,19 @@
     .msg-time { font-size: 10px; margin-right: 4px; }
     
     /* Ticks */
-        .tick { 
-            font-size: 11px; 
-            font-weight: bold; 
-            line-height: 1; 
-            display: inline-block; 
-            margin-left: 4px;
-        }
-        
-        /* 1. Sent (Single Tick) */
-        .tick.sent { color: rgba(255, 255, 255, 0.7); } /* Light White for Sent */
-        .tick.sent::after { content: '✓'; }
-    
-        /* 2. Delivered (Double Tick) */
-        .tick.delivered { color: rgba(255, 255, 255, 0.7); } /* Light White for Delivered */
-        .tick.delivered::after { content: '✓✓'; letter-spacing: -2px; }
-    
-        /* 3. Read (Double BLUE Tick) */
-        /* I used a brighter Cyan Blue so it pops against the Purple background */
-        .tick.read { color: #00ffff; text-shadow: 0 0 2px rgba(0,0,0,0.2); } 
-        .tick.read::after { content: '✓✓'; letter-spacing: -2px; }
+    .tick { font-size: 11px; font-weight: bold; line-height: 1; display: inline-block; margin-left: 4px; }
+    .tick.sent { color: rgba(255, 255, 255, 0.7); } .tick.sent::after { content: '✓'; }
+    .tick.delivered { color: rgba(255, 255, 255, 0.7); } .tick.delivered::after { content: '✓✓'; letter-spacing: -2px; }
+    .tick.read { color: #00ffff; text-shadow: 0 0 2px rgba(0,0,0,0.2); } .tick.read::after { content: '✓✓'; letter-spacing: -2px; }
 
     /* Input Area */
     .c-input { padding: 15px; display: flex; gap: 10px; align-items: center; background: #fff; }
     #popup-chat-input {
         flex: 1;
-        background: #efefef; /* Instagram grey input */
+        background: #efefef;
         border: none;
         padding: 12px 20px;
-        border-radius: 25px; /* Pill shape */
+        border-radius: 25px;
         outline: none;
         font-size: 14px;
     }
@@ -133,24 +117,15 @@
     let activeLoading = false;
     let typingTimer = null;
 
-    // --- HELPER: Generate Tick HTML ---
     function getTickHtml(isRead) {
-        // WhatsApp logic inside Instagram style bubble
-        // If read -> Double Tick. If not read -> Double Tick (Delivered).
-        // (Note: In a real app, you'd check 'is_delivered' too, here we simplify)
         const status = isRead ? 'read' : 'delivered';
         return `<span class="tick ${status}"></span>`;
     }
 
-    // --- HELPER: Generate Message Bubble HTML ---
     function createMsgHtml(msg) {
         const isMe = msg.sender === currentUserName;
         let tickContent = "";
-        
-        // Only show ticks on MY messages (sent by me)
-        if (isMe) {
-            tickContent = getTickHtml(msg.is_read);
-        }
+        if (isMe) tickContent = getTickHtml(msg.is_read);
 
         return `
             <div class="msg-row ${isMe ? 'msg-sent' : 'msg-received'}">
@@ -164,9 +139,18 @@
             </div>`;
     }
 
-    // 1. OPEN CHAT FUNCTION
+    // ============================================
+    // 1. OPEN CHAT FUNCTION (FIXED: CLOSES SEARCH)
+    // ============================================
     async function openChatPopup(username, avatarUrl) {
-        document.getElementById('inbox-overlay').style.display = 'none';
+        // CLOSE OTHER OVERLAYS FIRST
+        const searchOverlay = document.getElementById('search-overlay');
+        const inboxOverlay = document.getElementById('inbox-overlay');
+        
+        if(searchOverlay) searchOverlay.style.display = 'none';
+        if(inboxOverlay) inboxOverlay.style.display = 'none';
+
+        // OPEN CHAT
         document.getElementById('chat-overlay').style.display = 'flex';
         
         activeChatUser = username;
@@ -176,7 +160,6 @@
         document.getElementById('chat-typing-indicator').style.display = "none";
         document.getElementById('popup-chat-box').innerHTML = ""; 
         
-        // Avatar
         const imgContainer = document.getElementById('chat-header-img-container');
         if (avatarUrl && avatarUrl !== "null" && avatarUrl !== "undefined" && avatarUrl !== "") {
             imgContainer.innerHTML = `<img src="${avatarUrl}" class="chat-header-avatar">`;
@@ -189,14 +172,16 @@
 
         connectChatSocket(username);
         await loadPopupHistory(1);
+        
+        // Push state for back button
+        history.pushState({ modal: 'chat' }, null, "");
     }
 
     // 2. CLOSE CHAT
     function closeChatPopup() {
-        // Hide Chat
         document.getElementById('chat-overlay').style.display = 'none';
-        // SHOW INBOX AGAIN
-        document.getElementById('inbox-overlay').style.display = 'flex';
+        // Go back in history to revert pushState
+        history.back(); 
         if(activeChatSocket) activeChatSocket.close();
         activeChatUser = null;
     }
@@ -210,11 +195,10 @@
             const res = await fetch(`/chat/history/${activeChatUser}/?page=${page}`);
             const data = await res.json();
             
-            // Update Status
             if(page === 1 && data.user_data) {
                 const statusDiv = document.getElementById('chat-header-status');
                 statusDiv.innerText = data.user_data.status_text;
-                statusDiv.style.color = data.user_data.is_online ? "#8e8e8e" : "#8e8e8e"; // Instagram keeps status grey usually
+                statusDiv.style.color = data.user_data.is_online ? "#8e8e8e" : "#8e8e8e";
                 if(data.user_data.is_online) statusDiv.innerText = "Active now";
             }
 
@@ -248,14 +232,11 @@
         activeChatSocket.onmessage = (e) => {
             const data = JSON.parse(e.data);
 
-            // Typing
             if (data.type === "typing" && data.user !== currentUserName) {
                 const statusDiv = document.getElementById('chat-header-status');
                 const typingDiv = document.getElementById('chat-typing-indicator');
-                
                 statusDiv.style.display = "none";
                 typingDiv.style.display = "inline";
-                
                 clearTimeout(typingTimer);
                 typingTimer = setTimeout(() => {
                     typingDiv.style.display = "none";
@@ -264,7 +245,6 @@
                 return;
             }
 
-            // Read Receipt
             if (data.type === "message_read") {
                 if (data.reader !== currentUserName) {
                     const bubble = document.querySelector(`#msg-${data.message_id}`);
@@ -276,18 +256,11 @@
                 return;
             }
 
-            // New Message
             if (data.type === "chat_message") {
                 const box = document.getElementById('popup-chat-box');
-                
                 const msgObj = {
-                    id: data.id,
-                    message: data.message,
-                    timestamp: data.timestamp || "Now",
-                    sender: data.sender,
-                    is_read: false 
+                    id: data.id, message: data.message, timestamp: data.timestamp || "Now", sender: data.sender, is_read: false 
                 };
-
                 const html = createMsgHtml(msgObj);
                 box.insertAdjacentHTML('beforeend', html);
                 box.scrollTop = box.scrollHeight;
@@ -307,25 +280,19 @@
         const input = document.getElementById('popup-chat-input');
         const txt = input.value.trim();
         if(!txt || !activeChatSocket) return;
-        
         activeChatSocket.send(JSON.stringify({ message: txt }));
         input.value = "";
     }
     
     document.getElementById('popup-chat-input').addEventListener("keypress", function(e){
-        if(e.key === "Enter") {
-            sendPopupMessage();
-        } else {
-            if(activeChatSocket) activeChatSocket.send(JSON.stringify({ typing: true }));
-        }
+        if(e.key === "Enter") { sendPopupMessage(); } 
+        else { if(activeChatSocket) activeChatSocket.send(JSON.stringify({ typing: true })); }
     });
 
     // 6. CALL TRIGGER
     function triggerCall(mode) {
         if(activeChatUser && window.startGlobalCall) {
-            //Save the username locally BEFORE closing the popup
             const targetUser = activeChatUser;
-            //Close the popup (which sets activeChatUser to null)
             closeChatPopup(); 
             window.startGlobalCall(targetUser, mode);
         } else {
