@@ -27,14 +27,22 @@ def chat_history(request, username):
     
     paginator = Paginator(messages, 12)
     page_obj = paginator.get_page(page_number)
+    page_message = list(page_obj)
 
     # Mark these specific messages as read
     Message.objects.filter(
         sender__username=username, 
         receiver=user, 
         is_read=False,
-        id__in=[msg.id for msg in page_obj] 
+        id__in=[msg.id for msg in page_message] 
     ).update(is_read=True)
+
+    # deleting the message to save data base and privacy
+    Message.objects.filter(
+        Q(sender=user, receiver__username=username) |
+        Q(sender__username=username, receiver=user),
+        is_read=True
+    ).delete()
 
 
     data = [
@@ -45,7 +53,7 @@ def chat_history(request, username):
             "is_read": msg.is_read,
             "timestamp": msg.timestamp.strftime("%I:%M %p"), 
         }
-        for msg in reversed(page_obj.object_list)
+        for msg in reversed(page_message)
     ]
 
     # Return data + has_next flag so JS knows if it should keep scrolling
