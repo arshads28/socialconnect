@@ -12,3 +12,4 @@ django-ratelimit
 bleach
 uvicorn[standard]
 gunicorn
+whitenoise
