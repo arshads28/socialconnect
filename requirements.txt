@@ -1,6 +1,7 @@
 Django==6.*
 djangorestframework
-django-channels
+channels
+daphne
 channels-redis
 psycopg2-binary
 python-dotenv
@@ -13,3 +14,4 @@ bleach
 uvicorn[standard]
 gunicorn
 whitenoise
+dj-database-url
