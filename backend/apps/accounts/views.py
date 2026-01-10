@@ -3,6 +3,8 @@ from django.contrib.auth import login, authenticate, logout
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import UserCreationForm, AuthenticationForm
 
+import logging
+logger = logging.getLogger(__name__)
 
 from django import forms
 from django.contrib.auth import get_user_model
@@ -16,13 +18,13 @@ class CustomUserCreationForm(UserCreationForm):
         fields = ("username",)
 
 
-class CustomAuthenticationForm(AuthenticationForm):
-    username = forms.CharField(
-        widget=forms.TextInput(attrs={"placeholder": "Username"})
-    )
-    password = forms.CharField(
-        widget=forms.PasswordInput(attrs={"placeholder": "Password"})
-    )
+# class CustomAuthenticationForm(AuthenticationForm):
+#     username = forms.CharField(
+#         widget=forms.TextInput(attrs={"placeholder": "Username"})
+#     )
+#     password = forms.CharField(
+#         widget=forms.PasswordInput(attrs={"placeholder": "Password"})
+#     )
 
 
 def signup_view(request):
@@ -40,13 +42,13 @@ def signup_view(request):
 
 def login_view(request):
     if request.method == "POST":
-        form = CustomAuthenticationForm(request, data=request.POST)
+        form = AuthenticationForm(request, data=request.POST)
         if form.is_valid():
             user = form.get_user()
             login(request, user)
             return redirect("home")
     else:
-        form = CustomAuthenticationForm()
+        form = AuthenticationForm()
 
     return render(request, "auth/login.html", {"form": form})
 
@@ -81,9 +83,7 @@ class ProfileUpdateForm(forms.ModelForm):
 
 @login_required
 def profile_view(request):
-    return render(request, "profile/profile.html", {
-        "user_obj": request.user
-    })
+    return render(request, "profile/profile.html", {"user_obj": request.user})
 
 
 @login_required
@@ -91,11 +91,7 @@ def edit_profile_view(request):
     user = request.user
 
     if request.method == "POST":
-        form = ProfileUpdateForm(
-            request.POST,
-            request.FILES,
-            instance=user
-        )
+        form = ProfileUpdateForm(request.POST,request.FILES,instance=user)
         if form.is_valid():
             form.save()
             return redirect("profile")

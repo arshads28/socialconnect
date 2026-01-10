@@ -135,22 +135,30 @@ class OnlineStatusConsumer(AsyncWebsocketConsumer):
     async def connect(self):
         self.user = self.scope["user"]
         if self.user.is_authenticated:
-            # Join personal group (e.g. "user_45")
+            # 1. Join Personal Group (for notifications)
             self.group_name = f"user_{self.user.id}"
             await self.channel_layer.group_add(self.group_name, self.channel_name)
+
+            # 2. Join Global Status Group (To receive other people's online updates)
+            await self.channel_layer.group_add("status_updates", self.channel_name)
+
             await self.accept()
             
-            # Set Online
+            # 3. Set Online & Broadcast to everyone
             await self.update_user_status(True)
-            print(f"✅ Connected: {self.user.username}")
+            await self.broadcast_status(True)
         else:
             await self.close()
 
     async def disconnect(self, close_code):
         if self.user.is_authenticated:
+            # Leave groups
             await self.channel_layer.group_discard(self.group_name, self.channel_name)
-            # Set Offline
+            await self.channel_layer.group_discard("status_updates", self.channel_name)
+            
+            # 4. Set Offline & Broadcast
             await self.update_user_status(False)
+            await self.broadcast_status(False)
 
     async def receive(self, text_data):
         try:
@@ -180,6 +188,30 @@ class OnlineStatusConsumer(AsyncWebsocketConsumer):
 
         except Exception as e:
             print(f"❌ Error in OnlineStatusConsumer: {e}")
+
+
+    # HELPER: Broadcast Status to All 
+    async def broadcast_status(self, is_online):
+        timestamp = timezone.now().strftime("%I:%M %p") # e.g. "03:45 PM"
+        await self.channel_layer.group_send(
+            "status_updates",
+            {
+                "type": "user_status_event",
+                "username": self.user.username,
+                "is_online": is_online,
+                "last_seen": timestamp
+            }
+        )
+
+    # HANDLER: Send data to Frontend 
+    async def user_status_event(self, event):
+        # Send JSON to the websocket client
+        await self.send(text_data=json.dumps({
+            "type": "user_status",
+            "username": event["username"],
+            "is_online": event["is_online"],
+            "last_seen": event["last_seen"]
+        }))
 
     # HANDLERS
     async def webrtc_signal_message(self, event):

@@ -1,174 +1,142 @@
-{% extends "base.html" %}
-{% block content %}
-
 <style>
-    /* ============================
-       RESPONSIVE LIST STYLING
-       ============================ */
-    body { margin: 0; background-color: #fafafa; }
+    /* Popup Logic */
+    #inbox-overlay { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.5); z-index: 2000; justify-content: center; align-items: center; backdrop-filter: blur(2px); }
+    .inbox-modal { background: #fff; width: 100%; max-width: 500px; height: 80vh; border-radius: 12px; display: flex; flex-direction: column; overflow: hidden; animation: slideUp 0.3s ease; }
+    
+    @keyframes slideUp { from { transform: translateY(50px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
 
-    .user-list-container {
-        background-color: #fff;
-        display: flex;
-        flex-direction: column;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-        width: 100%;
-        height: 100vh; 
-        margin: 0;
-        border: none;
-    }
-
-    @media (min-width: 768px) {
-        .user-list-container {
-            max-width: 800px; 
-            height: 85vh; 
-            margin: 30px auto; 
-            border: 1px solid #dbdbdb;
-            border-radius: 8px; 
-            box-shadow: 0 4px 12px rgba(0,0,0,0.05); 
-        }
-    }
-
-    .list-header {
-        padding: 20px;
-        border-bottom: 1px solid #dbdbdb;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: #fff;
-        flex-shrink: 0;
-    }
-
-    /* Link Item Styling */
-    .user-item-link {
-        display: flex; 
-        align-items: center; 
-        padding: 15px 20px; 
-        border-bottom: 1px solid #f2f2f2; 
-        text-decoration: none; 
-        color: black;
-        transition: background-color 0.2s ease;
-        position: relative; /* For positioning checks if needed */
-    }
-
-    .user-item-link:hover {
-        background-color: #fafafa;
-    }
-
-    .profile-circle {
-        width: 50px; 
-        height: 50px; 
-        background-color: #f0f0f0; 
-        border-radius: 50%; 
-        display: flex; 
-        justify-content: center; 
-        align-items: center; 
-        margin-right: 15px; 
-        font-size: 24px;
-        border: 1px solid #dbdbdb;
-    }
-
-    /* ============================
-       NEW: BADGE STYLING
-       ============================ */
-    .unread-badge {
-        background-color: #25D366; /* WhatsApp Green */
-        color: white;
-        border-radius: 50%;
-        padding: 4px 8px; /* Slightly adjusted padding for better circle shape */
-        font-size: 12px;
-        font-weight: bold;
-        min-width: 18px; /* Ensure it stays circular-ish */
-        text-align: center;
-        margin-left: auto; /* Pushes it to the right */
-        margin-right: 10px; /* Space between badge and arrow */
-        display: inline-block;
-    }
-
+    .list-header { padding: 15px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; background: #fafafa; }
+    .user-row { display: flex; align-items: center; padding: 15px; border-bottom: 1px solid #f9f9f9; cursor: pointer; transition: 0.2s; }
+    .user-row:hover { background: #f0f0f0; }
+    
+    .u-avatar { width: 45px; height: 45px; border-radius: 50%; object-fit: cover; margin-right: 15px; border: 1px solid #eee; }
+    .u-avatar-placeholder { width: 45px; height: 45px; background: #ddd; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-right: 15px; font-size: 20px; }
+    
+    .u-badge { background: #25D366; color: white; padding: 2px 8px; border-radius: 10px; font-size: 11px; margin-left: auto; }
 </style>
 
-<div class="user-list-container">
-    <div class="list-header">
-        <h3 style="margin:0; font-size:18px; font-weight:600;">Messages</h3>
-    </div>
+<div id="inbox-overlay" onclick="closeInbox(event)">
+    <div class="inbox-modal">
+        <div class="list-header">
+            <h3>Messages</h3>
+            <button onclick="toggleInbox()" style="border:none; background:none; font-size:24px; cursor:pointer;">&times;</button>
+        </div>
+        
+        <div id="inbox-loading" style="display:none; text-align:center; padding:20px; color:#666;">
+            Refreshing...
+        </div>
 
-    <div id="user-list" style="overflow-y: auto; flex: 1;">
-        {% for user in chat_users %}
-            <a href="/chat/{{ user.username }}/" 
-               class="user-item-link" 
-               data-username="{{ user.username }}">
+        <div id="inbox-user-list" style="overflow-y: auto;">
+            {% for user in chat_users %}
+            <div class="user-row" onclick="openChatPopup('{{ user.username }}', '{% if user.avatar %}{{ user.avatar.url }}{% endif %}')" data-username="{{ user.username }}">
+                {% if user.avatar %}
+                    <img src="{{ user.avatar.url }}" class="u-avatar">
+                {% else %}
+                    <div class="u-avatar-placeholder">👤</div>
+                {% endif %}
                 
-                <div class="profile-circle">
-                    <span>👤</span>
+                <div>
+                    <div style="font-weight:600;">{{ user.username }}</div>
+                    <div class="u-status" style="font-size:12px; color:gray;">
+                        {% if user.is_online %}
+                            <span style="color:#25D366">● Online</span>
+                        {% else %}
+                            Offline
+                        {% endif %}
+                    </div>
                 </div>
-                
-                <div style="flex: 1;">
-                    <strong style="font-size: 16px; display: block; margin-bottom: 4px;">{{ user.username }}</strong>
-                    
-                    {% if user.is_online %}
-                        <span style="color: #25D366; font-size:13px; font-weight: 500;">● Online</span>
-                    {% else %}
-                        <span style="color:gray; font-size:13px;">{{ user.last_seen_formatted }}</span>
-                    {% endif %}
-                </div>
-
-                <span id="unread-badge-{{ user.username }}" 
-                      class="unread-badge" 
-                      style="{% if user.unread_count == 0 %}display:none;{% endif %}">
-                    {{ user.unread_count }}
-                </span>
-
-                <span style="color: #ccc; font-size: 20px;">›</span>
-            </a>
-        {% empty %}
-            <div style="padding:40px; text-align:center; color:gray;">
-                <p>No conversations yet.</p>
+                <span id="badge-{{ user.username }}" class="u-badge" style="{% if user.unread_count == 0 %}display:none;{% endif %}">{{ user.unread_count }}</span>
             </div>
-        {% endfor %}
+            {% empty %}
+                <div style="padding:20px; text-align:center; color:#999;">No messages yet.</div>
+            {% endfor %}
+        </div>
     </div>
 </div>
 
 <script>
-    // We do NOT open a new WebSocket here.
-    // We listen to the one running in base.html
-    
-    document.addEventListener('chatNotification', function(e) {
-        const data = e.detail; // This contains {sender: "...", message: "..."}
-        const sender = data.sender;
-
-        // 1. Find the badge for this specific sender
-        const badge = document.getElementById(`unread-badge-${sender}`);
+    function toggleInbox(e) {
+        if(e) e.preventDefault();
+        const el = document.getElementById('inbox-overlay');
         
-        if (badge) {
-            // 2. Get current number
-            // If text is empty or NaN, default to 0
-            let currentCount = parseInt(badge.innerText);
-            if (isNaN(currentCount)) currentCount = 0;
-            
-            // 3. Increment
-            let newCount = currentCount + 1;
-            
-            // 4. Update DOM
-            badge.innerText = newCount;
-            badge.style.display = "inline-block"; 
-            
-            // 5. Move User to Top of List
-            moveUserToTop(sender);
+        if (el.style.display === 'flex') {
+            el.style.display = 'none';
         } else {
-            console.log("Received message from a user not currently in the list:", sender);
-            // Optional: You could reload the page here to fetch the new user row
-            // window.location.reload(); 
-        }
-    });
-
-    function moveUserToTop(username) {
-        const listContainer = document.getElementById("user-list");
-        const userItem = document.querySelector(`a[data-username='${username}']`);
-        
-        if (listContainer && userItem) {
-            listContainer.prepend(userItem);
+            el.style.display = 'flex';
+            fetchInboxData(); 
         }
     }
-</script>
 
-{% endblock %}
+    function closeInbox(e) {
+        if (e.target.id === 'inbox-overlay') toggleInbox();
+    }
+    
+    async function fetchInboxData() {
+        const listContainer = document.getElementById('inbox-user-list'); 
+        const loader = document.getElementById('inbox-loading');
+        
+        if (!listContainer || !loader) return;
+
+        loader.style.display = 'block';
+        listContainer.style.opacity = '0.5';
+
+        try {
+            const response = await fetch('/chat/inbox/');
+            if (!response.ok) throw new Error("API Request Failed");
+            
+            const data = await response.json();
+            
+            let html = "";
+            if (!data.users || data.users.length === 0) {
+                html = '<div style="padding:20px; text-align:center; color:#999;">No messages yet.</div>';
+            } else {
+                data.users.forEach(user => {
+                    const statusHtml = user.is_online 
+                        ? `<span style="color:#25D366">● Online</span>` 
+                        : (user.status_text || "Offline");
+                        
+                    const badgeDisplay = user.unread_count > 0 ? 'block' : 'none';
+                    
+                    let avatarHtml = `<div class="u-avatar-placeholder">👤</div>`;
+                    const safeAvatarUrl = user.avatar_url ? user.avatar_url : "";
+                    
+                    if (user.avatar_url) {
+                        avatarHtml = `<img src="${user.avatar_url}" class="u-avatar">`;
+                    }
+
+                    // ADDED CLASS 'u-status' HERE AS WELL
+                    html += `
+                    <div class="user-row" onclick="openChatPopup('${user.username}', '${safeAvatarUrl}')" data-username="${user.username}">
+                        ${avatarHtml}
+                        <div>
+                            <div style="font-weight:600;">${user.username}</div>
+                            <div class="u-status" style="font-size:12px; color:gray;">${statusHtml}</div>
+                        </div>
+                        <span id="badge-${user.username}" class="u-badge" style="display:${badgeDisplay}">
+                            ${user.unread_count}
+                        </span>
+                    </div>`;
+                });
+            }
+            listContainer.innerHTML = html;
+
+        } catch (error) {
+            console.error("Error fetching inbox:", error);
+        } finally {
+            loader.style.display = 'none';
+            listContainer.style.opacity = '1';
+        }
+    }
+
+    document.addEventListener('chatNotification', function(e) {
+        const data = e.detail;
+        const badge = document.getElementById(`badge-${data.sender}`);
+        if(badge) {
+            badge.innerText = (parseInt(badge.innerText) || 0) + 1;
+            badge.style.display = 'block';
+            const list = document.getElementById('inbox-user-list');
+            const row = document.querySelector(`.user-row[data-username='${data.sender}']`);
+            if(list && row) list.prepend(row);
+        }
+    });
+</script>

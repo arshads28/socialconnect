@@ -12,7 +12,11 @@ User = get_user_model()
 @login_required
 def chat_history(request, username):
     user = request.user
-    page_number = request.GET.get('page', 1) # Get page number from URL
+    page_number = request.GET.get('page', 1)
+
+    other_user = get_object_or_404(User, username=username)
+
+    last_seen_text = get_last_seen_text(other_user)
 
 
     messages = Message.objects.filter(
@@ -20,11 +24,11 @@ def chat_history(request, username):
         Q(sender__username=username, receiver=user)
     ).order_by("-timestamp")
 
-    # 2. Paginate (12 messages per page)
+    
     paginator = Paginator(messages, 12)
     page_obj = paginator.get_page(page_number)
 
-    # 3. Mark these specific messages as read
+    # Mark these specific messages as read
     Message.objects.filter(
         sender__username=username, 
         receiver=user, 
@@ -32,7 +36,7 @@ def chat_history(request, username):
         id__in=[msg.id for msg in page_obj] 
     ).update(is_read=True)
 
-    # 4. Serialize data (Reverse them back to OLDER -> NEWER for display)
+
     data = [
         {   
             "id": msg.id,
@@ -47,7 +51,13 @@ def chat_history(request, username):
     # Return data + has_next flag so JS knows if it should keep scrolling
     return JsonResponse({
         "messages": data, 
-        "has_next": page_obj.has_next()
+        "has_next": page_obj.has_next(),
+        "user_data":{
+            "username": other_user.username,
+            "is_online":other_user.is_online,
+            "status_text":"Active now" if other_user.is_online else last_seen_text
+
+        }
     })
 
 
@@ -119,7 +129,6 @@ def unread_messages(request):
 def inbox_view(request):
     user = request.user
 
-    # Get latest message per conversation (Your existing logic)
     conversations = (
         Message.objects
         .filter(Q(sender=user) | Q(receiver=user))
@@ -135,13 +144,54 @@ def inbox_view(request):
         other_id = convo["receiver"] if convo["sender"] == user.id else convo["sender"]
         if other_id not in seen:
             seen.add(other_id)
-            other_user_obj = User.objects.get(id=other_id)
-            
-            # ATTACH FORMATTED TEXT TO USER OBJECT TEMPORARILY
-            other_user_obj.last_seen_formatted = get_last_seen_text(other_user_obj)
-            
-            chat_users.append(other_user_obj)
+            try:
+                other_user_obj = User.objects.get(id=other_id)
+                
+                # Format status text
+                status_text = "Offline"
+                is_online = False
+                if hasattr(other_user_obj, 'is_online') and other_user_obj.is_online:
+                    status_text = "Online"
+                    is_online = True
+                else:
+                    status_text = get_last_seen_text(other_user_obj)
 
-    return render(request, "chat/inbox.html", {
-        "chat_users": chat_users
-    })
+                unread = get_unread_count(user)
+
+                chat_users.append({
+                    "id": str(other_user_obj.id), 
+                    "username": other_user_obj.username,
+                    "avatar_url": other_user_obj.avatar.url if other_user_obj.avatar else None,
+                    "is_online": is_online,
+                    "status_text": status_text,
+                    "unread_count": unread,
+                })
+            except User.DoesNotExist:
+                continue
+
+    return JsonResponse({"users": chat_users})
+
+
+def search_user(request):
+    query = request.GET.get('q', '')
+    data = []
+
+    if query:
+       
+        users = User.objects.filter(
+            username__icontains=query
+        ).exclude(id=request.user.id)[:20] 
+        
+        
+        for u in users:
+            avatar_url = ""
+            if hasattr(u, 'profile') and u.profile.image:
+                avatar_url = u.profile.image.url
+                
+            data.append({
+                "username": u.username,
+                "avatar_url": avatar_url,
+                "bio": u.profile.bio[:40] + "..." if hasattr(u, 'profile') and u.profile.bio else ""
+            })
+
+    return JsonResponse({"results": data})

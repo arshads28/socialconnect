@@ -7,7 +7,6 @@ from django.contrib.postgres.fields import ArrayField  # Requires PostgreSQL
 class User(AbstractUser):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    email = models.EmailField(_('email address'), unique=True)
     avatar = models.ImageField(upload_to='avatars/', blank=True, null=True)
     bio = models.TextField(max_length=200, blank=True)
     interests = models.TextField(max_length=200, blank=True)

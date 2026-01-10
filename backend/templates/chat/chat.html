@@ -1,317 +1,310 @@
-{% extends "base.html" %}
-{% block content %}
-
 <style>
     /* ============================
-       INSTAGRAM STYLE CSS
+       INSTAGRAM DM STYLES
        ============================ */
-    body { margin: 0; background-color: #fafafa; }
+    
+    /* Overlay & Window */
+    #chat-overlay { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.6); z-index: 2001; justify-content: center; align-items: center; backdrop-filter: blur(4px); }
+    .chat-window { background: #fff; width: 100%; max-width: 450px; height: 85vh; border-radius: 15px; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 20px 50px rgba(0,0,0,0.2); border: 1px solid #dbdbdb; }
+    
+    /* Header */
+    .c-header { padding: 15px; border-bottom: 1px solid #dbdbdb; display: flex; align-items: center; justify-content: space-between; background: #fff; height: 60px; }
+    .chat-header-avatar { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; margin-right: 12px; border: 1px solid #dbdbdb; }
+    .chat-header-placeholder { width: 32px; height: 32px; background: #fafafa; border-radius: 50%; margin-right: 12px; display: flex; justify-content: center; align-items: center; font-size: 16px; border: 1px solid #dbdbdb; }
+    
+    /* Messages Area */
+    .c-messages { flex: 1; overflow-y: auto; padding: 20px 15px; background: #fff; display: flex; flex-direction: column; gap: 2px; }
+    
+    /* Message Rows */
+    .msg-row { display: flex; width: 100%; margin-bottom: 4px; animation: fadeIn 0.2s ease; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
 
-    .chat-container {
-        background: #fff;
-        display: flex;
-        flex-direction: column;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    /* BUBBLES */
+    .msg-bubble { 
+        max-width: 70%; 
+        padding: 10px 16px; 
+        border-radius: 22px; 
+        font-size: 14px; 
+        line-height: 1.4; 
+        position: relative; 
+        word-wrap: break-word; 
     }
 
-    @media (min-width: 768px) {
-        .chat-container {
-            max-width: 600px;
-            height: 85vh;
-            margin: 30px auto;
-            border: 1px solid #dbdbdb;
-            border-radius: 8px;
-            box-shadow: 0 1px 2px rgba(0,0,0,0.1);
-        }
+    /* SENT: Instagram Gradient */
+    .msg-sent { justify-content: flex-end; }
+    .msg-sent .msg-bubble { 
+        background: linear-gradient(135deg, #962fbf, #4f5bd5); 
+        color: white; 
+        border-bottom-right-radius: 4px; 
     }
-
-    @media (max-width: 767px) {
-        .chat-container {
-            width: 100%;
-            height: 100vh;
-            border: none;
-            margin: 0;
-        }
+    
+    /* RECEIVED: Light Grey */
+    .msg-received { justify-content: flex-start; }
+    .msg-received .msg-bubble { 
+        background: #efefef; 
+        color: #262626; 
+        border: 1px solid #efefef;
+        border-bottom-left-radius: 4px; 
     }
+    
+    /* Footer & Ticks */
+    .msg-footer { display: flex; justify-content: flex-end; align-items: center; margin-top: 4px; opacity: 0.7; }
+    .msg-time { font-size: 10px; margin-right: 4px; }
+    
+    /* Ticks */
+    .tick { font-size: 11px; font-weight: bold; line-height: 1; display: inline-block; margin-left: 4px; }
+    .tick.sent { color: rgba(255, 255, 255, 0.7); } .tick.sent::after { content: '✓'; }
+    .tick.delivered { color: rgba(255, 255, 255, 0.7); } .tick.delivered::after { content: '✓✓'; letter-spacing: -2px; }
+    .tick.read { color: #00ffff; text-shadow: 0 0 2px rgba(0,0,0,0.2); } .tick.read::after { content: '✓✓'; letter-spacing: -2px; }
 
-    /* Fixed Header Layout */
-    .chat-header {
-        height: 60px;
-        padding: 0 15px;
-        border-bottom: 1px solid #efefef;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        flex-shrink: 0;
-        background: #fff;
-        border-radius: 8px 8px 0 0;
-    }
-
-    .header-user-info { display: flex; align-items: center; }
-
-    #chat-box {
+    /* Input Area */
+    .c-input { padding: 15px; display: flex; gap: 10px; align-items: center; background: #fff; }
+    #popup-chat-input {
         flex: 1;
-        overflow-y: auto;
-        padding: 20px;
-        background-color: #fff;
-        display: flex;
-        flex-direction: column;
+        background: #efefef;
+        border: none;
+        padding: 12px 20px;
+        border-radius: 25px;
+        outline: none;
+        font-size: 14px;
     }
-    
-    #chat-box::-webkit-scrollbar { width: 6px; }
-    #chat-box::-webkit-scrollbar-thumb { background-color: #cccccc; border-radius: 4px; }
+    #popup-chat-input::placeholder { color: #8e8e8e; }
 
-    /* Bubbles */
-    .msg-row { width: 100%; display: flex; margin-bottom: 8px; }
-
-    .bubble {
-        padding: 10px 14px; border-radius: 22px; font-size: 14px;
-        line-height: 1.4; max-width: 70%; word-wrap: break-word;
-        position: relative; display: flex; flex-direction: column;
-    }
-
-    .sent-row { justify-content: flex-end; }
-    .sent-bubble {
-        background: linear-gradient(90deg, #962fbf, #4f5bd5);
-        color: white; border-bottom-right-radius: 4px;
-    }
-
-    .received-row { justify-content: flex-start; }
-    .received-bubble {
-        background-color: #efefef; color: #262626;
-        border: 1px solid #efefef; border-bottom-left-radius: 4px;
-    }
-
-    /* Timestamp & Ticks */
-    .msg-footer {
-        font-size: 10px; margin-top: 4px; align-self: flex-end;
-        display: flex; align-items: center; opacity: 0.8;
-    }
-    
-    .sent-bubble .msg-footer { color: #e0e0e0; }
-    .received-bubble .msg-footer { color: #8e8e8e; }
-
-    /* Tick Styling */
-    .tick { font-size: 14px; margin-left: 3px; font-weight: bold; line-height: 10px; }
-    .tick.read { color: #4fc3f7; }
-    .tick.delivered { color: #e0e0e0; }
-
-    .input-area {
-        padding: 15px; border-top: 1px solid #efefef;
-        display: flex; align-items: center;
-        background: #fff; border-radius: 0 0 8px 8px;
-    }
-
-    .input-wrapper {
-        flex: 1; border: 1px solid #dbdbdb; border-radius: 22px;
-        padding: 8px 15px; display: flex; align-items: center; background: #fff;
-    }
+    /* Typing Text */
+    @keyframes blink { 50% { opacity: 0; } }
+    .typing-text { color: #8e8e8e; font-size: 12px; margin-left: 5px; animation: blink 1s infinite; }
 </style>
 
-<div class="chat-container">
-    <div class="chat-header">
-        <div class="header-user-info">
-            <div style="width: 32px; height: 32px; border-radius: 50%; background: #dbdbdb; margin-right: 10px; display: flex; align-items: center; justify-content: center; overflow: hidden;">
-                 <svg aria-label="Profile" color="#fff" fill="#fff" height="24" viewBox="0 0 48 48" width="24"><path d="M24 0C10.7 0 0 10.7 0 24s10.7 24 24 24 24-10.7 24-24S37.3 0 24 0zm0 7.2c4.1 0 7.4 3.3 7.4 7.4 0 4.1-3.3 7.4-7.4 7.4-4.1 0-7.4-3.3-7.4-7.4 0-4.1 3.3-7.4 7.4-7.4zm0 33.6c-5.3 0-10-2.3-13.2-5.9 1-5.1 5.5-9 10.8-9h4.8c5.3 0 9.8 3.8 10.8 9-3.2 3.6-7.9 5.9-13.2 5.9z"></path></svg>
+<div id="chat-overlay">
+    <div class="chat-window">
+        <div class="c-header">
+            <div style="display:flex; align-items:center;">
+                <button onclick="closeChatPopup()" style="border:none; background:none; font-size:24px; margin-right:15px; cursor:pointer; color:#262626;">&larr;</button>
+                
+                <div id="chat-header-img-container">
+                    <div class="chat-header-placeholder">👤</div>
+                </div>
+
+                <div>
+                    <div id="chat-header-name" style="font-weight:600; font-size:16px; color:#262626;">User</div>
+                    <div id="chat-status-wrapper" style="font-size:12px;">
+                        <span id="chat-header-status" style="color:#8e8e8e;">Connecting...</span>
+                        <span id="chat-typing-indicator" class="typing-text" style="display:none;">typing...</span>
+                    </div>
+                </div>
             </div>
-            
-            <div style="display: flex; flex-direction: column;">
-                <strong style="font-size: 16px;">{{ other_user.username }}</strong>
-                <span id="user-status" style="font-size:12px; color:#8e8e8e; height: 14px;">
-                    {% if other_user.is_online %}
-                        <span style="color: #25D366; font-weight: 500;">Active now</span>
-                    {% else %}
-                        {{ last_seen_text }}
-                    {% endif %}
-                </span>
-                <span id="typing-indicator" style="font-size:12px; color:#8e8e8e; display:none;">typing...</span>
+            <div style="display:flex; gap:15px;">
+                <button onclick="triggerCall('audio')" style="border:none; background:none; font-size:22px; cursor:pointer;">📞</button>
+                <button onclick="triggerCall('video')" style="border:none; background:none; font-size:24px; cursor:pointer;">📹</button>
             </div>
         </div>
 
-        <div style="display: flex; gap: 15px;">
-            <button onclick="initiateCall('audio')" title="Voice Call" style="background:none; border:none; cursor:pointer; font-size:22px;">📞</button>
-            <button onclick="initiateCall('video')" title="Video Call" style="background:none; border:none; cursor:pointer; font-size:24px;">📹</button>
-        </div>
-    </div>
+        <div id="popup-chat-box" class="c-messages"></div>
 
-    <div id="chat-box"></div>
-
-    <div class="input-area">
-        <div class="input-wrapper">
-            <span style="font-size: 20px; margin-right: 8px; cursor: pointer;">😊</span>
-            <input id="msg-input" style="flex:1; border:none; outline:none; font-size: 14px;" placeholder="Message..." autocomplete="off">
-            <button id="send-btn" style="background:none; border:none; color:#0095f6; font-weight:600; cursor:pointer; font-size:14px;">Send</button>
+        <div class="c-input">
+            <input type="text" id="popup-chat-input" placeholder="Message..." autocomplete="off">
+            <button onclick="sendPopupMessage()" style="border:none; background:none; color:#0095f6; font-weight:600; cursor:pointer; font-size:14px;">Send</button>
         </div>
     </div>
 </div>
 
 <script>
-// --- GLOBAL VARS ---
-const otherUser = "{{ other_user.username }}"; 
-// We use currentUserName from base.html to avoid redefining it
-const chatBox = document.getElementById("chat-box");
-const typingIndicator = document.getElementById("typing-indicator");
-const statusSpan = document.getElementById("user-status"); 
-const input = document.getElementById("msg-input");
-const sendBtn = document.getElementById("send-btn");
+    // Variables for the Active Chat
+    let activeChatUser = null;
+    let activeChatSocket = null;
+    let activePage = 1;
+    let activeHasNext = true;
+    let activeLoading = false;
+    let typingTimer = null;
 
-let currentPage = 1;
-let hasNextPage = true;
-let isLoading = false;
+    function getTickHtml(isRead) {
+        const status = isRead ? 'read' : 'delivered';
+        return `<span class="tick ${status}"></span>`;
+    }
 
-// =======================
-// HELPER FUNCTIONS
-// =======================
-function getTickIcon(isRead) {
-    if (isRead) return '<span class="tick read">✓✓</span>';
-    return '<span class="tick delivered">✓✓</span>';
-}
+    function createMsgHtml(msg) {
+        const isMe = msg.sender === currentUserName;
+        let tickContent = "";
+        if (isMe) tickContent = getTickHtml(msg.is_read);
 
-function createMessageHTML(msg) {
-    // FIX: Use currentUserName (from base.html)
-    const isMe = msg.sender === currentUserName;
-    const tickHtml = isMe ? getTickIcon(msg.is_read) : "";
-    return `
-        <div class="msg-row ${isMe ? 'sent-row' : 'received-row'}">
-            <div id="msg-${msg.id}" class="bubble ${isMe ? 'sent-bubble' : 'received-bubble'}">
-                <span>${msg.message}</span>
-                <div class="msg-footer">
-                    <span>${msg.timestamp}</span>
-                    ${tickHtml}
+        return `
+            <div class="msg-row ${isMe ? 'msg-sent' : 'msg-received'}">
+                <div class="msg-bubble" id="msg-${msg.id}">
+                    <span>${msg.message}</span>
+                    <div class="msg-footer">
+                        <span class="msg-time">${msg.timestamp}</span>
+                        ${tickContent}
+                    </div>
                 </div>
-            </div>
-        </div>
-    `;
-}
-
-// =======================
-// LOAD HISTORY
-// =======================
-async function loadChatHistory(page = 1) {
-    if (isLoading || !hasNextPage) return;
-    isLoading = true;
-
-    try {
-        const response = await fetch(`/chat/history/${otherUser}/?page=${page}`);
-        const data = await response.json();
-        hasNextPage = data.has_next;
-
-        let html = "";
-        data.messages.forEach(msg => { html += createMessageHTML(msg); });
-
-        if (page === 1) {
-            chatBox.innerHTML = html;
-            chatBox.scrollTop = chatBox.scrollHeight;
-        } else {
-            const oldScrollHeight = chatBox.scrollHeight;
-            chatBox.insertAdjacentHTML('afterbegin', html);
-            chatBox.scrollTop = chatBox.scrollHeight - oldScrollHeight;
-        }
-    } catch (err) {
-        console.error("Failed to load chat", err);
-    } finally {
-        isLoading = false;
+            </div>`;
     }
-}
-loadChatHistory(1);
 
-chatBox.addEventListener('scroll', () => {
-    if (chatBox.scrollTop === 0 && !isLoading && hasNextPage) {
-        currentPage++;
-        loadChatHistory(currentPage);
-    }
-});
-
-// =======================
-// WEBSOCKET LOGIC
-// =======================
-const protocol = window.location.protocol === "https:" ? "wss://" : "ws://";
-const socket = new WebSocket(protocol + window.location.host + "/ws/chat/" + otherUser + "/");
-
-socket.onmessage = (e) => {
-    const data = JSON.parse(e.data);
-
-    // 1. TYPING
-    if (data.type === "typing" && data.user !== currentUserName) {
-        if (statusSpan) statusSpan.style.display = "none";
-        typingIndicator.style.display = "block";
-        typingIndicator.innerText = "typing...";
+    // ============================================
+    // 1. OPEN CHAT FUNCTION (FIXED: CLOSES SEARCH)
+    // ============================================
+    async function openChatPopup(username, avatarUrl) {
+        // CLOSE OTHER OVERLAYS FIRST
+        const searchOverlay = document.getElementById('search-overlay');
+        const inboxOverlay = document.getElementById('inbox-overlay');
         
-        clearTimeout(window.typingTimer);
-        window.typingTimer = setTimeout(() => {
-            typingIndicator.style.display = "none";
-            if (statusSpan) statusSpan.style.display = "block";
-        }, 1500);
-        return;
+        if(searchOverlay) searchOverlay.style.display = 'none';
+        if(inboxOverlay) inboxOverlay.style.display = 'none';
+
+        // OPEN CHAT
+        document.getElementById('chat-overlay').style.display = 'flex';
+        
+        activeChatUser = username;
+        document.getElementById('chat-header-name').innerText = username;
+        document.getElementById('chat-header-status').innerText = "Updating...";
+        document.getElementById('chat-header-status').style.display = "inline";
+        document.getElementById('chat-typing-indicator').style.display = "none";
+        document.getElementById('popup-chat-box').innerHTML = ""; 
+        
+        const imgContainer = document.getElementById('chat-header-img-container');
+        if (avatarUrl && avatarUrl !== "null" && avatarUrl !== "undefined" && avatarUrl !== "") {
+            imgContainer.innerHTML = `<img src="${avatarUrl}" class="chat-header-avatar">`;
+        } else {
+            imgContainer.innerHTML = `<div class="chat-header-placeholder">👤</div>`;
+        }
+        
+        activePage = 1;
+        activeHasNext = true;
+
+        connectChatSocket(username);
+        await loadPopupHistory(1);
+        
+        // Push state for back button
+        history.pushState({ modal: 'chat' }, null, "");
     }
-    
-    // 2. READ RECEIPT
-    if (data.type === "message_read") {
-        if (data.reader !== currentUserName) {
-            const bubble = document.getElementById(`msg-${data.message_id}`);
-            if (bubble) {
-                const tick = bubble.querySelector(".tick");
-                if (tick) {
-                    tick.classList.remove("delivered");
-                    tick.classList.add("read");
+
+    // 2. CLOSE CHAT
+    function closeChatPopup() {
+        document.getElementById('chat-overlay').style.display = 'none';
+        // Go back in history to revert pushState
+        history.back(); 
+        if(activeChatSocket) activeChatSocket.close();
+        activeChatUser = null;
+    }
+
+    // 3. LOAD HISTORY
+    async function loadPopupHistory(page) {
+        if(activeLoading || !activeHasNext) return;
+        activeLoading = true;
+        
+        try {
+            const res = await fetch(`/chat/history/${activeChatUser}/?page=${page}`);
+            const data = await res.json();
+            
+            if(page === 1 && data.user_data) {
+                const statusDiv = document.getElementById('chat-header-status');
+                statusDiv.innerText = data.user_data.status_text;
+                statusDiv.style.color = data.user_data.is_online ? "#8e8e8e" : "#8e8e8e";
+                if(data.user_data.is_online) statusDiv.innerText = "Active now";
+            }
+
+            activeHasNext = data.has_next;
+            
+            const box = document.getElementById('popup-chat-box');
+            let html = "";
+            data.messages.forEach(msg => {
+                html += createMsgHtml(msg);
+            });
+            
+            if(page === 1) {
+                box.innerHTML = html;
+                box.scrollTop = box.scrollHeight;
+            } else {
+                const oldH = box.scrollHeight;
+                box.insertAdjacentHTML('afterbegin', html);
+                box.scrollTop = box.scrollHeight - oldH;
+            }
+
+        } catch(e) { console.error(e); }
+        finally { activeLoading = false; }
+    }
+
+    // 4. WEBSOCKET LOGIC
+    function connectChatSocket(username) {
+        if(activeChatSocket) activeChatSocket.close();
+        const protocol = window.location.protocol === "https:" ? "wss://" : "ws://";
+        activeChatSocket = new WebSocket(protocol + window.location.host + "/ws/chat/" + username + "/");
+
+        activeChatSocket.onmessage = (e) => {
+            const data = JSON.parse(e.data);
+
+            if (data.type === "typing" && data.user !== currentUserName) {
+                const statusDiv = document.getElementById('chat-header-status');
+                const typingDiv = document.getElementById('chat-typing-indicator');
+                statusDiv.style.display = "none";
+                typingDiv.style.display = "inline";
+                clearTimeout(typingTimer);
+                typingTimer = setTimeout(() => {
+                    typingDiv.style.display = "none";
+                    statusDiv.style.display = "inline";
+                }, 1500);
+                return;
+            }
+
+            if (data.type === "message_read") {
+                if (data.reader !== currentUserName) {
+                    const bubble = document.querySelector(`#msg-${data.message_id}`);
+                    if (bubble) {
+                        const tick = bubble.querySelector(".tick");
+                        if (tick) tick.className = "tick read";
+                    }
+                }
+                return;
+            }
+
+            if (data.type === "chat_message") {
+                const box = document.getElementById('popup-chat-box');
+                const msgObj = {
+                    id: data.id, message: data.message, timestamp: data.timestamp || "Now", sender: data.sender, is_read: false 
+                };
+                const html = createMsgHtml(msgObj);
+                box.insertAdjacentHTML('beforeend', html);
+                box.scrollTop = box.scrollHeight;
+
+                if (data.sender !== currentUserName) {
+                    activeChatSocket.send(JSON.stringify({
+                        command: "read_receipt",
+                        message_id: data.id
+                    }));
                 }
             }
-        }
-        return;
-    }
-
-    // 3. NEW MESSAGE
-    if (data.type === "chat_message") {
-        const msgObj = {
-            id: data.id,
-            sender: data.sender,
-            message: data.message,
-            timestamp: data.timestamp, 
-            is_read: false 
         };
+    }
 
-        const div = document.createElement("div");
-        div.innerHTML = createMessageHTML(msgObj);
-        chatBox.appendChild(div.firstElementChild);
-        chatBox.scrollTop = chatBox.scrollHeight;
+    // 5. SEND MESSAGE
+    function sendPopupMessage() {
+        const input = document.getElementById('popup-chat-input');
+        const txt = input.value.trim();
+        if(!txt || !activeChatSocket) return;
+        activeChatSocket.send(JSON.stringify({ message: txt }));
+        input.value = "";
+    }
+    
+    document.getElementById('popup-chat-input').addEventListener("keypress", function(e){
+        if(e.key === "Enter") { sendPopupMessage(); } 
+        else { if(activeChatSocket) activeChatSocket.send(JSON.stringify({ typing: true })); }
+    });
 
-        // Send Read Receipt if msg is from other user
-        if (data.sender !== currentUserName) {
-            socket.send(JSON.stringify({
-                command: "read_receipt",
-                message_id: data.id
-            }));
+    // 6. CALL TRIGGER
+    function triggerCall(mode) {
+        if(activeChatUser && window.startGlobalCall) {
+            const targetUser = activeChatUser;
+            closeChatPopup(); 
+            window.startGlobalCall(targetUser, mode);
+        } else {
+            alert("Call system initializing...");
         }
     }
-};
 
-// =======================
-// SEND MESSAGE
-// =======================
-function sendMessage() {
-    const message = input.value.trim();
-    if (!message) return;
-    socket.send(JSON.stringify({ message: message }));
-    input.value = "";
-}
-
-sendBtn.onclick = sendMessage;
-
-input.addEventListener("keypress", (e) => {
-    if (e.key === "Enter") sendMessage();
-    else socket.send(JSON.stringify({ typing: true }));
-});
-
-// =======================
-// CALL LOGIC
-// =======================
-function initiateCall(callType) {
-    if (typeof window.startGlobalCall === "function") {
-        window.startGlobalCall(otherUser, callType);
-    } else {
-        alert("System loading...");
-    }
-}
+    // Infinite Scroll
+    document.getElementById('popup-chat-box').addEventListener('scroll', function() {
+        if(this.scrollTop === 0 && activeHasNext) {
+            activePage++;
+            loadPopupHistory(activePage);
+        }
+    });
 </script>
-
-{% endblock %}
