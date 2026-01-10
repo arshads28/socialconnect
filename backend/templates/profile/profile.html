@@ -1,23 +1,114 @@
-{% extends "base.html" %}
+<style>
+    #profile-overlay { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.6); z-index: 3000; justify-content: center; align-items: center; backdrop-filter: blur(4px); }
+    .profile-modal { background: #fff; width: 100%; max-width: 450px; border-radius: 24px; padding: 30px; position: relative; display: flex; flex-direction: column; align-items: center; text-align: center; animation: popIn 0.3s ease; }
+    @keyframes popIn { from { transform: scale(0.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 
-{% block title %}My Profile{% endblock %}
+    /* Close Button */
+    .btn-close-modal { position: absolute; top: 20px; right: 20px; border: none; background: none; font-size: 24px; cursor: pointer; color: #767676; }
 
-{% block content %}
-<div style="width:500px; background:#fff; border:1px solid #dbdbdb; padding:20px;">
+    /* Elements */
+    #p-overlay-avatar { width: 100px; height: 100px; border-radius: 50%; object-fit: cover; background: #eee; margin-bottom: 15px; border: 1px solid #dbdbdb; }
+    #p-overlay-username { font-size: 24px; font-weight: 700; margin-bottom: 5px; }
+    #p-overlay-email { font-size: 14px; color: #767676; margin-bottom: 20px; }
+    #p-overlay-bio { font-size: 15px; line-height: 1.5; color: #111; margin-bottom: 20px; max-width: 90%; }
+    
+    .p-tag { background: #efefef; padding: 8px 16px; border-radius: 20px; font-size: 13px; color: #333; display: inline-block; margin-bottom: 25px; font-weight: 600; }
 
-    <h2>{{ user_obj.username }}</h2>
+    /* Action Buttons */
+    .p-actions { display: flex; gap: 10px; width: 100%; justify-content: center; }
+    .p-btn { flex: 1; max-width: 140px; padding: 12px; border-radius: 25px; font-weight: 600; cursor: pointer; border: none; font-size: 15px; }
+    
+    .p-btn-msg { background: var(--primary); color: white; }
+    .p-btn-edit { background: #efefef; color: #111; }
+    .p-btn:hover { opacity: 0.9; transform: translateY(-1px); transition: 0.2s; }
+</style>
 
-    {% if user_obj.avatar %}
-        <img src="{{ user_obj.avatar.url }}"
-             style="width:100px;height:100px;border-radius:50%;">
-    {% else %}
-        <div style="width:100px;height:100px;border-radius:50%;background:#ccc;"></div>
-    {% endif %}
+<div id="profile-overlay" onclick="closeProfileOverlay(event)">
+    <div class="profile-modal">
+        <button class="btn-close-modal" onclick="toggleProfileOverlay()">&times;</button>
+        
+        <img id="p-overlay-avatar" src="" alt="">
+        
+        <div id="p-overlay-username"></div>
+        <div id="p-overlay-email"></div>
+        
+        <div id="p-overlay-bio"></div>
+        
+        <div id="p-overlay-interests" class="p-tag" style="display:none;"></div>
 
-    <p><strong>Email:</strong> {{ user_obj.email }}</p>
-    <p><strong>Bio:</strong> {{ user_obj.bio|default:"No bio yet" }}</p>
-    <p><strong>Interests:</strong> {{ user_obj.interests|default:"Not specified" }}</p>
-
-    <a href="/auth/profile/edit/">Edit Profile</a>
+        <div class="p-actions" id="p-actions-container">
+            </div>
+    </div>
 </div>
-{% endblock %}
+
+<script>
+    function toggleProfileOverlay() {
+        const el = document.getElementById('profile-overlay');
+        el.style.display = (el.style.display === 'flex') ? 'none' : 'flex';
+        // Clear history state if closing
+        if (el.style.display === 'none') history.back();
+    }
+
+    function closeProfileOverlay(e) {
+        if (e.target.id === 'profile-overlay') toggleProfileOverlay();
+    }
+
+    async function openProfile(username) {
+        // 1. Close other overlays
+        const search = document.getElementById('search-overlay');
+        const inbox = document.getElementById('inbox-overlay');
+        if (search) search.style.display = 'none';
+        if (inbox) inbox.style.display = 'none';
+
+        // 2. Show Loader / Clear Data
+        const el = document.getElementById('profile-overlay');
+        el.style.display = 'flex';
+        
+        document.getElementById('p-overlay-username').innerText = "Loading...";
+        document.getElementById('p-overlay-bio').innerText = "";
+        document.getElementById('p-overlay-avatar').src = "";
+        document.getElementById('p-actions-container').innerHTML = "";
+
+        // 3. Fetch Data
+        try {
+            const res = await fetch(`/auth/api/profile/${username}/`);
+            if(!res.ok) throw new Error("User not found");
+            
+            const data = await res.json();
+
+            // 4. Populate UI
+            document.getElementById('p-overlay-username').innerText = data.username;
+            document.getElementById('p-overlay-email').innerText = data.email;
+            document.getElementById('p-overlay-bio').innerText = data.bio || "No bio yet.";
+            
+            if (data.avatar_url) {
+                document.getElementById('p-overlay-avatar').src = data.avatar_url;
+            } else {
+                // Placeholder logic if you have a placeholder image
+                document.getElementById('p-overlay-avatar').src = "https://via.placeholder.com/100"; 
+            }
+
+            if (data.interests) {
+                const tag = document.getElementById('p-overlay-interests');
+                tag.innerText = data.interests;
+                tag.style.display = "inline-block";
+            } else {
+                document.getElementById('p-overlay-interests').style.display = "none";
+            }
+
+            // 5. Setup Buttons
+            const actions = document.getElementById('p-actions-container');
+            if (data.is_own_profile) {
+                actions.innerHTML = `<button class="p-btn p-btn-edit" onclick="openEditProfile()">Edit Profile</button>`;
+            } else {
+                actions.innerHTML = `<button class="p-btn p-btn-msg" onclick="openChatPopup('${data.username}', '${data.avatar_url}')">Message</button>`;
+            }
+
+            history.pushState({ modal: 'profile' }, null, "");
+
+        } catch (err) {
+            console.error(err);
+            document.getElementById('p-overlay-username').innerText = "Error loading profile.";
+        }
+    }
+</script>
