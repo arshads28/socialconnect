@@ -166,27 +166,47 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # S3 STORAGE SETTINGS
 if os.getenv('AWS_ACCESS_KEY_ID'):
+    # 1. Credentials
     AWS_ACCESS_KEY_ID = os.getenv('AWS_ACCESS_KEY_ID')
     AWS_SECRET_ACCESS_KEY = os.getenv('AWS_SECRET_ACCESS_KEY')
     AWS_STORAGE_BUCKET_NAME = os.getenv('AWS_STORAGE_BUCKET_NAME')
-    
     AWS_S3_ENDPOINT_URL = os.getenv('AWS_S3_ENDPOINT_URL')
-    
-    AWS_S3_OBJECT_PARAMETERS = {
-        'CacheControl': 'max-age=864000',
-    }
-    
-    AWS_LOCATION = 'media'
-    AWS_DEFAULT_ACL = None
-    
-    DEFAULT_FILE_STORAGE = 'storages.backends.s3boto3.S3Boto3Storage'
-    
 
+    AWS_QUERYSTRING_AUTH = False
+    from urllib.parse import urlparse
+    _endpoint = urlparse(AWS_S3_ENDPOINT_URL)
+    AWS_S3_CUSTOM_DOMAIN = f'{_endpoint.netloc}/storage/v1/object/public/{AWS_STORAGE_BUCKET_NAME}'
+
+    
+    # 2. Configuration
+    AWS_S3_OBJECT_PARAMETERS = {'CacheControl': 'max-age=86400'}
+    AWS_LOCATION = 'media'
+    AWS_DEFAULT_ACL = None  # Supabase handles this
+
+
+    # 3. THE FIX: Using the new STORAGES dictionary
+    STORAGES = {
+        "default": {
+            "BACKEND": "storages.backends.s3boto3.S3Boto3Storage",
+        },
+        "staticfiles": {
+            "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+        },
+    }
 
 else:
     # Local Development
     MEDIA_URL = '/media/'
     MEDIA_ROOT = BASE_DIR / 'media'
+    
+    STORAGES = {
+        "default": {
+            "BACKEND": "django.core.files.storage.FileSystemStorage",
+        },
+        "staticfiles": {
+            "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+        },
+    }
 
 
 
