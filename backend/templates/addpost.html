@@ -1,0 +1,374 @@
+<style>
+/* =========================
+   OVERLAY + SAFE AREAS
+   ========================= */
+#create-post-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: #000;
+    z-index: 4000;
+}
+
+:root {
+    --safe-top: env(safe-area-inset-top);
+    --safe-bottom: env(safe-area-inset-bottom);
+}
+
+/* =========================
+   CAMERA INTERFACE
+   ========================= */
+#camera-interface {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    padding-top: var(--safe-top);
+    padding-bottom: var(--safe-bottom);
+}
+
+#camera-stream {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+/* Original Natural Filter */
+.natural-filter-active {
+    filter: brightness(1.1) contrast(1.05) saturate(1.15);
+}
+
+/* Top bar */
+.camera-top-bar {
+    position: absolute;
+    top: calc(20px + var(--safe-top));
+    left: 20px;
+    z-index: 10;
+}
+.camera-close-btn {
+    font-size: 30px;
+    background: none;
+    border: none;
+    color: white;
+    cursor: pointer;
+}
+
+/* Bottom controls */
+.camera-bottom-bar {
+    position: absolute;
+    bottom: calc(40px + var(--safe-bottom));
+    width: 100%;
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+    z-index: 10;
+}
+
+/* Buttons */
+.cam-icon-btn {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.25);
+    border: 2px solid white;
+    color: white;
+    font-size: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}
+
+.filter-btn-active {
+    background: #e60023;
+    border-color: #e60023;
+}
+
+/* Shutter */
+.shutter-button-outer {
+    width: 75px;
+    height: 75px;
+    border-radius: 50%;
+    border: 5px solid white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}
+.shutter-button-inner {
+    width: 55px;
+    height: 55px;
+    background: white;
+    border-radius: 50%;
+}
+
+/* Gallery */
+.gallery-wrapper {
+    position: relative;
+    overflow: hidden;
+}
+.gallery-wrapper input {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    cursor: pointer;
+}
+
+/* =========================
+   PREVIEW
+   ========================= */
+#preview-interface {
+    display: none;
+    flex-direction: column;
+    height: 100%;
+    background: #fff;
+}
+
+.cp-header {
+    display: flex;
+    justify-content: space-between;
+    padding: 15px 20px;
+    border-bottom: 1px solid #eee;
+}
+
+.cp-body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+.preview-media-container {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+#cp-media-preview {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+}
+
+.caption-container {
+    padding: 20px;
+    border-top: 1px solid #eee;
+}
+
+#hidden-canvas { display: none; }
+</style>
+
+<div id="create-post-overlay">
+    <canvas id="hidden-canvas"></canvas>
+
+    <!-- CAMERA -->
+    <div id="camera-interface">
+        <video id="camera-stream" autoplay playsinline muted></video>
+
+        <div class="camera-top-bar">
+            <button class="camera-close-btn" onclick="toggleCreatePost()">×</button>
+        </div>
+
+        <div class="camera-bottom-bar">
+            <div class="cam-icon-btn gallery-wrapper">
+                🖼
+                <input type="file" accept="image/*" onchange="handleGallerySelect(event)">
+            </div>
+
+            <!-- ORIGINAL FILTER BUTTON -->
+            <div id="filter-btn" class="cam-icon-btn" onclick="toggleFilter()">✨</div>
+
+            <div class="shutter-button-outer" onclick="capturePhoto()">
+                <div class="shutter-button-inner"></div>
+            </div>
+
+            <div class="cam-icon-btn" onclick="switchCamera()">🔄</div>
+        </div>
+    </div>
+
+    <!-- PREVIEW -->
+    <form id="preview-interface" method="POST" action="{% url 'create_post' %}" enctype="multipart/form-data">
+        {% csrf_token %}
+        <input type="file" name="media" id="final-media-input" hidden>
+
+        <div class="cp-header">
+            <button type="button" onclick="backToCamera()">Retake</button>
+            <button type="submit">Post</button>
+        </div>
+
+        <div class="cp-body">
+            <div class="preview-media-container">
+                <img id="cp-media-preview">
+            </div>
+            <div class="caption-container">
+                <textarea name="content" placeholder="Add a caption..."></textarea>
+            </div>
+        </div>
+    </form>
+</div>
+
+<script>
+let stream = null;
+let cameras = [];
+let camIndex = 0;
+let filterActive = false;
+
+/* =========================
+   CAMERA SAFETY (IMPORTANT)
+   ========================= */
+function stopCamera() {
+    if (stream) {
+        stream.getTracks().forEach(t => t.stop());
+        stream = null;
+    }
+}
+
+window.addEventListener("pagehide", stopCamera);
+window.addEventListener("beforeunload", stopCamera);
+document.addEventListener("visibilitychange", () => {
+    if (document.hidden) stopCamera();
+});
+
+/* =========================
+   CAMERA LOGIC
+   ========================= */
+async function prepareCameras() {
+    if (cameras.length) return;
+
+    const temp = await navigator.mediaDevices.getUserMedia({ video: true });
+    temp.getTracks().forEach(t => t.stop());
+
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    cameras = devices.filter(d => d.kind === "videoinput");
+
+    if (cameras.length <= 1) {
+        document.querySelector('[onclick="switchCamera()"]').style.display = "none";
+    }
+}
+
+async function startCamera() {
+    await prepareCameras();
+    stopCamera();
+
+    const cam = cameras[camIndex];
+
+    stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+            deviceId: { exact: cam.deviceId },
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+            frameRate: { ideal: 30 }
+        },
+        audio: false
+    });
+
+    const video = document.getElementById("camera-stream");
+    video.srcObject = stream;
+
+    const front = cam.label.toLowerCase().includes("front") || cam.label.toLowerCase().includes("user");
+    video.style.transform = front ? "scaleX(-1)" : "scaleX(1)";
+    video.dataset.mirror = front;
+
+    applyFilter();
+}
+
+async function switchCamera() {
+    if (cameras.length < 2) return;
+    camIndex = (camIndex + 1) % cameras.length;
+    await startCamera();
+}
+
+/* =========================
+   UI LOGIC
+   ========================= */
+function toggleCreatePost() {
+    const overlay = document.getElementById("create-post-overlay");
+
+    if (overlay.style.display === "flex") {
+        overlay.style.display = "none";
+        stopCamera();
+    } else {
+        overlay.style.display = "flex";
+        document.getElementById("camera-interface").style.display = "block";
+        document.getElementById("preview-interface").style.display = "none";
+        startCamera();
+    }
+}
+
+/* ORIGINAL FILTER TOGGLE */
+function toggleFilter() {
+    filterActive = !filterActive;
+    applyFilter();
+}
+
+function applyFilter() {
+    const video = document.getElementById("camera-stream");
+    video.classList.toggle("natural-filter-active", filterActive);
+    document.getElementById("filter-btn")
+        .classList.toggle("filter-btn-active", filterActive);
+}
+
+/* =========================
+   CAPTURE
+   ========================= */
+function capturePhoto() {
+    const video = document.getElementById("camera-stream");
+    const canvas = document.getElementById("hidden-canvas");
+    const ctx = canvas.getContext("2d");
+
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+
+    ctx.setTransform(1,0,0,1,0,0);
+    if (video.dataset.mirror === "true") {
+        ctx.translate(canvas.width, 0);
+        ctx.scale(-1, 1);
+    }
+
+    ctx.filter = filterActive
+        ? 'brightness(1.1) contrast(1.05) saturate(1.15)'
+        : 'none';
+
+    ctx.drawImage(video, 0, 0);
+
+    const url = canvas.toDataURL("image/jpeg");
+    document.getElementById("cp-media-preview").src = url;
+    setInputFiles(dataURLToBlob(url));
+
+    document.getElementById("camera-interface").style.display = "none";
+    document.getElementById("preview-interface").style.display = "flex";
+    stopCamera();
+}
+
+/* =========================
+   GALLERY + HELPERS
+   ========================= */
+function handleGallerySelect(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    document.getElementById("cp-media-preview").src = URL.createObjectURL(file);
+    setInputFiles(file);
+    document.getElementById("camera-interface").style.display = "none";
+    document.getElementById("preview-interface").style.display = "flex";
+}
+
+function backToCamera() {
+    document.getElementById("preview-interface").style.display = "none";
+    document.getElementById("camera-interface").style.display = "block";
+    startCamera();
+}
+
+function setInputFiles(file) {
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    document.getElementById("final-media-input").files = dt.files;
+}
+
+function dataURLToBlob(dataURL) {
+    const [meta, data] = dataURL.split(",");
+    const mime = meta.match(/:(.*?);/)[1];
+    const bin = atob(data);
+    const arr = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    return new File([arr], "photo.jpg", { type: mime });
+}
+</script>
