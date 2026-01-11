@@ -102,23 +102,23 @@ CHANNEL_LAYERS = {
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
-# DATABASES = {
-#     'default': {
-#         'ENGINE': 'django.db.backends.postgresql',
-#         'NAME': os.getenv('DB_NAME','connectdb'),
-#         'USER': os.getenv('DB_USER','connect'),
-#         'PASSWORD': os.getenv('DB_PASSWORD','connect'),
-#         'HOST': os.getenv('DB_HOST', 'localhost'),
-#         'PORT': os.getenv('DB_PORT', '5432'),
-#     }
-# }
-
 DATABASES = {
-    'default': dj_database_url.config(
-        default=f"postgres://{os.getenv('DB_USER','connect')}:{os.getenv('DB_PASSWORD','connect')}@{os.getenv('DB_HOST', 'localhost')}:{os.getenv('DB_PORT', '5432')}/{os.getenv('DB_NAME','connectdb')}",
-        conn_max_age=600
-    )
+    'default': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': os.getenv('DB_NAME','connectdb'),
+        'USER': os.getenv('DB_USER','connect'),
+        'PASSWORD': os.getenv('DB_PASSWORD','connect'),
+        'HOST': os.getenv('DB_HOST', 'localhost'),
+        'PORT': os.getenv('DB_PORT', '5432'),
+    }
 }
+
+# DATABASES = {
+#     'default': dj_database_url.config(
+#         default=f"postgres://{os.getenv('DB_USER','connect')}:{os.getenv('DB_PASSWORD','connect')}@{os.getenv('DB_HOST', 'localhost')}:{os.getenv('DB_PORT', '5432')}/{os.getenv('DB_NAME','connectdb')}",
+#         conn_max_age=600
+#     )
+# }
 
 
 AUTH_USER_MODEL = "accounts.User"
