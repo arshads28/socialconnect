@@ -1,0 +1,7 @@
+# Ignore these files in language statistics
+*.html linguist-detectable=false
+*.css linguist-detectable=false
+*.js linguist-detectable=false
+
+# Force Python to be detected
+*.py linguist-detectable=true
