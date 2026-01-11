@@ -185,7 +185,7 @@
                 <span id="msg-badge-desktop" class="badge-dot"></span>
             </div>
 
-            <a href="/auth/profile/" class="nav-link">
+            <a href="#" onclick="openProfile('{{ user.username }}'); return false;" class="nav-link">
                 <svg class="nav-icon" viewBox="0 0 24 24"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"></path></svg>
                 Profile
             </a>
@@ -231,7 +231,7 @@
                  <svg style="width:24px; height:24px; fill:white;" viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"></path></svg>
             </div>
         </a>
-        <a href="/auth/profile/" class="m-link">
+        <a href="#" onclick="openProfile('{{ user.username }}'); return false;" class="m-link">
             {% if user.profile.image %}
                 <img src="{{ user.profile.image.url }}" style="width:28px; height:28px; border-radius:50%; object-fit:cover;">
             {% else %}
@@ -246,6 +246,8 @@
     {% include "chat/inbox.html" %}
     {% include "chat/chat.html" %}
     {% include "search.html" %} 
+    {% include "profile/profile.html" %}
+    {% include "profile/edit_profile.html" %}
 
     <main>{% block content %}{% endblock %}</main>
 
