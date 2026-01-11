@@ -38,11 +38,11 @@ def chat_history(request, username):
     ).update(is_read=True)
 
     # deleting the message to save data base and privacy
-    Message.objects.filter(
-        Q(sender=user, receiver__username=username) |
-        Q(sender__username=username, receiver=user),
-        is_read=True
-    ).delete()
+    # Message.objects.filter(
+    #     Q(sender=user, receiver__username=username) |
+    #     Q(sender__username=username, receiver=user),
+    #     is_read=True
+    # ).delete()
 
 
     data = [
