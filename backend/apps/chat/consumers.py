@@ -90,7 +90,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 "message": message,
                 "sender": self.user.username,
                 "id": msg_instance.id,
-                "timestamp": msg_instance.timestamp.strftime("%I:%M %p"),
+                "timestamp": timezone.localtime(msg_instance.timestamp).strftime("%I:%M %p"),
             }
         )
 
@@ -192,7 +192,7 @@ class OnlineStatusConsumer(AsyncWebsocketConsumer):
 
     # HELPER: Broadcast Status to All 
     async def broadcast_status(self, is_online):
-        timestamp = timezone.now().strftime("%I:%M %p") # e.g. "03:45 PM"
+        timestamp = timezone.localtime(timezone.now()).strftime("%I:%M %p") # e.g. "03:45 PM"
         await self.channel_layer.group_send(
             "status_updates",
             {
@@ -235,5 +235,5 @@ class OnlineStatusConsumer(AsyncWebsocketConsumer):
         # Direct DB update is efficient here
         User.objects.filter(id=self.user.id).update(
             is_online=is_online,
-            last_seen=timezone.now()
+            last_seen=timezone.localtime(timezone.now())
         )
