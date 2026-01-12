@@ -96,17 +96,47 @@
            ============================ */
         .mobile-header { display: none; }
         .mobile-nav { display: none; }
+        .settings-menu { display: none; }
 
         @media (max-width: 768px) {
             .sidebar { display: none; } 
 
             .mobile-header {
                 position: fixed; top: 0; left: 0; width: 100%; height: 60px;
-                background: rgba(255,255,255,0.9); backdrop-filter: blur(10px);
+                background: rgba(255,255,255,0.95); backdrop-filter: blur(10px);
                 display: flex; justify-content: space-between; align-items: center;
                 padding: 0 16px; z-index: 900;
                 border-bottom: 1px solid rgba(0,0,0,0.05);
             }
+
+            /* New Settings Menu Styling */
+            .settings-menu {
+                position: absolute;
+                top: 55px; right: 10px;
+                background: white;
+                border: 1px solid #eee;
+                box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+                border-radius: 12px;
+                display: none; /* Hidden by default */
+                flex-direction: column;
+                min-width: 160px;
+                z-index: 2100;
+                overflow: hidden;
+            }
+            .settings-menu.active { display: flex; }
+
+            .settings-item {
+                padding: 14px 16px;
+                font-size: 15px;
+                color: #111;
+                border-bottom: 1px solid #f9f9f9;
+                text-align: left;
+                background: white;
+                width: 100%;
+                cursor: pointer;
+            }
+            .settings-item:last-child { border-bottom: none; color: #e60023; font-weight: 600; }
+            .settings-item:hover { background: #f5f5f5; }
 
             .mobile-nav {
                 position: fixed; bottom: 0; left: 0; width: 100%; height: var(--mobile-nav-height);
@@ -120,9 +150,9 @@
             .m-icon { width: 28px; height: 28px; fill: currentColor; }
 
             .m-badge {
-                position: absolute; top: 5px; right: 5px;
+                position: absolute; top: 0px; right: 0px;
                 background: var(--primary); color: white;
-                font-size: 10px; padding: 2px 5px; border-radius: 10px;
+                font-size: 10px; padding: 2px 6px; border-radius: 10px;
                 border: 2px solid white; display: none;
             }
         }
@@ -144,7 +174,7 @@
         /* ============================
            5. TOAST NOTIFICATIONS
            ============================ */
-        #toast-container { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%); z-index: 2000; display: flex; flex-direction: column; gap: 10px; width: 90%; max-width: 400px; pointer-events: none; }
+        #toast-container { position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%); z-index: 2000; display: flex; flex-direction: column; gap: 10px; width: 90%; max-width: 400px; pointer-events: none; }
         .toast {
             background: #212121; color: white;
             padding: 14px 20px; border-radius: 50px; 
@@ -185,13 +215,13 @@
                 <span id="msg-badge-desktop" class="badge-dot"></span>
             </div>
 
-            <a href="/auth/profile/" class="nav-link">
+            <a href="#" onclick="openProfile('{{ user.username }}'); return false;" class="nav-link">
                 <svg class="nav-icon" viewBox="0 0 24 24"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"></path></svg>
                 Profile
             </a>
         </div>
 
-        <button class="btn-create">Create</button>
+        <button class="btn-create" onclick="toggleCreatePost()">Create</button>
 
         {% if user.is_authenticated %}
         <div class="user-pill">
@@ -210,10 +240,28 @@
     </nav>
 
     <div class="mobile-header">
+        <div onclick="openProfile('{{ user.username }}')" style="display:flex; align-items:center;">
+             {% if user.profile.image %}
+                <img src="{{ user.profile.image.url }}" style="width:34px; height:34px; border-radius:50%; object-fit:cover; border:1px solid #eee;">
+            {% else %}
+                <div style="width:34px; height:34px; border-radius:50%; background:#eee; display:flex; justify-content:center; align-items:center;">👤</div>
+            {% endif %}
+        </div>
+
         <div style="font-weight:800; font-size:20px; color:var(--primary);">Connect</div>
-        <div style="position:relative;" onclick="toggleInbox(event)">
-            <svg style="width:28px; height:28px; fill:#333;" viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"></path></svg>
-            <span id="msg-badge-mobile" class="m-badge">0</span>
+        
+        <div style="position:relative; display:flex; align-items:center;">
+            <button onclick="toggleMobileSettings()" style="padding:5px; color:#111; display:flex;">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"></path></svg>
+            </button>
+            
+            <div id="mobile-settings-menu" class="settings-menu">
+                <div class="settings-item" onclick="openProfile('{{ user.username }}'); toggleMobileSettings();">View Profile</div>
+                <form method="POST" action="/auth/logout/" style="margin:0;">
+                    {% csrf_token %}
+                    <button type="submit" class="settings-item">Log out</button>
+                </form>
+            </div>
         </div>
     </div>
 
@@ -226,18 +274,16 @@
             <svg class="m-icon" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"></path></svg>
         </div>
         
-        <a href="#" class="m-link">
-            <div style="background:var(--text-dark); width:45px; height:45px; border-radius:25px; display:flex; justify-content:center; align-items:center;">
-                 <svg style="width:24px; height:24px; fill:white;" viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"></path></svg>
+        <div onclick="toggleCreatePost()" class="m-link" style="cursor: pointer;">
+            <div style="background:var(--text-dark); width:45px; height:45px; border-radius:25px; display:flex; justify-content:center; align-items:center; box-shadow:0 4px 10px rgba(0,0,0,0.2);">
+                 <svg style="width:28px; height:28px; fill:white;" viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"></path></svg>
             </div>
-        </a>
-        <a href="/auth/profile/" class="m-link">
-            {% if user.profile.image %}
-                <img src="{{ user.profile.image.url }}" style="width:28px; height:28px; border-radius:50%; object-fit:cover;">
-            {% else %}
-                <svg class="m-icon" viewBox="0 0 24 24"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"></path></svg>
-            {% endif %}
-        </a>
+        </div>
+
+        <div onclick="toggleInbox(event)" class="m-link" style="cursor: pointer;">
+            <svg class="m-icon" viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"></path></svg>
+            <span id="msg-badge-mobile" class="m-badge">0</span>
+        </div>
     </div>
 
     <div id="toast-container"></div>
@@ -246,6 +292,9 @@
     {% include "chat/inbox.html" %}
     {% include "chat/chat.html" %}
     {% include "search.html" %} 
+    {% include "profile/profile.html" %}
+    {% include "profile/edit_profile.html" %}
+    {% include "addpost.html" %}
 
     <main>{% block content %}{% endblock %}</main>
 
@@ -257,6 +306,26 @@
         
         // Global State
         let globalStatusSocket = null;
+        
+        function toggleMobileSettings() {
+            const menu = document.getElementById('mobile-settings-menu');
+            if (menu.style.display === 'flex') {
+                menu.style.display = 'none';
+            } else {
+                menu.style.display = 'flex';
+                // Click outside to close
+                setTimeout(() => {
+                    document.addEventListener('click', closeSettingsOnClickOutside, {once:true});
+                }, 100);
+            }
+        }
+
+        function closeSettingsOnClickOutside(e) {
+            const menu = document.getElementById('mobile-settings-menu');
+            if (menu && !menu.contains(e.target)) {
+                menu.style.display = 'none';
+            }
+        }
 
         // ============================================
         // 2. SOCKET & NOTIFICATIONS
@@ -332,6 +401,7 @@
         }
 
         function updateUserStatusUI(username, isOnline, lastSeenTime) {
+            // Update inbox rows
             const inboxRow = document.querySelector(`.user-row[data-username="${username}"]`);
             if (inboxRow) {
                 const statusDiv = inboxRow.querySelector('.u-status');
@@ -343,7 +413,7 @@
                     }
                 }
             }
-
+            // Update active chat header
             const chatHeaderName = document.getElementById("chat-header-name");
             if (chatHeaderName && chatHeaderName.innerText === username) {
                 const statusText = document.getElementById("chat-header-status");
@@ -384,11 +454,12 @@
         window.addEventListener('popstate', function(event) {
             const inbox = document.getElementById('inbox-overlay');
             const chat = document.getElementById('chat-overlay');
-            const search = document.getElementById('search-overlay'); // Also close search on back
+            const search = document.getElementById('search-overlay'); 
+            const profile = document.getElementById('profile-overlay');
 
             if (chat && chat.style.display === 'flex') {
                 chat.style.display = 'none';
-                if (activeChatSocket) { activeChatSocket.close(); activeChatUser = null; }
+                if (typeof activeChatSocket !== 'undefined' && activeChatSocket) { activeChatSocket.close(); activeChatUser = null; }
                 if (inbox) inbox.style.display = 'flex';
                 return;
             }
@@ -400,6 +471,11 @@
 
             if (search && search.style.display === 'flex') {
                 search.style.display = 'none';
+                return;
+            }
+            
+            if (profile && profile.style.display === 'flex') {
+                profile.style.display = 'none';
                 return;
             }
         });

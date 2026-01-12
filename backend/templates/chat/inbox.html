@@ -48,13 +48,24 @@
                 <span id="badge-{{ user.username }}" class="u-badge" style="{% if user.unread_count == 0 %}display:none;{% endif %}">{{ user.unread_count }}</span>
             </div>
             {% empty %}
-                <div style="padding:20px; text-align:center; color:#999;">No messages yet.</div>
+                <div id="empty-msg" style="padding:20px; text-align:center; color:#999;">No messages yet.</div>
             {% endfor %}
         </div>
     </div>
 </div>
 
 <script>
+    // FIX: Do not access 'currentUserName' here globally, 
+    // because it might not be defined yet when this script runs.
+    
+    function getInboxCacheKey() {
+        // Safe getter that runs only when called (after page load)
+        if (typeof currentUserName !== 'undefined') {
+            return `inbox_data_${currentUserName}`;
+        }
+        return 'inbox_data_guest';
+    }
+
     function toggleInbox(e) {
         if(e) e.preventDefault();
         const el = document.getElementById('inbox-overlay');
@@ -63,7 +74,8 @@
             el.style.display = 'none';
         } else {
             el.style.display = 'flex';
-            fetchInboxData(); 
+            loadInboxFromCache(); 
+            fetchInboxData();    
         }
     }
 
@@ -71,60 +83,118 @@
         if (e.target.id === 'inbox-overlay') toggleInbox();
     }
     
+    // --- HELPER: SAVE & SORT USERS ---
+    function updateInboxCache(serverUsers) {
+        const cacheKey = getInboxCacheKey();
+        let localUsers = JSON.parse(localStorage.getItem(cacheKey) || "[]");
+        
+        let userMap = new Map();
+        
+        // Add local users
+        localUsers.forEach(u => userMap.set(u.username, u));
+
+        // Merge Server Data
+        if (serverUsers && serverUsers.length > 0) {
+            serverUsers.forEach(srvUser => {
+                userMap.set(srvUser.username, srvUser);
+            });
+        }
+
+        let mergedList = Array.from(userMap.values());
+        localStorage.setItem(cacheKey, JSON.stringify(mergedList));
+        
+        return mergedList;
+    }
+
+    // --- HELPER: MOVE USER TO TOP ---
+    function moveUserToTop(username, messagePreview) {
+        const cacheKey = getInboxCacheKey();
+        let localUsers = JSON.parse(localStorage.getItem(cacheKey) || "[]");
+        
+        const index = localUsers.findIndex(u => u.username === username);
+        let userObj;
+
+        if (index > -1) {
+            userObj = localUsers.splice(index, 1)[0];
+            userObj.unread_count = (userObj.unread_count || 0) + 1;
+        } else {
+            userObj = {
+                username: username,
+                unread_count: 1,
+                is_online: true,
+                status_text: "Online",
+                avatar_url: ""
+            };
+        }
+
+        localUsers.unshift(userObj);
+        localStorage.setItem(cacheKey, JSON.stringify(localUsers));
+        renderInboxList(localUsers);
+    }
+
+    function renderInboxList(users) {
+        const listContainer = document.getElementById('inbox-user-list');
+        let html = "";
+        
+        if (!users || users.length === 0) {
+            html = '<div style="padding:20px; text-align:center; color:#999;">No messages yet.</div>';
+        } else {
+            users.forEach(user => {
+                const statusHtml = user.is_online 
+                    ? `<span style="color:#25D366">● Online</span>` 
+                    : (user.status_text || "Offline");
+                    
+                const badgeDisplay = (user.unread_count > 0) ? 'block' : 'none';
+                
+                let avatarHtml = `<div class="u-avatar-placeholder">👤</div>`;
+                if (user.avatar_url && user.avatar_url !== "null") {
+                    avatarHtml = `<img src="${user.avatar_url}" class="u-avatar">`;
+                }
+
+                html += `
+                <div class="user-row" onclick="openChatPopup('${user.username}', '${user.avatar_url || ''}')" data-username="${user.username}">
+                    ${avatarHtml}
+                    <div>
+                        <div style="font-weight:600;">${user.username}</div>
+                        <div class="u-status" style="font-size:12px; color:gray;">${statusHtml}</div>
+                    </div>
+                    <span id="badge-${user.username}" class="u-badge" style="display:${badgeDisplay}">
+                        ${user.unread_count}
+                    </span>
+                </div>`;
+            });
+        }
+        listContainer.innerHTML = html;
+    }
+
+    function loadInboxFromCache() {
+        const cacheKey = getInboxCacheKey();
+        const cached = localStorage.getItem(cacheKey);
+        if (cached) {
+            renderInboxList(JSON.parse(cached));
+        }
+    }
+    
     async function fetchInboxData() {
         const listContainer = document.getElementById('inbox-user-list'); 
         const loader = document.getElementById('inbox-loading');
         
-        if (!listContainer || !loader) return;
-
-        loader.style.display = 'block';
-        listContainer.style.opacity = '0.5';
+        // Only show loader if we have nothing visible yet
+        if (!listContainer.innerHTML.trim()) loader.style.display = 'block';
 
         try {
+            console.log("Fetching inbox data..."); // Debugging log
             const response = await fetch('/chat/inbox/');
             if (!response.ok) throw new Error("API Request Failed");
-            
             const data = await response.json();
             
-            let html = "";
-            if (!data.users || data.users.length === 0) {
-                html = '<div style="padding:20px; text-align:center; color:#999;">No messages yet.</div>';
-            } else {
-                data.users.forEach(user => {
-                    const statusHtml = user.is_online 
-                        ? `<span style="color:#25D366">● Online</span>` 
-                        : (user.status_text || "Offline");
-                        
-                    const badgeDisplay = user.unread_count > 0 ? 'block' : 'none';
-                    
-                    let avatarHtml = `<div class="u-avatar-placeholder">👤</div>`;
-                    const safeAvatarUrl = user.avatar_url ? user.avatar_url : "";
-                    
-                    if (user.avatar_url) {
-                        avatarHtml = `<img src="${user.avatar_url}" class="u-avatar">`;
-                    }
-
-                    // ADDED CLASS 'u-status' HERE AS WELL
-                    html += `
-                    <div class="user-row" onclick="openChatPopup('${user.username}', '${safeAvatarUrl}')" data-username="${user.username}">
-                        ${avatarHtml}
-                        <div>
-                            <div style="font-weight:600;">${user.username}</div>
-                            <div class="u-status" style="font-size:12px; color:gray;">${statusHtml}</div>
-                        </div>
-                        <span id="badge-${user.username}" class="u-badge" style="display:${badgeDisplay}">
-                            ${user.unread_count}
-                        </span>
-                    </div>`;
-                });
-            }
-            listContainer.innerHTML = html;
+            const finalList = updateInboxCache(data.users);
+            renderInboxList(finalList);
 
         } catch (error) {
             console.error("Error fetching inbox:", error);
         } finally {
             loader.style.display = 'none';
-            listContainer.style.opacity = '1';
         }
     }
 
@@ -134,9 +204,7 @@
         if(badge) {
             badge.innerText = (parseInt(badge.innerText) || 0) + 1;
             badge.style.display = 'block';
-            const list = document.getElementById('inbox-user-list');
-            const row = document.querySelector(`.user-row[data-username='${data.sender}']`);
-            if(list && row) list.prepend(row);
         }
+        moveUserToTop(data.sender, data.message);
     });
 </script>

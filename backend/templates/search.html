@@ -200,18 +200,18 @@
                                 
                                 // Assuming URL structure is /auth/profile/username or /profile/username
                                 // Adjust the HREF below to match your urls.py for profile view
-                                const profileUrl = `/auth/profile/${user.username}/`; 
+                                //const profileUrl = `/auth/profile/${user.username}/`; 
 
                                 html += `
                                 <div class="s-user-row">
-                                    <a href="/profile/${user.username}/" class="s-profile-link">
+                                    <div onclick="openProfile('${user.username}')" class="s-profile-link" style="cursor:pointer;">
                                         ${imgHtml}
                                         <div>
                                             <div class="s-username">${user.username}</div>
                                             <div class="s-bio">${user.bio || 'Connect User'}</div>
                                         </div>
-                                    </a>
-
+                                    </div>
+                                                            
                                     <button class="s-msg-btn" onclick="openChatPopup('${user.username}', '${user.avatar_url}')">
                                         Chat
                                     </button>

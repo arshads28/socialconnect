@@ -1,25 +1,87 @@
-{% extends "base.html" %}
+<style>
+    #edit-overlay { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.6); z-index: 3100; justify-content: center; align-items: center; backdrop-filter: blur(4px); }
+    .edit-modal { background: #fff; width: 100%; max-width: 450px; border-radius: 24px; padding: 30px; position: relative; display: flex; flex-direction: column; }
 
-{% block title %}Edit Profile{% endblock %}
+    .e-title { font-size: 20px; font-weight: 700; margin-bottom: 20px; text-align: center; }
+    
+    .e-form label { font-size: 13px; font-weight: 600; margin-bottom: 5px; display: block; margin-top: 15px; }
+    
+    .e-input, .e-textarea {
+        width: 100%; background: #efefef; border: none; border-radius: 12px;
+        padding: 12px; font-size: 15px; outline: none; box-sizing: border-box;
+    }
+    .e-textarea { min-height: 80px; resize: vertical; }
+    
+    .e-actions { margin-top: 25px; display: flex; gap: 10px; }
+    .e-btn-save { flex: 1; background: var(--primary); color: white; padding: 12px; border-radius: 20px; border: none; font-weight: 600; cursor: pointer; }
+    .e-btn-cancel { flex: 1; background: #eee; color: #111; padding: 12px; border-radius: 20px; border: none; font-weight: 600; cursor: pointer; }
+</style>
 
-{% block content %}
-<div style="width:500px; background:#fff; border:1px solid #dbdbdb; padding:20px;">
+<div id="edit-overlay">
+    <div class="edit-modal">
+        <div class="e-title">Edit Profile</div>
+        
+        <form id="edit-profile-form" class="e-form" onsubmit="submitEditProfile(event)">
+            {% csrf_token %}
+            
+            <label>Avatar</label>
+            <input type="file" name="avatar" class="e-input" accept="image/*">
 
-    <h2>Edit Profile</h2>
+            <label>Bio</label>
+            <textarea name="bio" id="edit-bio-input" class="e-textarea"></textarea>
 
-    <form method="POST" enctype="multipart/form-data">
-        {% csrf_token %}
+            <label>Interests</label>
+            <input type="text" name="interests" id="edit-interests-input" class="e-input">
 
-        <label>Avatar</label><br>
-        {{ form.avatar }}<br><br>
-
-        <label>Bio</label><br>
-        {{ form.bio }}<br><br>
-
-        <label>Interests</label><br>
-        {{ form.interests }}<br><br>
-
-        <button type="submit">Save Changes</button>
-    </form>
+            <div class="e-actions">
+                <button type="button" class="e-btn-cancel" onclick="toggleEditOverlay()">Cancel</button>
+                <button type="submit" class="e-btn-save">Save</button>
+            </div>
+        </form>
+    </div>
 </div>
-{% endblock %}
+
+<script>
+    function toggleEditOverlay() {
+        const el = document.getElementById('edit-overlay');
+        el.style.display = (el.style.display === 'flex') ? 'none' : 'flex';
+    }
+
+    function openEditProfile() {
+        // Pre-fill data from the View Overlay
+        const currentBio = document.getElementById('p-overlay-bio').innerText;
+        const currentInterests = document.getElementById('p-overlay-interests').innerText;
+
+        document.getElementById('edit-bio-input').value = currentBio;
+        document.getElementById('edit-interests-input').value = currentInterests;
+
+        toggleEditOverlay();
+    }
+
+    async function submitEditProfile(e) {
+        e.preventDefault();
+        const form = document.getElementById('edit-profile-form');
+        const formData = new FormData(form);
+
+        try {
+            const res = await fetch('/auth/api/profile/edit/', {
+                method: 'POST',
+                body: formData
+            });
+            
+            if(res.ok) {
+                alert("Profile Updated!");
+                toggleEditOverlay();
+                // Refresh the profile view
+                openProfile(currentUserName); 
+                // Refresh the sidebar avatar if changed (Requires reload or more JS, reloading is safer for now)
+                location.reload(); 
+            } else {
+                alert("Error updating profile");
+            }
+        } catch(err) {
+            console.error(err);
+            alert("Network Error");
+        }
+    }
+</script>

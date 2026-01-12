@@ -1,7 +1,8 @@
-from django.shortcuts import render, redirect
-from django.contrib.auth import login, authenticate, logout
+from django.shortcuts import render, redirect, get_object_or_404
+from django.contrib.auth import login,  logout
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import UserCreationForm, AuthenticationForm
+from django.http import JsonResponse
 
 import logging
 logger = logging.getLogger(__name__)
@@ -81,23 +82,56 @@ class ProfileUpdateForm(forms.ModelForm):
         }
 
 
+# @login_required
+# def profile_view(request):
+#     return render(request, "profile/profile.html", {"user_obj": request.user})
+
+
+# @login_required
+# def edit_profile_view(request):
+#     user = request.user
+
+#     if request.method == "POST":
+#         form = ProfileUpdateForm(request.POST,request.FILES,instance=user)
+#         if form.is_valid():
+#             form.save()
+#             return redirect("profile")
+#     else:
+#         form = ProfileUpdateForm(instance=user)
+
+#     return render(request, "profile/edit_profile.html", {
+#         "form": form
+#     })
+
+# @login_required
+# def public_profile(request,username):
+#     user_obj = get_object_or_404(User,username= username)
+
+#     return render(request, "profile/profile.html",{"user_obj": user_obj})
+
+
+
 @login_required
-def profile_view(request):
-    return render(request, "profile/profile.html", {"user_obj": request.user})
+def profile_data_api(request, username):
+    user_obj = get_object_or_404(User, username=username)
+    
+    return JsonResponse({
+        "username": user_obj.username,
+        "email": user_obj.email,
+        "bio": user_obj.bio,
+        "interests": user_obj.interests,
+        "avatar_url": user_obj.avatar.url if user_obj.avatar else None,
+        "is_own_profile": (request.user == user_obj)
+    })
 
 
 @login_required
-def edit_profile_view(request):
-    user = request.user
-
+def edit_profile_api(request):
     if request.method == "POST":
-        form = ProfileUpdateForm(request.POST,request.FILES,instance=user)
+        form = ProfileUpdateForm(request.POST, request.FILES, instance=request.user)
         if form.is_valid():
             form.save()
-            return redirect("profile")
-    else:
-        form = ProfileUpdateForm(instance=user)
-
-    return render(request, "profile/edit_profile.html", {
-        "form": form
-    })
+            return JsonResponse({"status": "success"})
+        else:
+            return JsonResponse({"status": "error", "errors": form.errors}, status=400)
+    return JsonResponse({"status": "error", "message": "Invalid method"}, status=405)

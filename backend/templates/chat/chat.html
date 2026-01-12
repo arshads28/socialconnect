@@ -94,6 +94,8 @@
                 </div>
             </div>
             <div style="display:flex; gap:15px;">
+                <button onclick="deleteLocalChat()" title="Delete Local History" style="border:none; background:none; font-size:20px; cursor:pointer;">🗑️</button>
+                
                 <button onclick="triggerCall('audio')" style="border:none; background:none; font-size:22px; cursor:pointer;">📞</button>
                 <button onclick="triggerCall('video')" style="border:none; background:none; font-size:24px; cursor:pointer;">📹</button>
             </div>
@@ -116,6 +118,60 @@
     let activeHasNext = true;
     let activeLoading = false;
     let typingTimer = null;
+
+    // --- CACHE HELPERS ---
+    function getChatCacheKey(username) {
+        return `chat_history_${currentUserName}_${username}`;
+    }
+
+    function saveMsgToCache(username, msgObj) {
+        const key = getChatCacheKey(username);
+        let history = JSON.parse(localStorage.getItem(key) || '[]');
+        if (!history.some(m => m.id === msgObj.id)) {
+            history.push(msgObj);
+            localStorage.setItem(key, JSON.stringify(history));
+        }
+    }
+
+    function saveBulkToCache(username, messages) {
+        const key = getChatCacheKey(username);
+        let history = JSON.parse(localStorage.getItem(key) || '[]');
+        const historyIds = new Set(history.map(m => m.id));
+        const newMsgs = messages.filter(m => !historyIds.has(m.id));
+        
+        // Combine and Sort by ID 
+        const combined = [...history, ...newMsgs].sort((a,b) => a.id - b.id);
+        localStorage.setItem(key, JSON.stringify(combined));
+    }
+
+    // --- DELETE FUNCTION ---
+    function deleteLocalChat() {
+        if(!activeChatUser) return;
+        
+        if(confirm(`Delete all history with ${activeChatUser}?`)) {
+            // 1. Remove Chat History (Messages)
+            const chatKey = getChatCacheKey(activeChatUser);
+            localStorage.removeItem(chatKey); 
+            
+            // 2. Remove User from Inbox List (So they disappear from the left menu)
+            const inboxKey = `inbox_data_${currentUserName}`;
+            let inboxList = JSON.parse(localStorage.getItem(inboxKey) || "[]");
+            
+            // Filter out the deleted user
+            inboxList = inboxList.filter(u => u.username !== activeChatUser);
+            
+            // Save back
+            localStorage.setItem(inboxKey, JSON.stringify(inboxList));
+
+            // 3. Update UI
+            document.getElementById('popup-chat-box').innerHTML = "<div style='text-align:center; color:#999; margin-top:20px;'>History cleared</div>";
+            
+            // Optional: If the inbox overlay is open in background, refresh it
+            if(typeof renderInboxList === "function") {
+                renderInboxList(inboxList);
+            }
+        }
+    }
 
     function getTickHtml(isRead) {
         const status = isRead ? 'read' : 'delivered';
@@ -140,7 +196,7 @@
     }
 
     // ============================================
-    // 1. OPEN CHAT FUNCTION (FIXED: CLOSES SEARCH)
+    // 1. OPEN CHAT FUNCTION
     // ============================================
     async function openChatPopup(username, avatarUrl) {
         // CLOSE OTHER OVERLAYS FIRST
@@ -170,17 +226,27 @@
         activePage = 1;
         activeHasNext = true;
 
+        // NEW: LOAD FROM CACHE IMMEDIATELY
+        const cacheKey = getChatCacheKey(username);
+        const cachedData = localStorage.getItem(cacheKey);
+        if (cachedData) {
+            const msgs = JSON.parse(cachedData);
+            let html = "";
+            msgs.forEach(msg => { html += createMsgHtml(msg); });
+            const box = document.getElementById('popup-chat-box');
+            box.innerHTML = html;
+            box.scrollTop = box.scrollHeight;
+        }
+
         connectChatSocket(username);
         await loadPopupHistory(1);
         
-        // Push state for back button
         history.pushState({ modal: 'chat' }, null, "");
     }
 
     // 2. CLOSE CHAT
     function closeChatPopup() {
         document.getElementById('chat-overlay').style.display = 'none';
-        // Go back in history to revert pushState
         history.back(); 
         if(activeChatSocket) activeChatSocket.close();
         activeChatUser = null;
@@ -188,32 +254,47 @@
 
     // 3. LOAD HISTORY
     async function loadPopupHistory(page) {
-        if(activeLoading || !activeHasNext) return;
+        if(activeLoading) return;
         activeLoading = true;
         
         try {
             const res = await fetch(`/chat/history/${activeChatUser}/?page=${page}`);
             const data = await res.json();
             
+            // NEW: UPDATE CACHE FROM SERVER DATA
+            if(data.messages && data.messages.length > 0) {
+                saveBulkToCache(activeChatUser, data.messages);
+                
+                const box = document.getElementById('popup-chat-box');
+                // Only render if empty (page 1) to avoid flicker if cache loaded, 
+                // OR better: if cache was empty, render now. 
+                // Since cache loads first, we usually just want to append new stuff if any missing.
+                // For simplicity: If page 1 and box is empty, render.
+                if(page === 1 && box.innerHTML.trim() === "") {
+                     let html = "";
+                     data.messages.forEach(msg => { html += createMsgHtml(msg); });
+                     box.innerHTML = html;
+                     box.scrollTop = box.scrollHeight;
+                }
+            }
+
             if(page === 1 && data.user_data) {
                 const statusDiv = document.getElementById('chat-header-status');
                 statusDiv.innerText = data.user_data.status_text;
                 statusDiv.style.color = data.user_data.is_online ? "#8e8e8e" : "#8e8e8e";
-                if(data.user_data.is_online) statusDiv.innerText = "Active now";
+                if(data.user_data.is_online) {
+                     statusDiv.innerText = "Active now";
+                     statusDiv.style.color = "#25D366";
+                }
             }
 
             activeHasNext = data.has_next;
             
-            const box = document.getElementById('popup-chat-box');
-            let html = "";
-            data.messages.forEach(msg => {
-                html += createMsgHtml(msg);
-            });
-            
-            if(page === 1) {
-                box.innerHTML = html;
-                box.scrollTop = box.scrollHeight;
-            } else {
+            // Handle Pagination (Old Messages)
+            if(page > 1) {
+                const box = document.getElementById('popup-chat-box');
+                let html = "";
+                data.messages.forEach(msg => { html += createMsgHtml(msg); });
                 const oldH = box.scrollHeight;
                 box.insertAdjacentHTML('afterbegin', html);
                 box.scrollTop = box.scrollHeight - oldH;
@@ -261,6 +342,10 @@
                 const msgObj = {
                     id: data.id, message: data.message, timestamp: data.timestamp || "Now", sender: data.sender, is_read: false 
                 };
+                
+                // NEW: SAVE INCOMING TO CACHE
+                saveMsgToCache(activeChatUser, msgObj);
+
                 const html = createMsgHtml(msgObj);
                 box.insertAdjacentHTML('beforeend', html);
                 box.scrollTop = box.scrollHeight;
