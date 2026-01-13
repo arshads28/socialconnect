@@ -6,6 +6,7 @@ from django.shortcuts import render
 from django.contrib.auth import get_user_model
 from django.core.paginator import Paginator
 from django.shortcuts import render, get_object_or_404
+from django.core.cache import cache
 
 User = get_user_model()
 
@@ -56,14 +57,16 @@ def chat_history(request, username):
         for msg in reversed(page_message)
     ]
 
+    online_status = is_user_online(other_user.id)
+
     # Return data + has_next flag so JS knows if it should keep scrolling
     return JsonResponse({
         "messages": data, 
         "has_next": page_obj.has_next(),
         "user_data":{
             "username": other_user.username,
-            "is_online":other_user.is_online,
-            "status_text":"Active now" if other_user.is_online else last_seen_text
+            "is_online":online_status,
+            "status_text":"Active now" if online_status else last_seen_text
 
         }
     })
@@ -77,7 +80,8 @@ def chat_view(request, username):
     other_user_obj = get_object_or_404(User, username=username)
 
     # 2. Get the formatted text
-    last_seen_text = get_last_seen_text(other_user_obj)
+    is_online = is_user_online(other_user_obj.id)
+    last_seen_text = "Active now" if is_online else get_last_seen_text(other_user_obj)
 
     messages = Message.objects.filter(
         Q(sender=request.user, receiver=other_user_obj) |
@@ -91,10 +95,22 @@ def chat_view(request, username):
     })
 
 
+
+
+def is_user_online(user_id):
+    """Check RAM (Cache) to see if user is online"""
+    return cache.get(f'user_online_{user_id}', False)
+
+
+
 def get_last_seen_text(user):
     from django.utils import timezone
     from datetime import timedelta
     # If no last_seen data exists
+
+    if is_user_online(user.id):
+        return "Active now"
+        
     if not user.last_seen:
         return "Offline"
         
@@ -156,15 +172,14 @@ def inbox_view(request):
                 other_user_obj = User.objects.get(id=other_id)
                 
                 # Format status text
-                status_text = "Offline"
-                is_online = False
-                if hasattr(other_user_obj, 'is_online') and other_user_obj.is_online:
-                    status_text = "Online"
-                    is_online = True
-                else:
-                    status_text = get_last_seen_text(other_user_obj)
+                is_online = is_user_online(other_user_obj.id)
+                status_text = "Online" if is_online else get_last_seen_text(other_user_obj)
 
-                unread = get_unread_count(user)
+                unread_count = Message.objects.filter(
+                    sender=other_user_obj, 
+                    receiver=user, 
+                    is_read=False
+                ).count()
 
                 chat_users.append({
                     "id": str(other_user_obj.id), 
@@ -172,7 +187,7 @@ def inbox_view(request):
                     "avatar_url": other_user_obj.avatar.url if other_user_obj.avatar else None,
                     "is_online": is_online,
                     "status_text": status_text,
-                    "unread_count": unread,
+                    "unread_count": unread_count,
                 })
             except User.DoesNotExist:
                 continue

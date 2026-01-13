@@ -10,9 +10,15 @@ class User(AbstractUser):
     avatar = models.ImageField(upload_to='avatars/', blank=True, null=True)
     bio = models.TextField(max_length=200, blank=True)
     interests = models.TextField(max_length=200, blank=True)
+    blocking = models.ManyToManyField(
+        'self', 
+        related_name='blocked_by', 
+        symmetrical=False, 
+        blank=True
+    )
 
     # Metadata
-    is_online = models.BooleanField(default=False)
+    # is_online = models.BooleanField(default=False)
     last_seen = models.DateTimeField(null=True, blank=True)
 
     def __str__(self):

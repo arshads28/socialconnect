@@ -8,7 +8,7 @@ User = get_user_model()
 class ProfileSerializer(serializers.ModelSerializer):
     avatar_url = serializers.SerializerMethodField()
     is_own_profile = serializers.SerializerMethodField()
-    # connection_status = serializers.SerializerMethodField()
+    connection_status = serializers.SerializerMethodField()
     # followers_count = serializers.SerializerMethodField()
     # following_count = serializers.SerializerMethodField()
 
@@ -18,6 +18,7 @@ class ProfileSerializer(serializers.ModelSerializer):
             'username', 'email', 'bio', 'interests',
             'avatar', 'avatar_url',
             'is_own_profile',
+            'connection_status',
         )
         read_only_fields = ('username', 'email')
 
@@ -27,11 +28,37 @@ class ProfileSerializer(serializers.ModelSerializer):
 
     def get_is_own_profile(self, obj):
         return self.context['request'].user == obj
+    
+    def validate_avatar(self, value):
+        if value.size > 1 * 1024 * 1024:
+            raise serializers.ValidationError("Avatar must be under 1MB")
 
-    # def get_connection_status(self, obj):
-    #     request = self.context['request']
-    #     if request.user == obj:
-    #         return 'SELF'
+        if not value.content_type.startswith("image/"):
+            raise serializers.ValidationError("Invalid image type")
+
+        return value
+
+
+    def get_connection_status(self, obj):
+        request = self.context.get('request')
+        if not request or request.user.is_anonymous:
+            return 'NONE'
+
+        if request.user == obj:
+            return 'SELF'
+
+        # Check if the logged-in user has this profile in their 'blocking' list
+        if request.user.blocking.filter(pk=obj.pk).exists():
+            return 'BLOCKED'
+
+        return 'NONE'
+
+    def validate_avatar(self, value):
+        if value.size > 1 * 1024 * 1024:
+            raise serializers.ValidationError("Avatar must be under 1MB")
+        return value
+
+
 
     #     conn = Connection.objects.filter(sender=request.user,receiver=obj).first()
 
@@ -53,7 +80,7 @@ class ProfileUpdateSerializer(serializers.ModelSerializer):
 
     def get_avatar_url(self, obj):
         request = self.context.get('request')
-        return request.build_absolute_uri(obj.avatar.url) if obj.avatar else None
+        return request.build_absolute_uri(obj.avatar.url) if obj.avatar and request else None
 
 
 
