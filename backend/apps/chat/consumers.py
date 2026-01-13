@@ -82,7 +82,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 "message": message,
                 "sender": self.user.username,
                 "id": msg_instance.id,
-                "timestamp": msg_instance.timestamp.strftime("%I:%M %p"),
+                "timestamp": timezone.localtime(msg_instance.timestamp).strftime("%I:%M %p"),
             }
         )
 
@@ -165,7 +165,7 @@ class OnlineStatusConsumer(AsyncWebsocketConsumer):
             print(f"❌ Error: {e}")
 
     async def broadcast_status(self, is_online):
-        timestamp = timezone.now().strftime("%I:%M %p") # e.g. "03:45 PM"
+        timestamp = timezone.localtime(timezone.now()).strftime("%I:%M %p") # e.g. "03:45 PM"
         await self.channel_layer.group_send(
             "status_updates",
             {
