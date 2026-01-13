@@ -192,6 +192,8 @@ if os.getenv('AWS_ACCESS_KEY_ID'):
     _endpoint = urlparse(AWS_S3_ENDPOINT_URL)
     AWS_S3_CUSTOM_DOMAIN = f'{_endpoint.netloc}/storage/v1/object/public/{AWS_STORAGE_BUCKET_NAME}'
 
+    MEDIA_URL = f'https://{AWS_S3_CUSTOM_DOMAIN}/'
+
     
     # 2. Configuration
     AWS_S3_OBJECT_PARAMETERS = {'CacheControl': 'max-age=86400'}
