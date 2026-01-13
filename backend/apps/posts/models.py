@@ -1,6 +1,5 @@
 from django.db import models
 from django.conf import settings
-import threading
 import mimetypes
 
 class Post(models.Model):
@@ -22,6 +21,7 @@ class Post(models.Model):
         default=MediaType.NONE,
     )
     created_at = models.DateTimeField(auto_now_add=True)
+    processing = models.BooleanField(default=True)
 
     def save(self, *args, **kwargs):
         is_new = self.pk is None
@@ -34,18 +34,14 @@ class Post(models.Model):
             
             # Handle Video Immediately
             if content_type and content_type.startswith('video'):
-                Post.objects.filter(pk=self.pk).update(media_type=self.MediaType.VIDEO)
+                Post.objects.filter(pk=self.pk).update(media_type=self.MediaType.VIDEO, processing=False,)
             
             # Handle Image in Background
             else:
                 from .background import process_post_image_background
+                from .threadpool import thread_pool_executor
                 
-                thread = threading.Thread(
-                    target=process_post_image_background,
-                    args=(self.id,),
-                    daemon=True
-                )
-                thread.start()
+                thread_pool_executor.submit(process_post_image_background, self.id)                
 
     @property
     def likes_count(self):
