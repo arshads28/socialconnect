@@ -3,8 +3,10 @@ from channels.generic.websocket import AsyncWebsocketConsumer
 from django.core.exceptions import ObjectDoesNotExist
 from django.contrib.auth import get_user_model
 from asgiref.sync import sync_to_async
-from .models import Message
 from django.utils import timezone
+from django.core.cache import cache
+
+from .models import Message
 
 User = get_user_model()
 
@@ -21,14 +23,11 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
 
         try:
-            self.other_user = await sync_to_async(User.objects.get)(
-                username=self.other_username
-            )
+            self.other_user = await sync_to_async(User.objects.get)(username=self.other_username)
         except ObjectDoesNotExist:
             await self.close()
             return
 
-        # Sort IDs to ensure Room Name is always "chat_1_2" regardless of who connects
         user_ids = sorted([str(self.user.id), str(self.other_user.id)])
         self.room_name = f"chat_{user_ids[0]}_{user_ids[1]}"
         self.room_group_name = self.room_name
@@ -37,11 +36,8 @@ class ChatConsumer(AsyncWebsocketConsumer):
         await self.accept()
 
     async def disconnect(self, close_code):
-        
         if hasattr(self, "room_group_name"):
-            await self.channel_layer.group_discard(
-                self.room_group_name, self.channel_name
-            )
+            await self.channel_layer.group_discard(self.room_group_name, self.channel_name)
 
     async def receive(self, text_data):
         data = json.loads(text_data)
@@ -56,8 +52,6 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 }
             )
             return
-
-        # READ RECEIPT
         if data.get("command") == "read_receipt":
             await self.channel_layer.group_send(
                 self.room_group_name,
@@ -77,9 +71,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
             return
 
         msg_instance = await sync_to_async(Message.objects.create)(
-            sender=self.user,
-            receiver=self.other_user,
-            content=message
+            sender=self.user, receiver=self.other_user, content=message
         )
 
         # Send to Chat Room (Updates chat box)
@@ -104,29 +96,14 @@ class ChatConsumer(AsyncWebsocketConsumer):
             }
         )
 
-    # HANDLERS
+    # Handlers 
     async def chat_message(self, event):
-        await self.send(text_data=json.dumps({
-            "type": "chat_message",
-            "message": event["message"],
-            "sender": event["sender"],
-            "id": event["id"],
-            "timestamp": event["timestamp"],
-        }))
-
+        await self.send(text_data=json.dumps(event))
     async def typing(self, event):
-        await self.send(text_data=json.dumps({
-            "type": "typing",
-            "typing": True,
-            "user": event["user"],
-        }))
-
+        await self.send(text_data=json.dumps(event))
     async def message_read(self, event):
-        await self.send(text_data=json.dumps({
-            "type": "message_read",
-            "message_id": event["message_id"],
-            "reader": event["reader"],
-        }))
+        await self.send(text_data=json.dumps(event))
+
 
 
 # ONLINE STATUS CONSUMER (Handles Online/Offline, Global Notifications, WebRTC)
@@ -144,7 +121,7 @@ class OnlineStatusConsumer(AsyncWebsocketConsumer):
 
             await self.accept()
             
-            # 3. Set Online & Broadcast to everyone
+            #  Update Status (Cache + DB last_seen)
             await self.update_user_status(True)
             await self.broadcast_status(True)
         else:
@@ -156,7 +133,7 @@ class OnlineStatusConsumer(AsyncWebsocketConsumer):
             await self.channel_layer.group_discard(self.group_name, self.channel_name)
             await self.channel_layer.group_discard("status_updates", self.channel_name)
             
-            # 4. Set Offline & Broadcast
+            #  Set Offline
             await self.update_user_status(False)
             await self.broadcast_status(False)
 
@@ -165,7 +142,6 @@ class OnlineStatusConsumer(AsyncWebsocketConsumer):
             data = json.loads(text_data)
             command = data.get("command")
 
-            #ALL SIGNALING (WebRTC)
             if command == "call_signal":
                 target_username = data.get("target")
                 signal_data = data.get("data")
@@ -185,12 +161,9 @@ class OnlineStatusConsumer(AsyncWebsocketConsumer):
                     )
                 except User.DoesNotExist:
                     print(f"❌ Target '{target_username}' not found")
-
         except Exception as e:
-            print(f"❌ Error in OnlineStatusConsumer: {e}")
+            print(f"❌ Error: {e}")
 
-
-    # HELPER: Broadcast Status to All 
     async def broadcast_status(self, is_online):
         timestamp = timezone.localtime(timezone.now()).strftime("%I:%M %p") # e.g. "03:45 PM"
         await self.channel_layer.group_send(
@@ -203,9 +176,7 @@ class OnlineStatusConsumer(AsyncWebsocketConsumer):
             }
         )
 
-    # HANDLER: Send data to Frontend 
     async def user_status_event(self, event):
-        # Send JSON to the websocket client
         await self.send(text_data=json.dumps({
             "type": "user_status",
             "username": event["username"],
@@ -213,7 +184,6 @@ class OnlineStatusConsumer(AsyncWebsocketConsumer):
             "last_seen": event["last_seen"]
         }))
 
-    # HANDLERS
     async def webrtc_signal_message(self, event):
         # Forward the WebRTC signal to the frontend
         await self.send(text_data=json.dumps({
@@ -232,8 +202,17 @@ class OnlineStatusConsumer(AsyncWebsocketConsumer):
 
     @sync_to_async
     def update_user_status(self, is_online):
-        # Direct DB update is efficient here
-        User.objects.filter(id=self.user.id).update(
-            is_online=is_online,
-            last_seen=timezone.localtime(timezone.now())
-        )
+        user_id = self.user.id
+        
+        if is_online:
+            # This saves DB writes.
+            cache.set(f'user_online_{user_id}', True, timeout=86400)
+            
+            # Optional: Update last_seen in DB only if needed (e.g. once per session)
+            User.objects.filter(id=user_id).update(last_seen=timezone.now())
+        else:
+            # B. Remove "Online" status from RAM
+            cache.delete(f'user_online_{user_id}')
+            
+            # C. Update "last_seen" in DB so we know when they left
+            User.objects.filter(id=user_id).update(last_seen=timezone.now())

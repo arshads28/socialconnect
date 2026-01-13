@@ -6,70 +6,24 @@
 {% block content %}
 <style>
     /* LOCAL STYLES FOR FEED */
-    .feed-container {
-        max-width: 600px;
-        width: 100%;
-        margin: 0 auto;
-        padding-top: 20px;
-    }
+    .feed-container { max-width: 600px; width: 100%; margin: 0 auto; padding-top: 20px; padding-bottom: 50px; }
 
     /* 1. CREATE POST CARD */
-    .create-card {
-        background: #fff;
-        border-radius: 24px;
-        padding: 20px;
-        margin-bottom: 24px;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.03);
-        border: 1px solid #f0f0f0;
-    }
-    
-    .create-input {
-        width: 100%;
-        border: none;
-        resize: none;
-        outline: none;
-        font-size: 16px;
-        margin-bottom: 10px;
-        font-family: inherit;
-        min-height: 50px;
-    }
+    .create-card { background: #fff; border-radius: 24px; padding: 20px; margin-bottom: 24px; box-shadow: 0 2px 10px rgba(0,0,0,0.03); border: 1px solid #f0f0f0; }
+    .create-input { width: 100%; border: none; resize: none; outline: none; font-size: 16px; margin-bottom: 10px; font-family: inherit; min-height: 50px; }
 
     /* Preview Styling */
-    #home-preview-container {
-        display: none; /* Hidden by default */
-        position: relative;
-        margin-bottom: 15px;
-        border-radius: 12px;
-        overflow: hidden;
-        background: #f9f9f9;
-        max-height: 300px;
-        justify-content: center;
-        align-items: center;
-    }
-    #home-preview-image, #home-preview-video {
-        width: 100%;
-        height: 100%;
-        object-fit: contain;
-        display: none;
-    }
-    .remove-media-btn {
-        position: absolute; top: 10px; right: 10px;
-        background: rgba(0,0,0,0.6); color: white;
-        width: 30px; height: 30px; border-radius: 50%;
-        border: none; cursor: pointer; display: flex;
-        justify-content: center; align-items: center; font-weight: bold;
-    }
+    #home-preview-container { display: none; position: relative; margin-bottom: 15px; border-radius: 12px; overflow: hidden; background: #f9f9f9; max-height: 300px; justify-content: center; align-items: center; }
+    #home-preview-image, #home-preview-video { width: 100%; height: 100%; object-fit: contain; display: none; }
+    .remove-media-btn { position: absolute; top: 10px; right: 10px; background: rgba(0,0,0,0.6); color: white; width: 30px; height: 30px; border-radius: 50%; border: none; cursor: pointer; display: flex; justify-content: center; align-items: center; font-weight: bold; }
 
-    .create-actions {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        border-top: 1px solid #f0f0f0;
-        padding-top: 15px;
-    }
+    .create-actions { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #f0f0f0; padding-top: 15px; }
+    .media-placeholder { width: 100%; aspect-ratio: 4 / 5; background: #f2f2f2; color: #999; display: flex; align-items: center; justify-content: center; font-size: 14px; }
+    .blur-up { filter: blur(20px); transform: scale(1.05); transition: filter 0.6s ease, transform 0.6s ease; }
+    .blur-up.loaded { filter: blur(0); transform: scale(1); }
 
-    /* 2. POST CARD (Unchanged) */
-    .post-card { background: #fff; border-radius: 24px; margin-bottom: 24px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); border: 1px solid #f0f0f0; overflow: hidden; }
+    /* 2. POST CARD */
+    .post-card { background: #fff; border-radius: 24px; margin-bottom: 24px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); border: 1px solid #f0f0f0; overflow: visible; /* Changed to visible for dropdown */ position: relative; }
     .post-header { padding: 15px 20px; display: flex; align-items: center; justify-content: space-between; }
     .author-info { display: flex; align-items: center; gap: 12px; text-decoration: none; color: inherit; cursor: pointer; }
     .p-avatar { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; background: #eee; }
@@ -83,22 +37,45 @@
     .caption-text { font-size: 15px; line-height: 1.5; color: #111; }
     .username-bold { font-weight: 700; margin-right: 6px; cursor: pointer; }
     .empty-state { text-align: center; padding: 50px 20px; color: #999; }
+
+    /* DROPDOWN MENU STYLES */
+    .menu-container { position: relative; }
+    .menu-btn { border: none; background: none; cursor: pointer; font-size: 20px; color: #999; padding: 5px; }
+    .menu-dropdown {
+        position: absolute; right: 0; top: 100%; 
+        background: white; border: 1px solid #eee; 
+        box-shadow: 0 4px 15px rgba(0,0,0,0.1); 
+        border-radius: 12px; overflow: hidden; 
+        display: none; z-index: 10; width: 140px;
+        flex-direction: column;
+    }
+    .menu-dropdown button {
+        width: 100%; padding: 12px 15px; border: none; background: white;
+        text-align: left; cursor: pointer; font-size: 14px; color: #333;
+        transition: 0.1s;
+    }
+    .menu-dropdown button:hover { background: #f7f7f7; }
+    .menu-dropdown button.btn-delete { color: #dc3545; font-weight: 600; }
+    .menu-dropdown button.btn-delete:hover { background: #fff5f5; }
+    
+    /* Overlay to close menu when clicking outside */
+    .menu-backdrop { position: fixed; top:0; left:0; width:100vw; height:100vh; z-index: 9; display: none; cursor: default; }
+
 </style>
+
+<div class="menu-backdrop" id="menu-backdrop" onclick="closeAllMenus()"></div>
 
 <div class="feed-container">
 
     <div class="create-card">
         <form method="POST" action="{% url 'create_post' %}" enctype="multipart/form-data" id="home-create-form">
             {% csrf_token %}
-            
             <textarea name="content" class="create-input" placeholder="What's happening?"></textarea>
-
             <div id="home-preview-container">
                 <button type="button" class="remove-media-btn" onclick="clearHomeMedia()">×</button>
                 <img id="home-preview-image">
                 <video id="home-preview-video" controls></video>
             </div>
-            
             <div class="create-actions">
                 <div style="position:relative; overflow:hidden; display:inline-block;">
                     <button type="button" style="pointer-events:none; display:flex; align-items:center; gap:5px; color:#0095f6;">
@@ -107,7 +84,6 @@
                     </button>
                     <input type="file" name="media" id="home-media-input" accept="image/*,video/*" onchange="previewHomeMedia(event)" style="font-size: 100px; position: absolute; left: 0; top: 0; opacity: 0; cursor: pointer;">
                 </div>
-
                 <button type="submit" style="background: #111; color: white; border-radius: 20px; padding: 8px 20px; font-weight: 700; font-size: 14px;">Post</button>
             </div>
         </form>
@@ -117,8 +93,8 @@
     <div class="post-card">
         <div class="post-header">
             <div onclick="openProfile('{{ post.author.username }}')" class="author-info">
-                {% if post.author.profile.image %}
-                    <img src="{{ post.author.profile.image.url }}" class="p-avatar">
+                {% if post.author.avatar %}
+                    <img src="{{ post.author.avatar.url }}" class="p-avatar">
                 {% else %}
                     <div class="p-avatar" style="display:flex; justify-content:center; align-items:center; font-size:18px;">👤</div>
                 {% endif %}
@@ -126,17 +102,39 @@
                     <div style="font-weight:700; font-size:15px;">{{ post.author.username }}</div>
                 </div>
             </div>
-            <button style="color:#999;">•••</button>
+
+            <div class="menu-container">
+                <button class="menu-btn" onclick="toggleMenu('menu-{{ post.id }}')">•••</button>
+                
+                <div id="menu-{{ post.id }}" class="menu-dropdown">
+                    {% if post.author == user %}
+                        <form action="{% url 'delete_post' post.id %}" method="POST" onsubmit="return confirm('Delete this post?');">
+                            {% csrf_token %}
+                            <button type="submit" class="btn-delete">Delete Post</button>
+                        </form>
+                    {% endif %}
+                    
+                    <button onclick="copyLink('{{ post.id }}')">Copy Link</button>
+                    
+                    {% if post.author != user %}
+                         <button onclick="reportPost('{{ post.id }}')">Report</button>
+                    {% endif %}
+                </div>
+            </div>
         </div>
 
         {% if post.media %}
         <div class="post-media-container">
-            {% if post.media_type == "video" %}
-                <video controls style="width:100%; display:block;">
-                    <source src="{{ post.media.url }}">
-                </video>
-            {% else %}
-                <img src="{{ post.media.url }}" class="post-img" loading="lazy">
+            {% if post.processing %}
+                <div class="media-placeholder">Processing image…</div>
+            {% else %} 
+                {% if post.media_type == "video" %}
+                    <video controls style="width:100%; display:block;">
+                        <source src="{{ post.media.url }}">
+                    </video>
+                {% else %}
+                    <img src="{{ post.media.url }}" class="post-img blur-up" loading="lazy" alt="Post image" onload="this.classList.add('loaded')">
+                {% endif %}
             {% endif %}
         </div>
         {% endif %}
@@ -149,7 +147,7 @@
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path></svg>
             </button>
             {% if post.author.username != user.username %}
-                <button class="action-btn" onclick="openChatPopup('{{ post.author.username }}', '{% if post.author.profile.image %}{{ post.author.profile.image.url }}{% endif %}')">
+                <button class="action-btn" onclick="openChatPopup('{{ post.author.username }}', '{% if post.author.avatar %}{{ post.author.avatar.url }}{% endif %}')">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
                 </button>
             {% endif %}
@@ -175,6 +173,7 @@
 </div>
 
 <script>
+    // MEDIA PREVIEW LOGIC
     function previewHomeMedia(event) {
         const file = event.target.files[0];
         const container = document.getElementById('home-preview-container');
@@ -198,15 +197,45 @@
     }
 
     function clearHomeMedia() {
-        const input = document.getElementById('home-media-input');
-        const container = document.getElementById('home-preview-container');
-        const img = document.getElementById('home-preview-image');
-        const video = document.getElementById('home-preview-video');
+        document.getElementById('home-media-input').value = "";
+        document.getElementById('home-preview-container').style.display = 'none';
+        document.getElementById('home-preview-image').src = "";
+        document.getElementById('home-preview-video').src = "";
+    }
 
-        input.value = ""; // Reset file input
-        container.style.display = 'none';
-        img.src = "";
-        video.src = "";
+    // MENU LOGIC
+    function toggleMenu(menuId) {
+        const menu = document.getElementById(menuId);
+        const backdrop = document.getElementById('menu-backdrop');
+        
+        // Close all other menus first
+        document.querySelectorAll('.menu-dropdown').forEach(el => {
+            if (el.id !== menuId) el.style.display = 'none';
+        });
+
+        if (menu.style.display === 'flex') {
+            menu.style.display = 'none';
+            backdrop.style.display = 'none';
+        } else {
+            menu.style.display = 'flex';
+            backdrop.style.display = 'block';
+        }
+    }
+
+    function closeAllMenus() {
+        document.querySelectorAll('.menu-dropdown').forEach(el => el.style.display = 'none');
+        document.getElementById('menu-backdrop').style.display = 'none';
+    }
+
+    function copyLink(postId) {
+        // Placeholder for copying link
+        alert("Link copied for post " + postId);
+        closeAllMenus();
+    }
+    
+    function reportPost(postId) {
+        alert("Reported post " + postId);
+        closeAllMenus();
     }
 </script>
 {% endblock %}

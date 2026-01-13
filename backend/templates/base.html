@@ -226,7 +226,7 @@
         {% if user.is_authenticated %}
         <div class="user-pill">
              <div class="u-avatar-small" style="display:flex; justify-content:center; align-items:center; font-size:20px;">
-                {% if user.profile.image %}<img src="{{ user.profile.image.url }}" class="u-avatar-small">{% else %}👤{% endif %}
+                {% if user.avatar %}<img src="{{ user.avatar.url }}" class="u-avatar-small">{% else %}👤{% endif %}
              </div>
              <div class="u-meta">
                  <strong>{{ user.username }}</strong>
@@ -241,8 +241,8 @@
 
     <div class="mobile-header">
         <div onclick="openProfile('{{ user.username }}')" style="display:flex; align-items:center;">
-             {% if user.profile.image %}
-                <img src="{{ user.profile.image.url }}" style="width:34px; height:34px; border-radius:50%; object-fit:cover; border:1px solid #eee;">
+             {% if user.avatar %}
+                <img src="{{ user.avatar.url }}" style="width:34px; height:34px; border-radius:50%; object-fit:cover; border:1px solid #eee;">
             {% else %}
                 <div style="width:34px; height:34px; border-radius:50%; background:#eee; display:flex; justify-content:center; align-items:center;">👤</div>
             {% endif %}
@@ -479,6 +479,22 @@
                 return;
             }
         });
+
+function getCookie(name) {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== '') {
+        const cookies = document.cookie.split(';');
+        for (let i = 0; i < cookies.length; i++) {
+            const cookie = cookies[i].trim();
+            if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                break;
+            }
+        }
+    }
+    return cookieValue;
+}
+
     </script>
 </body>
 </html>

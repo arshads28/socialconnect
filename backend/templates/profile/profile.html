@@ -1,12 +1,15 @@
 <style>
+    /* MAIN PROFILE OVERLAY */
     #profile-overlay { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.6); z-index: 3000; justify-content: center; align-items: center; backdrop-filter: blur(4px); }
+    
     .profile-modal { background: #fff; width: 100%; max-width: 450px; border-radius: 24px; padding: 30px; position: relative; display: flex; flex-direction: column; align-items: center; text-align: center; animation: popIn 0.3s ease; }
+    
     @keyframes popIn { from { transform: scale(0.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 
     /* Close Button */
     .btn-close-modal { position: absolute; top: 20px; right: 20px; border: none; background: none; font-size: 24px; cursor: pointer; color: #767676; }
 
-    /* Elements */
+    /* Profile Elements */
     #p-overlay-avatar { width: 100px; height: 100px; border-radius: 50%; object-fit: cover; background: #eee; margin-bottom: 15px; border: 1px solid #dbdbdb; }
     #p-overlay-username { font-size: 24px; font-weight: 700; margin-bottom: 5px; }
     #p-overlay-email { font-size: 14px; color: #767676; margin-bottom: 20px; }
@@ -15,12 +18,28 @@
     .p-tag { background: #efefef; padding: 8px 16px; border-radius: 20px; font-size: 13px; color: #333; display: inline-block; margin-bottom: 25px; font-weight: 600; }
 
     /* Action Buttons */
-    .p-actions { display: flex; gap: 10px; width: 100%; justify-content: center; }
-    .p-btn { flex: 1; max-width: 140px; padding: 12px; border-radius: 25px; font-weight: 600; cursor: pointer; border: none; font-size: 15px; }
+    .p-actions { display: flex; gap: 10px; width: 100%; justify-content: center; flex-wrap: wrap; }
+    .p-btn { flex: 1; min-width: 100px; max-width: 140px; padding: 12px; border-radius: 25px; font-weight: 600; cursor: pointer; border: none; font-size: 15px; transition: 0.2s; }
     
     .p-btn-msg { background: var(--primary); color: white; }
     .p-btn-edit { background: #efefef; color: #111; }
-    .p-btn:hover { opacity: 0.9; transform: translateY(-1px); transition: 0.2s; }
+    
+    /* Block Button Styles */
+    .p-btn-block { background: #fff; border: 1px solid #dbdbdb; color: #d93025; }
+    .p-btn-block:hover { background: #fff2f1; border-color: #d93025; }
+
+    /* CONFIRMATION OVERLAY (Nested) */
+    #block-confirm-overlay {
+        display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(255,255,255,0.95); border-radius: 24px; z-index: 10;
+        flex-direction: column; justify-content: center; align-items: center; padding: 20px;
+    }
+    .confirm-title { font-size: 18px; font-weight: 700; margin-bottom: 10px; color: #111; }
+    .confirm-text { font-size: 14px; color: #666; margin-bottom: 20px; max-width: 80%; }
+    .confirm-actions { display: flex; gap: 10px; }
+    .btn-confirm-yes { background: #d93025; color: white; padding: 10px 24px; border-radius: 20px; font-weight: 600; border: none; cursor: pointer; }
+    .btn-confirm-no { background: #efefef; color: #111; padding: 10px 24px; border-radius: 20px; font-weight: 600; border: none; cursor: pointer; }
+
 </style>
 
 <div id="profile-overlay" onclick="closeProfileOverlay(event)">
@@ -28,25 +47,44 @@
         <button class="btn-close-modal" onclick="toggleProfileOverlay()">&times;</button>
         
         <img id="p-overlay-avatar" src="" alt="">
-        
         <div id="p-overlay-username"></div>
         <div id="p-overlay-email"></div>
-        
         <div id="p-overlay-bio"></div>
-        
         <div id="p-overlay-interests" class="p-tag" style="display:none;"></div>
 
-        <div class="p-actions" id="p-actions-container">
+        <div class="p-actions" id="p-actions-container"></div>
+
+        <div id="block-confirm-overlay">
+            <div class="confirm-title" id="confirm-title">Block User?</div>
+            <div class="confirm-text" id="confirm-text">They won't be able to message you or see your posts.</div>
+            <div class="confirm-actions">
+                <button class="btn-confirm-no" onclick="cancelBlockAction()">Cancel</button>
+                <button class="btn-confirm-yes" id="btn-confirm-action">Confirm</button>
             </div>
+        </div>
     </div>
 </div>
 
 <script>
+    // Global variable to store current profile data for block logic
+    let currentProfileUser = null; 
+
     function toggleProfileOverlay() {
         const el = document.getElementById('profile-overlay');
-        el.style.display = (el.style.display === 'flex') ? 'none' : 'flex';
-        // Clear history state if closing
-        if (el.style.display === 'none') history.back();
+        const confirm = document.getElementById('block-confirm-overlay');
+        
+        // Reset confirmation screen when closing/opening
+        if(confirm) confirm.style.display = 'none';
+
+        if (el.style.display === 'flex') {
+            el.style.display = 'none';
+        } else {
+            el.style.display = 'flex';
+        }
+        
+        if (el.style.display === 'none') {
+            // Optional: history.back() if you use pushState
+        }
     }
 
     function closeProfileOverlay(e) {
@@ -54,13 +92,7 @@
     }
 
     async function openProfile(username) {
-        // 1. Close other overlays
-        const search = document.getElementById('search-overlay');
-        const inbox = document.getElementById('inbox-overlay');
-        if (search) search.style.display = 'none';
-        if (inbox) inbox.style.display = 'none';
-
-        // 2. Show Loader / Clear Data
+        // 1. UI Reset
         const el = document.getElementById('profile-overlay');
         el.style.display = 'flex';
         
@@ -68,15 +100,18 @@
         document.getElementById('p-overlay-bio').innerText = "";
         document.getElementById('p-overlay-avatar').src = "";
         document.getElementById('p-actions-container').innerHTML = "";
+        document.getElementById('block-confirm-overlay').style.display = 'none'; // Hide confirm
 
-        // 3. Fetch Data
         try {
-            const res = await fetch(`/auth/api/profile/${username}/`);
+            // 2. Fetch Data (Make sure URL matches your urls.py)
+            // Note: Update '/auth/profile/' if needed based on your urls.py
+            const res = await fetch(`/auth/profile/${username}/`);
             if(!res.ok) throw new Error("User not found");
             
             const data = await res.json();
+            currentProfileUser = data; // Store data for blocking logic
 
-            // 4. Populate UI
+            // 3. Populate UI
             document.getElementById('p-overlay-username').innerText = data.username;
             document.getElementById('p-overlay-email').innerText = data.email;
             document.getElementById('p-overlay-bio').innerText = data.bio || "No bio yet.";
@@ -84,31 +119,143 @@
             if (data.avatar_url) {
                 document.getElementById('p-overlay-avatar').src = data.avatar_url;
             } else {
-                // Placeholder logic if you have a placeholder image
                 document.getElementById('p-overlay-avatar').src = "https://via.placeholder.com/100"; 
             }
 
+            // Interests
+            const tag = document.getElementById('p-overlay-interests');
             if (data.interests) {
-                const tag = document.getElementById('p-overlay-interests');
                 tag.innerText = data.interests;
                 tag.style.display = "inline-block";
             } else {
-                document.getElementById('p-overlay-interests').style.display = "none";
+                tag.style.display = "none";
             }
 
-            // 5. Setup Buttons
+            // 4. Setup Buttons
             const actions = document.getElementById('p-actions-container');
+            actions.innerHTML = ""; // Clear old buttons
+
             if (data.is_own_profile) {
+                // Own Profile -> Edit Button
                 actions.innerHTML = `<button class="p-btn p-btn-edit" onclick="openEditProfile()">Edit Profile</button>`;
             } else {
-                actions.innerHTML = `<button class="p-btn p-btn-msg" onclick="openChatPopup('${data.username}', '${data.avatar_url}')">Message</button>`;
-            }
+                // Other Profile -> Message & Block Buttons
+                
+                // Message Button
+                const msgBtn = document.createElement('button');
+                msgBtn.className = "p-btn p-btn-msg";
+                msgBtn.innerText = "Message";
+                msgBtn.onclick = function() {
+                    toggleProfileOverlay(); // Close profile
+                    openChatPopup(data.username, data.avatar_url);
+                };
+                actions.appendChild(msgBtn);
 
-            history.pushState({ modal: 'profile' }, null, "");
+                // Block/Unblock Button logic
+                const blockBtn = document.createElement('button');
+                blockBtn.className = "p-btn p-btn-block";
+                
+                // Check if already blocked (You need 'is_blocked' in your API response)
+                // Assuming your API returns 'is_blocked' or you check status
+                if (data.connection_status === 'BLOCKED') {
+                    blockBtn.innerText = "Unblock";
+                    blockBtn.onclick = () => showConfirm('unblock');
+                } else {
+                    blockBtn.innerText = "Block";
+                    blockBtn.onclick = () => showConfirm('block');
+                }
+                actions.appendChild(blockBtn);
+            }
 
         } catch (err) {
             console.error(err);
-            document.getElementById('p-overlay-username').innerText = "Error loading profile.";
+            document.getElementById('p-overlay-username').innerText = "Error loading.";
         }
+    }
+
+    // ============================
+    //  BLOCK / UNBLOCK LOGIC
+    // ============================
+
+    function showConfirm(actionType) {
+        const overlay = document.getElementById('block-confirm-overlay');
+        const title = document.getElementById('confirm-title');
+        const text = document.getElementById('confirm-text');
+        const confirmBtn = document.getElementById('btn-confirm-action');
+
+        overlay.style.display = 'flex'; // Show overlay
+
+        if (actionType === 'block') {
+            title.innerText = `Block ${currentProfileUser.username}?`;
+            text.innerText = "They won't be able to message you or see your posts.";
+            confirmBtn.innerText = "Block";
+            confirmBtn.style.background = "#d93025"; // Red
+            confirmBtn.onclick = () => performAction('block');
+        } else {
+            title.innerText = `Unblock ${currentProfileUser.username}?`;
+            text.innerText = "They will be able to see your posts and message you again.";
+            confirmBtn.innerText = "Unblock";
+            confirmBtn.style.background = "#111"; // Black
+            confirmBtn.onclick = () => performAction('unblock');
+        }
+    }
+
+    function cancelBlockAction() {
+        document.getElementById('block-confirm-overlay').style.display = 'none';
+    }
+
+    async function performAction(actionType) {
+        if (!currentProfileUser) return;
+        
+        // Disable button to prevent double clicks
+        const confirmBtn = document.getElementById('btn-confirm-action');
+        confirmBtn.innerText = "Processing...";
+        confirmBtn.disabled = true;
+
+        try {
+            // URL Structure: /auth/profile/{username}/block/  OR  /unblock/
+            // NOTE: Ensure these match your router URLs exactly!
+            const endpoint = `/auth/profile/${currentProfileUser.username}/${actionType}/`;
+
+            const res = await fetch(endpoint, {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': getCookie('csrftoken'),
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (res.ok) {
+                // Success: Hide confirm & Reload Profile to update button state
+                cancelBlockAction(); 
+                openProfile(currentProfileUser.username); 
+                // Optional: Show a small toast notification
+                // showToast("System", `User ${actionType}ed successfully.`);
+            } else {
+                const err = await res.json();
+                alert(err.error || "Action failed");
+                cancelBlockAction();
+            }
+        } catch (error) {
+            console.error(error);
+            alert("Network error");
+            cancelBlockAction();
+        }
+    }
+
+    // Helper for CSRF (Ensure this exists in your base.html or here)
+    function getCookie(name) {
+        let cookieValue = null;
+        if (document.cookie && document.cookie !== '') {
+            const cookies = document.cookie.split(';');
+            for (let i = 0; i < cookies.length; i++) {
+                const cookie = cookies[i].trim();
+                if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                    cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                    break;
+                }
+            }
+        }
+        return cookieValue;
     }
 </script>
