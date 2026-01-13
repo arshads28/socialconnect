@@ -64,9 +64,12 @@
         const formData = new FormData(form);
 
         try {
-            const res = await fetch('/auth/api/profile/edit/', {
-                method: 'POST',
-                body: formData
+            const res = await fetch('/auth/profile/me/', {
+                method: 'PATCH',
+                body: formData,
+                headers: {
+                'X-CSRFToken': getCookie('csrftoken') 
+            }
             });
             
             if(res.ok) {

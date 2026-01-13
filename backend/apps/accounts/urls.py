@@ -1,5 +1,16 @@
 from django.urls import path
-from .views import signup_view, login_view, logout_view,edit_profile_api,profile_data_api
+from .views import signup_view, login_view, logout_view, ProfileViewSet, ConnectionViewSet
+
+from rest_framework.routers import DefaultRouter
+
+
+
+router = DefaultRouter()
+router.register(r'profile', ProfileViewSet, basename='profile')
+router.register(r'connect', ConnectionViewSet, basename='connect')
+
+
+
 
 urlpatterns = [
     path("signup/", signup_view, name="signup"),
@@ -9,6 +20,6 @@ urlpatterns = [
     # path("profile/", profile_view, name="profile"),
     # path("profile/edit/", edit_profile_view, name="edit_profile"),
     # path('profile/<str:username>/', public_profile, name='public_profile'),
-    path('api/profile/<str:username>/', profile_data_api, name='profile_api'),
-    path('api/profile/edit/', edit_profile_api, name='edit_profile_api'),
 ]
+
+urlpatterns = router.urls
