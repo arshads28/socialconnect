@@ -1,12 +1,15 @@
 from django.db import models
 from django.conf import settings
 import mimetypes
+import uuid
 
 class Post(models.Model):
     class MediaType(models.TextChoices):
         IMAGE = "image", "Image"
         VIDEO = "video", "Video"
         NONE = "none", "None"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
     author = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -24,7 +27,7 @@ class Post(models.Model):
     processing = models.BooleanField(default=True)
 
     def save(self, *args, **kwargs):
-        is_new = self.pk is None
+        is_new = self._state.adding
         super().save(*args, **kwargs)
 
         
