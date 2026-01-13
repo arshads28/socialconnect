@@ -6,6 +6,8 @@ from django.shortcuts import render
 from django.contrib.auth import get_user_model
 from django.core.paginator import Paginator
 from django.shortcuts import render, get_object_or_404
+from django.utils import timezone
+from datetime import timedelta
 
 User = get_user_model()
 
@@ -51,7 +53,7 @@ def chat_history(request, username):
             "sender": msg.sender.username,
             "message": msg.content,
             "is_read": msg.is_read,
-            "timestamp": msg.timestamp.strftime("%I:%M %p"), 
+            "timestamp": timezone.localtime(msg.timestamp).strftime("%I:%M %p"), 
         }
         for msg in reversed(page_message)
     ]
@@ -73,10 +75,10 @@ def chat_history(request, username):
 
 @login_required
 def chat_view(request, username):
-    # 1. Get the actual User object (needed for is_online/last_seen)
+    # Get the actual User object (needed for is_online/last_seen)
     other_user_obj = get_object_or_404(User, username=username)
 
-    # 2. Get the formatted text
+    # Get the formatted text
     last_seen_text = get_last_seen_text(other_user_obj)
 
     messages = Message.objects.filter(
@@ -92,8 +94,6 @@ def chat_view(request, username):
 
 
 def get_last_seen_text(user):
-    from django.utils import timezone
-    from datetime import timedelta
     # If no last_seen data exists
     if not user.last_seen:
         return "Offline"
@@ -109,14 +109,17 @@ def get_last_seen_text(user):
     if delta < timedelta(minutes=1):
         return "Last seen just now"
     
+    # convert to local
+    last_seen_local = timezone.localtime(last_seen)
+    
     if last_seen.date() == now.date():
-        return f"Last seen today at {last_seen.strftime('%I:%M %p')}"
+        return f"Last seen today at {last_seen_local.strftime('%I:%M %p')}"
     
     if last_seen.date() == (now - timedelta(days=1)).date():
-        return f"Last seen yesterday at {last_seen.strftime('%I:%M %p')}"
+        return f"Last seen yesterday at {last_seen_local.strftime('%I:%M %p')}"
         
     # Default: Show full date
-    return f"Last seen {last_seen.strftime('%d/%m/%Y')}"
+    return f"Last seen {last_seen_local.strftime('%d/%m/%Y')}"
 
 def get_unread_count(user):
     return Message.objects.filter(
