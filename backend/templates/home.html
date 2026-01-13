@@ -5,6 +5,7 @@
 
 {% block content %}
 <style>
+    /* LOCAL STYLES FOR FEED */
     .feed-container {
         max-width: 600px;
         width: 100%;
@@ -12,27 +13,72 @@
         padding-top: 20px;
     }
 
-    .post-card {
+    /* 1. CREATE POST CARD */
+    .create-card {
         background: #fff;
         border-radius: 24px;
+        padding: 20px;
         margin-bottom: 24px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        box-shadow: 0 2px 10px rgba(0,0,0,0.03);
         border: 1px solid #f0f0f0;
-        overflow: hidden;
+    }
+    
+    .create-input {
+        width: 100%;
+        border: none;
+        resize: none;
+        outline: none;
+        font-size: 16px;
+        margin-bottom: 10px;
+        font-family: inherit;
+        min-height: 50px;
     }
 
+    /* Preview Styling */
+    #home-preview-container {
+        display: none; /* Hidden by default */
+        position: relative;
+        margin-bottom: 15px;
+        border-radius: 12px;
+        overflow: hidden;
+        background: #f9f9f9;
+        max-height: 300px;
+        justify-content: center;
+        align-items: center;
+    }
+    #home-preview-image, #home-preview-video {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        display: none;
+    }
+    .remove-media-btn {
+        position: absolute; top: 10px; right: 10px;
+        background: rgba(0,0,0,0.6); color: white;
+        width: 30px; height: 30px; border-radius: 50%;
+        border: none; cursor: pointer; display: flex;
+        justify-content: center; align-items: center; font-weight: bold;
+    }
+
+    .create-actions {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-top: 1px solid #f0f0f0;
+        padding-top: 15px;
+    }
+
+    /* 2. POST CARD (Unchanged) */
+    .post-card { background: #fff; border-radius: 24px; margin-bottom: 24px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); border: 1px solid #f0f0f0; overflow: hidden; }
     .post-header { padding: 15px 20px; display: flex; align-items: center; justify-content: space-between; }
     .author-info { display: flex; align-items: center; gap: 12px; text-decoration: none; color: inherit; cursor: pointer; }
     .p-avatar { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; background: #eee; }
-
     .post-media-container { width: 100%; background: #fafafa; max-height: 700px; overflow: hidden; display: flex; justify-content: center; align-items: center; }
     .post-img { width: 100%; height: auto; object-fit: cover; display: block; }
-
     .post-actions { padding: 12px 20px; display: flex; gap: 20px; }
     .action-btn { background: none; border: none; cursor: pointer; transition: transform 0.1s; color: #111; padding: 0; display: flex; align-items: center; }
     .action-btn:hover { transform: scale(1.1); color: #555; }
     .action-btn svg { width: 24px; height: 24px; stroke-width: 1.8px; }
-
     .post-content { padding: 0 20px 20px 20px; }
     .caption-text { font-size: 15px; line-height: 1.5; color: #111; }
     .username-bold { font-weight: 700; margin-right: 6px; cursor: pointer; }
@@ -40,7 +86,33 @@
 </style>
 
 <div class="feed-container">
-    
+
+    <div class="create-card">
+        <form method="POST" action="{% url 'create_post' %}" enctype="multipart/form-data" id="home-create-form">
+            {% csrf_token %}
+            
+            <textarea name="content" class="create-input" placeholder="What's happening?"></textarea>
+
+            <div id="home-preview-container">
+                <button type="button" class="remove-media-btn" onclick="clearHomeMedia()">×</button>
+                <img id="home-preview-image">
+                <video id="home-preview-video" controls></video>
+            </div>
+            
+            <div class="create-actions">
+                <div style="position:relative; overflow:hidden; display:inline-block;">
+                    <button type="button" style="pointer-events:none; display:flex; align-items:center; gap:5px; color:#0095f6;">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
+                        <span style="font-size:13px; font-weight:600;">Media</span>
+                    </button>
+                    <input type="file" name="media" id="home-media-input" accept="image/*,video/*" onchange="previewHomeMedia(event)" style="font-size: 100px; position: absolute; left: 0; top: 0; opacity: 0; cursor: pointer;">
+                </div>
+
+                <button type="submit" style="background: #111; color: white; border-radius: 20px; padding: 8px 20px; font-weight: 700; font-size: 14px;">Post</button>
+            </div>
+        </form>
+    </div>
+
     {% for post in posts %}
     <div class="post-card">
         <div class="post-header">
@@ -60,7 +132,9 @@
         {% if post.media %}
         <div class="post-media-container">
             {% if post.media_type == "video" %}
-                <video controls style="width:100%; display:block;"><source src="{{ post.media.url }}"></video>
+                <video controls style="width:100%; display:block;">
+                    <source src="{{ post.media.url }}">
+                </video>
             {% else %}
                 <img src="{{ post.media.url }}" class="post-img" loading="lazy">
             {% endif %}
@@ -89,12 +163,50 @@
             </div>
         </div>
         {% endif %}
+
     </div>
     {% empty %}
         <div class="empty-state">
             <h3>No posts yet</h3>
-            <p>Tap the + button to create your first post!</p>
+            <p>Follow some people or create your first post!</p>
         </div>
     {% endfor %}
+
 </div>
+
+<script>
+    function previewHomeMedia(event) {
+        const file = event.target.files[0];
+        const container = document.getElementById('home-preview-container');
+        const img = document.getElementById('home-preview-image');
+        const video = document.getElementById('home-preview-video');
+
+        if (file) {
+            container.style.display = 'flex';
+            const url = URL.createObjectURL(file);
+
+            if (file.type.startsWith('video/')) {
+                img.style.display = 'none';
+                video.style.display = 'block';
+                video.src = url;
+            } else {
+                video.style.display = 'none';
+                img.style.display = 'block';
+                img.src = url;
+            }
+        }
+    }
+
+    function clearHomeMedia() {
+        const input = document.getElementById('home-media-input');
+        const container = document.getElementById('home-preview-container');
+        const img = document.getElementById('home-preview-image');
+        const video = document.getElementById('home-preview-video');
+
+        input.value = ""; // Reset file input
+        container.style.display = 'none';
+        img.src = "";
+        video.src = "";
+    }
+</script>
 {% endblock %}
