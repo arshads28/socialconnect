@@ -29,15 +29,6 @@ class ProfileSerializer(serializers.ModelSerializer):
     def get_is_own_profile(self, obj):
         return self.context['request'].user == obj
     
-    def validate_avatar(self, value):
-        if value.size > 1 * 1024 * 1024:
-            raise serializers.ValidationError("Avatar must be under 1MB")
-
-        if not value.content_type.startswith("image/"):
-            raise serializers.ValidationError("Invalid image type")
-
-        return value
-
 
     def get_connection_status(self, obj):
         request = self.context.get('request')
@@ -56,8 +47,11 @@ class ProfileSerializer(serializers.ModelSerializer):
     def validate_avatar(self, value):
         if value.size > 1 * 1024 * 1024:
             raise serializers.ValidationError("Avatar must be under 1MB")
-        return value
 
+        if not value.content_type.startswith("image/"):
+            raise serializers.ValidationError("Invalid image type")
+
+        return value
 
 
     #     conn = Connection.objects.filter(sender=request.user,receiver=obj).first()

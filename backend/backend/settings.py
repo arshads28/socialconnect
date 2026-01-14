@@ -97,6 +97,20 @@ WSGI_APPLICATION = 'backend.wsgi.application'
 ASGI_APPLICATION = "backend.asgi.application"
 
 
+
+CORS_ALLOW_ALL_ORIGINS = False # True is dangerous, keep it False
+
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    r"^https://\w+\.onrender\.com$",  # Matches your Render URL
+    r"^http://localhost:[0-9]+$",     # Matches localhost on ANY port
+    r"^http://127\.0\.0\.1:[0-9]+$",  # Matches 127.0.0.1 on ANY port
+    r"^http://10\.0\.2\.2:[0-9]+$",   # Matches Android Emulator
+    r"^http://192\.168\.\d{1,3}\.\d{1,3}:[0-9]+$", # Matches ANY local WiFi IP
+]
+
+CORS_ALLOW_CREDENTIALS = True
+
+
 REDIS_URL = os.environ.get("REDIS_URL", "redis://127.0.0.1:6379")
 
 

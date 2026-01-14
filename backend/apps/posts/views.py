@@ -6,6 +6,13 @@ from django.template.loader import render_to_string
 from django.db.models import Count, Prefetch, Exists, OuterRef
 from django.core.paginator import Paginator
 
+
+from rest_framework import generics, permissions, status
+from rest_framework.response import Response
+from rest_framework.views import APIView
+from .serializers import PostSerializer
+
+
 from .models import Post, PostLike, Comment
 
 @login_required
@@ -166,3 +173,46 @@ def delete_comment(request, comment_id):
         return JsonResponse({"status": "deleted"})
     
     return JsonResponse({"error": "Permission denied"}, status=403)
+
+
+
+
+
+
+
+
+
+
+
+
+
+class PostFeedAPIView(generics.ListAPIView):
+    serializer_class = PostSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        # Replicating your existing logic: exclude blocked/blocking users
+        return Post.objects.select_related("author")\
+            .exclude(author__blocked_by=user)\
+            .exclude(author__blocking=user)\
+            .order_by("-created_at")
+
+class ToggleLikeAPIView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, post_id):
+        post = get_object_or_404(Post, id=post_id)
+        like = PostLike.objects.filter(post=post, user=request.user).first()
+        
+        if like:
+            like.delete()
+            liked = False
+        else:
+            PostLike.objects.create(post=post, user=request.user)
+            liked = True
+            
+        return Response({
+            "liked": liked, 
+            "likes_count": post.likes.count()
+        }, status=status.HTTP_200_OK)
