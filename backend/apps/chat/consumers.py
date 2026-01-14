@@ -203,13 +203,16 @@ class OnlineStatusConsumer(AsyncWebsocketConsumer):
     @sync_to_async
     def update_user_status(self, is_online):
         user_id = self.user.id
+        online_key = f"user_online_{user_id}"
+        last_seen_key = f"last_seen_updated_{user_id}"
         
         if is_online:
             # This saves DB writes.
-            cache.set(f'user_online_{user_id}', True, timeout=86400)
+            cache.set(online_key, True, timeout=3600)
             
-            # Optional: Update last_seen in DB only if needed (e.g. once per session)
-            User.objects.filter(id=user_id).update(last_seen=timezone.now())
+            if not cache.get(last_seen_key):
+                User.objects.filter(id=user_id).update(last_seen=timezone.now())
+                cache.set(last_seen_key, True, timeout=500)
         else:
             # B. Remove "Online" status from RAM
             cache.delete(f'user_online_{user_id}')

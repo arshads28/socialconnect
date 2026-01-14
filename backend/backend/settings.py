@@ -97,36 +97,60 @@ WSGI_APPLICATION = 'backend.wsgi.application'
 ASGI_APPLICATION = "backend.asgi.application"
 
 
+REDIS_URL = os.environ.get("REDIS_URL", "redis://127.0.0.1:6379")
+
+
+CACHES = {
+    "default": {
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": REDIS_URL,
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+            "SOCKET_CONNECT_TIMEOUT": 5,
+            "SOCKET_TIMEOUT": 5,
+        },
+    }
+}
+
+
 CHANNEL_LAYERS = {
     "default": {
-        "BACKEND": "channels.layers.InMemoryChannelLayer",
-    }
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "CONFIG": {
+            "hosts": [REDIS_URL],
+            "capacity": 1000,
+            "expiry": 60,
+        },
+    },
 }
 
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
-# DATABASES = {
-#     'default': {
-#         'ENGINE': 'django.db.backends.postgresql',
-#         'NAME': os.getenv('DB_NAME','connectdb'),
-#         'USER': os.getenv('DB_USER','connect'),
-#         'PASSWORD': os.getenv('DB_PASSWORD','connect'),
-#         'HOST': os.getenv('DB_HOST', 'localhost'),
-#         'PORT': os.getenv('DB_PORT', '5432'),
-#     }
-# }
-
-LOCAL_DB_URL = f"postgres://{os.getenv('DB_USER','connect')}:{os.getenv('DB_PASSWORD','connect')}@{os.getenv('DB_HOST', 'localhost')}:{os.getenv('DB_PORT', '5432')}/{os.getenv('DB_NAME','connectdb')}"
-
-#Configure the database
 DATABASES = {
-    'default': dj_database_url.config(
-        default=LOCAL_DB_URL,
-        conn_max_age=600,
-        conn_health_checks=True,
-    )
+    "default": {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": os.getenv("DB_NAME", "connectdb"),
+        "USER": os.getenv("DB_USER", "connect"),
+        "PASSWORD": os.getenv("DB_PASSWORD", "connect"),
+        "HOST": os.getenv("DB_HOST", "localhost"),
+        "PORT": os.getenv("DB_PORT", "5432"),
+        "CONN_MAX_AGE": 600,
+        "CONN_HEALTH_CHECKS": True,
+    }
 }
+
+
+# LOCAL_DB_URL = f"postgres://{os.getenv('DB_USER','connect')}:{os.getenv('DB_PASSWORD','connect')}@{os.getenv('DB_HOST', 'localhost')}:{os.getenv('DB_PORT', '5432')}/{os.getenv('DB_NAME','connectdb')}"
+
+# #Configure the database
+# DATABASES = {
+#     'default': dj_database_url.config(
+#         default=LOCAL_DB_URL,
+#         conn_max_age=600,
+#         conn_health_checks=True,
+#     )
+# }
 
 
 AUTH_USER_MODEL = "accounts.User"
@@ -151,6 +175,16 @@ AUTH_PASSWORD_VALIDATORS = [
         'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
     },
 ]
+
+
+# settings.py
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+    ],
+}
+
+
 
 
 # Internationalization

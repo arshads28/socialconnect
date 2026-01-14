@@ -199,25 +199,51 @@ def inbox_view(request):
 
 
 def search_user(request):
-    query = request.GET.get('q', '')
+    query = request.GET.get('q', '').strip().lower()
     data = []
 
-    if query:
-       
-        users = User.objects.filter(
-            username__icontains=query
-        ).exclude(id=request.user.id)[:20] 
-        
-        
-        for u in users:
-            avatar_url = ""
-            if hasattr(u, 'profile') and u.profile.image:
-                avatar_url = u.profile.image.url
-                
-            data.append({
-                "username": u.username,
-                "avatar_url": avatar_url,
-                "bio": u.profile.bio[:40] + "..." if hasattr(u, 'profile') and u.profile.bio else ""
-            })
+    if len(query) < 2:
+        return JsonResponse({"results": []})
+    
+    user_id = str(request.user.id)
 
-    return JsonResponse({"results": data})
+    rate_key = f"search_rate:{user_id}"
+    cache.add(rate_key, 0, timeout=60)
+    requests = cache.get(rate_key, 0)
+
+    if requests >= 10:
+        return JsonResponse(
+            {"error": "Too many search requests. Please slow down."},
+            status=429,
+        )
+
+    cache.incr(rate_key)
+    
+
+    search_key = f"search:user:{user_id}:{query}"
+    cached_data = cache.get(search_key)
+
+    if cached_data is not None:
+        return JsonResponse({"results": cached_data})
+
+    users = (
+        User.objects
+        .filter(username__icontains=query)
+        .exclude(id=request.user.id)
+        .only("id", "username", "avatar", "bio")[:20]
+    )
+    
+
+    results = [
+        {
+            "id": str(u.id),
+            "username": u.username,
+            "avatar_url": u.avatar.url if u.avatar else "",
+            "bio": (u.bio[:40] + "...") if u.bio else "",
+        }
+        for u in users
+    ]
+
+    cache.set(search_key, results, timeout=120)
+
+    return JsonResponse({"results": results})
