@@ -52,6 +52,7 @@ INSTALLED_APPS = [
     "corsheaders",
     "channels",
     "uvicorn",
+    'django.contrib.postgres',
 
     "apps.accounts",
     "apps.posts",

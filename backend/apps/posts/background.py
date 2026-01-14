@@ -9,6 +9,7 @@ from .models import Post
 
 def process_post_image_background(post_id):
     close_old_connections()
+    print("Image processing start")
 
     try:
         post = Post.objects.get(pk=post_id)

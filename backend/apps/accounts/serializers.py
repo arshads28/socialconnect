@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
-from .models import Connection
+# from .models import Connection
 
 User = get_user_model()
 

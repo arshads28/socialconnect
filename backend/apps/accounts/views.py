@@ -11,7 +11,7 @@ from .serializers import ProfileSerializer, ProfileUpdateSerializer
 from rest_framework import status
 # from django.db.models import Q
 
-from .models import Connection
+# from .models import Connection
 from django.contrib.auth import get_user_model
 
 
