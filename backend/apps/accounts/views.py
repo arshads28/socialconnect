@@ -9,6 +9,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from .serializers import ProfileSerializer, ProfileUpdateSerializer
 from rest_framework import status
+from django import forms
 # from django.db.models import Q
 
 # from .models import Connection
@@ -22,9 +23,12 @@ User = get_user_model()
 
 
 class CustomUserCreationForm(UserCreationForm):
+
+    email = forms.EmailField(required=True)
+
     class Meta:
         model = User
-        fields = ("username",)
+        fields = ("username", "email")
 
 
 # class CustomAuthenticationForm(AuthenticationForm):

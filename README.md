@@ -81,42 +81,132 @@ This project is developed as a **production-ready MVP** supporting **up to 1,000
 ## 🏗️ Project Structure
 
 ```text
-socialconnect/
-├── backend/
-│   ├── backend/          # Django project settings
-│   ├── apps/
-│   │   ├── accounts/    # Auth, Profile, Connections
-│   │   ├── posts/       # Feed & Posts
-│   │   ├── chat/        # 1-on-1 Chat (WebSockets)
-│   │   ├── rooms/       # Public & Private Rooms
-│   │   └── calls/       # WebRTC Signaling
-│   └── manage.py
-│
-├── requirements.txt
-├── docker-compose.yml
-├── setup.md
-├── deployment.md
-└── README.md
 
-
-for frontend
-backend/
-├── static/
-│   ├── css/
-│   │   └── style.css
-│   ├── js/
-│   │   ├── feed.js
-│   │   └── chat.js
-│   └── img/
-│       └── default-avatar.png
-│
-├── templates/
-│   ├── base.html
-│   ├── home.html
-│   └── components/
-│       ├── post_card.html
-│       └── chat_modal.html
-```
+├── apps
+│   ├── accounts
+│   │   ├── admin.py
+│   │   ├── apps.py
+│   │   ├── __init__.py
+│   │   ├── migrations
+│   │   ├── models.py
+│   │   ├── __pycache__
+│   │   ├── serializers.py
+│   │   ├── tests.py
+│   │   ├── urls.py
+│   │   └── views.py
+│   ├── calls
+│   │   ├── admin.py
+│   │   ├── apps.py
+│   │   ├── consumers.py
+│   │   ├── __init__.py
+│   │   ├── migrations
+│   │   ├── models.py
+│   │   ├── __pycache__
+│   │   ├── routing.py
+│   │   ├── tests.py
+│   │   ├── urls.py
+│   │   └── views.py
+│   ├── chat
+│   │   ├── admin.py
+│   │   ├── apps.py
+│   │   ├── consumers.py
+│   │   ├── context_processors.py
+│   │   ├── __init__.py
+│   │   ├── migrations
+│   │   ├── models.py
+│   │   ├── __pycache__
+│   │   ├── routing.py
+│   │   ├── tests.py
+│   │   ├── urls.py
+│   │   └── views.py
+│   ├── posts
+│   │   ├── admin.py
+│   │   ├── apps.py
+│   │   ├── background.py
+│   │   ├── __init__.py
+│   │   ├── migrations
+│   │   ├── models.py
+│   │   ├── __pycache__
+│   │   ├── tests.py
+│   │   ├── threadpool.py
+│   │   ├── urls.py
+│   │   └── views.py
+│   └── rooms
+│       ├── admin.py
+│       ├── apps.py
+│       ├── __init__.py
+│       ├── migrations
+│       ├── models.py
+│       ├── __pycache__
+│       ├── tests.py
+│       └── views.py
+├── backend
+│   ├── asgi.py
+│   ├── __init__.py
+│   ├── __pycache__
+│   │   ├── asgi.cpython-312.pyc
+│   │   ├── asgi.cpython-313.pyc
+│   │   ├── __init__.cpython-312.pyc
+│   │   ├── __init__.cpython-313.pyc
+│   │   ├── settings.cpython-312.pyc
+│   │   ├── settings.cpython-313.pyc
+│   │   ├── urls.cpython-312.pyc
+│   │   └── urls.cpython-313.pyc
+│   ├── settings.py
+│   ├── urls.py
+│   └── wsgi.py
+├── db.sqlite3
+├── logs
+│   └── django.log
+├── manage.py
+├── media
+│   └── posts
+│       ├── 1000065337.jpg
+│       ├── 1000065709.mp4
+│       ├── 1000065711.mp4
+│       ├── 1000187680.jpg
+│       ├── arsasdfwurtow.jpg
+│       ├── arsasdfwurtow_L61BVrk.jpg
+│       ├── images_5bcsZjl.jpeg
+│       ├── images.jpeg
+│       ├── images_MmiweKO.jpeg
+│       ├── images_pHLSltP.jpeg
+│       ├── images_sQhSWQH_processed.jpg
+│       ├── mountainsss_processed.jpg
+│       ├── mountww45er_0dL7s9i_ZC90aqq.jpg
+│       ├── mountww45er.jpg
+│       └── photo_xLA6aTd.jpg
+├── staticfiles
+│   ├── admin
+│   │   ├── css
+│   │   ├── img
+│   │   └── js
+│   ├── rest_framework
+│   │   ├── css
+│   │   ├── docs
+│   │   ├── fonts
+│   │   ├── img
+│   │   └── js
+│   └── staticfiles.json
+└── templates
+    ├── addpost.html
+    ├── auth
+    │   ├── login.html
+    │   ├── reset_manual.html
+    │   └── signup.html
+    ├── base.html
+    ├── call_interface.html
+    ├── chat
+    │   ├── chat.html
+    │   └── inbox.html
+    ├── components
+    ├── home.html
+    ├── includes
+    │   └── single_post.html
+    ├── profile
+    │   ├── edit_profile.html
+    │   └── profile.html
+    └── search.html
 
 ---
 

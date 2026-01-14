@@ -2,9 +2,15 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login • SocialConnect</title>
 
     <style>
+        /* 2. RESET BOX SIZING */
+        * {
+            box-sizing: border-box;
+        }
+
         body {
             margin: 0;
             padding: 0;
@@ -13,11 +19,14 @@
             display: flex;
             justify-content: center;
             align-items: center;
-            height: 100vh;
+            min-height: 100vh;
         }
 
         .auth-container {
-            width: 350px;
+            /* 3. FLEXIBLE WIDTH */
+            width: 100%;
+            max-width: 350px;
+            margin: 20px;
         }
 
         .auth-box {
@@ -67,6 +76,22 @@
             text-decoration: none;
             font-weight: bold;
         }
+
+        /* Mobile Adjustments */
+        @media (max-width: 400px) {
+            .auth-box {
+                padding: 20px;
+                border: none;
+                background: transparent;
+            }
+            .auth-footer {
+                border: none;
+                background: transparent;
+            }
+            body {
+                background: #fff;
+            }
+        }
     </style>
 </head>
 <body>
@@ -95,8 +120,9 @@
         
             <button type="submit">Log In</button>
         </form>
+        
         {% if form.errors %}
-            <div style="color:red; margin-top:10px;">
+            <div style="color:red; margin-top:10px; font-size: 14px;">
                 {{ form.errors }}
             </div>
         {% endif %}
@@ -104,14 +130,8 @@
     </div>
 
     <div class="auth-footer">
-        Don't have an account?<form method="POST">
-    {% csrf_token %}
-
-
-</form>
-
-        <a href="/auth/signup/">Sign up</a><br><br>
-        <a href="{% url 'password_reset_request' %}">Forgot Password?</a>
+        Don't have an account? <a href="/auth/signup/">Sign up</a><br><br>
+        <a href="{% url 'password_reset_request' %}" style="font-size: 14px; color: #00376b;">Forgot Password?</a>
     </div>
 
 </div>
