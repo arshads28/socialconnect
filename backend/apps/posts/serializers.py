@@ -13,9 +13,20 @@ class AuthorSerializer(serializers.ModelSerializer):
 # 2. Comment Serializer
 class CommentSerializer(serializers.ModelSerializer):
     author = AuthorSerializer(read_only=True)
+    is_owner = serializers.SerializerMethodField()
+
     class Meta:
         model = Comment
-        fields = ['id', 'author', 'content', 'created_at']
+        fields = ['id', 'post', 'author', 'content', 'created_at', 'is_owner']
+        read_only_fields = ['post', 'author']
+
+    def get_is_owner(self, obj):
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            # Allow delete if user is Comment Author OR Post Author
+            return request.user == obj.author or request.user == obj.post.author
+        return False
+    
 
 # 3. Main Post Serializer
 class PostSerializer(serializers.ModelSerializer):
@@ -24,7 +35,7 @@ class PostSerializer(serializers.ModelSerializer):
     likes_count = serializers.SerializerMethodField()
     
     # We use this to get the full absolute URL for the image/video
-    media = serializers.SerializerMethodField()
+    media = serializers.FileField(required=False, allow_null=True)
 
     class Meta:
         model = Post
@@ -43,9 +54,3 @@ class PostSerializer(serializers.ModelSerializer):
             return PostLike.objects.filter(post=obj, user=request.user).exists()
         return False
 
-    def get_media(self, obj):
-        if obj.media:
-            request = self.context.get('request')
-            if request:
-                return request.build_absolute_uri(obj.media.url)
-        return None

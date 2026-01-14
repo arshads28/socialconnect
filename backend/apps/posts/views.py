@@ -7,10 +7,11 @@ from django.db.models import Count, Prefetch, Exists, OuterRef
 from django.core.paginator import Paginator
 
 
-from rest_framework import generics, permissions, status
+from rest_framework import viewsets, permissions, status, parsers
+from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.views import APIView
-from .serializers import PostSerializer
+from .models import Post, PostLike
+from .serializers import PostSerializer, CommentSerializer
 
 
 from .models import Post, PostLike, Comment
@@ -186,28 +187,62 @@ def delete_comment(request, comment_id):
 
 
 
-class PostFeedAPIView(generics.ListAPIView):
+class PostViewSet(viewsets.ModelViewSet):
+    """
+    Handles:
+    - GET /api/posts/       (The Feed)
+    - POST /api/posts/      (Create Post with Image/Video)
+    - DELETE /api/posts/id/ (Delete Post)
+    """
     serializer_class = PostSerializer
     permission_classes = [permissions.IsAuthenticated]
+    # 'MultiPartParser' is required to handle file uploads (images/videos)
+    parser_classes = [parsers.MultiPartParser, parsers.FormParser]
 
     def get_queryset(self):
+        # FEED LOGIC: Exclude blocked users, order by newest
         user = self.request.user
-        # Replicating your existing logic: exclude blocked/blocking users
         return Post.objects.select_related("author")\
             .exclude(author__blocked_by=user)\
             .exclude(author__blocking=user)\
             .order_by("-created_at")
 
-class ToggleLikeAPIView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    def perform_create(self, serializer):
+        media_file = self.request.data.get('media')
+        media_type = Post.MediaType.NONE
 
-    def post(self, request, post_id):
-        post = get_object_or_404(Post, id=post_id)
+        print(f"DEBUG: Received Media: {media_file}")
+        print(f"DEBUG: Type of Media: {type(media_file)}")
+        print(f"DEBUG: Request FILES: {self.request.FILES}")
+
+        # Check if it's a real file
+        if media_file and hasattr(media_file, 'content_type'):
+            if media_file.content_type.startswith('image'):
+                media_type = Post.MediaType.IMAGE
+            elif media_file.content_type.startswith('video'):
+                media_type = Post.MediaType.VIDEO
+        
+        serializer.save(author=self.request.user, media_type=media_type)
+
+    def destroy(self, request, *args, **kwargs):
+        # SECURITY: Only allow deletion if the user is the author
+        post = self.get_object()
+        if post.author != request.user:
+            return Response(
+                {"error": "You can only delete your own posts."}, 
+                status=status.HTTP_403_FORBIDDEN
+            )
+        return super().destroy(request, *args, **kwargs)
+
+    # Custom Action for Liking (APIView logic moved inside ViewSet)
+    @action(detail=True, methods=['post'])
+    def like(self, request, pk=None):
+        post = self.get_object()
         like = PostLike.objects.filter(post=post, user=request.user).first()
         
+        liked = False
         if like:
             like.delete()
-            liked = False
         else:
             PostLike.objects.create(post=post, user=request.user)
             liked = True
@@ -215,4 +250,30 @@ class ToggleLikeAPIView(APIView):
         return Response({
             "liked": liked, 
             "likes_count": post.likes.count()
-        }, status=status.HTTP_200_OK)
+        })
+    
+
+
+class CommentViewSet(viewsets.ModelViewSet):
+    serializer_class = CommentSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        # Filter comments by 'post_id' passed in URL (e.g., ?post_id=123)
+        post_id = self.request.query_params.get('post_id')
+        if post_id:
+            return Comment.objects.filter(post_id=post_id).select_related('author')
+        return Comment.objects.none()
+
+    def perform_create(self, serializer):
+        # Auto-assign the Post ID and Author
+        post_id = self.request.data.get('post_id')
+        post = get_object_or_404(Post, id=post_id)
+        serializer.save(author=self.request.user, post=post)
+
+    def destroy(self, request, *args, **kwargs):
+        comment = self.get_object()
+        # Security: Allow if User is Comment Author OR Post Author
+        if request.user == comment.author or request.user == comment.post.author:
+            return super().destroy(request, *args, **kwargs)
+        return Response({"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)

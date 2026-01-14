@@ -106,6 +106,9 @@ CORS_ALLOWED_ORIGIN_REGEXES = [
     r"^http://127\.0\.0\.1:[0-9]+$",  # Matches 127.0.0.1 on ANY port
     r"^http://10\.0\.2\.2:[0-9]+$",   # Matches Android Emulator
     r"^http://192\.168\.\d{1,3}\.\d{1,3}:[0-9]+$", # Matches ANY local WiFi IP
+    r"^http://10\.33\.\d{1,3}\.\d{1,3}:[0-9]+$", # Matches your 10.33.x.x range
+    r"^http://localhost:[0-9]+$",
+    r"^http://127\.0\.0\.1:[0-9]+$",
 ]
 
 CORS_ALLOW_CREDENTIALS = True

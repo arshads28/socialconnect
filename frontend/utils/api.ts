@@ -1,25 +1,33 @@
 import axios from 'axios';
 import { getSecure } from './storage';
-import { Platform } from 'react-native';
 
-// ⚠️ CHANGE THIS to your correct URL
-const BASE_URL = Platform.OS === 'android' 
-  ? 'http://10.0.2.2:8000' 
-  : 'http://localhost:8000'; // or your Render URL
+// ---------------------------------------------------------------------------
+// 1. DEFINE URLS
+// ---------------------------------------------------------------------------
 
+// LOCAL (For development on your laptop)
+const LOCAL_URL = 'http://10.33.211.238:8000'; 
+
+// PRODUCTION (For the real app store release)
+const PROD_URL = 'https://socialconnect-nhna.onrender.com';
+
+// 2. TOGGLE: Change this to 'true' when building the final app
+const IS_PRODUCTION = false; 
+
+export const BASE_URL = IS_PRODUCTION ? PROD_URL : LOCAL_URL;
+
+// ---------------------------------------------------------------------------
+// 3. AXIOS INSTANCE
+// ---------------------------------------------------------------------------
 const api = axios.create({
   baseURL: BASE_URL,
-  headers: {
-    'Content-Type': 'application/json',
-    'Accept': 'application/json',
-  },
+  timeout: 10000, 
 });
 
 // The Interceptor: This runs BEFORE every request
 api.interceptors.request.use(
   async (config) => {
     const token = await getSecure('accessToken');
-    console.log("Interceptor sending token:", token);
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
