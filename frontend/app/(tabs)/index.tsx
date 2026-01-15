@@ -8,7 +8,7 @@ import { useAuth } from '../../context/AuthContext';
 
 export default function HomeScreen() {
   const router = useRouter();
-  const { signOut } = useAuth(); // <--- Get signOut function
+  const { signOut } = useAuth(); 
   
   const [posts, setPosts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -36,7 +36,6 @@ export default function HomeScreen() {
     } catch (error: any) {
       console.log("Error fetching feed:", error);
       
-      // ⚠️ CRITICAL FIX: If 401, sign out completely to stop the loop
       if (error.response?.status === 401) {
         signOut(); 
       } 
@@ -68,7 +67,7 @@ export default function HomeScreen() {
     const post = newPosts[index];
     const wasLiked = post.is_liked;
 
-    // Optimistic Update (Update UI instantly)
+    // Optimistic Update
     post.is_liked = !wasLiked;
     post.likes_count = wasLiked ? post.likes_count - 1 : post.likes_count + 1;
     setPosts(newPosts);
@@ -76,7 +75,6 @@ export default function HomeScreen() {
     try {
       await api.post(`/api/posts/${postId}/like/`);
     } catch (error) {
-      // Revert if server fails
       post.is_liked = wasLiked; 
       post.likes_count = wasLiked ? post.likes_count + 1 : post.likes_count - 1; 
       setPosts([...posts]);
@@ -135,11 +133,22 @@ export default function HomeScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
+      
+      {/* UPDATED TOP BAR */}
       <View style={styles.topBar}>
          <Text style={styles.logo}>SocialConnect</Text>
-         <TouchableOpacity onPress={() => router.push('/create')}>
-            <Ionicons name="add-circle-outline" size={30} color="#000" />
-         </TouchableOpacity>
+         
+         <View style={{ flexDirection: 'row', gap: 15 }}>
+             {/* 1. Search Icon -> Goes to Explore Tab */}
+             <TouchableOpacity onPress={() => router.push('/(tabs)/explore')}>
+                <Ionicons name="search-outline" size={26} color="#000" />
+             </TouchableOpacity>
+
+             {/* 2. Create Post Icon */}
+             <TouchableOpacity onPress={() => router.push('/create')}>
+                <Ionicons name="add-circle-outline" size={30} color="#000" />
+             </TouchableOpacity>
+         </View>
       </View>
 
       {loading ? (

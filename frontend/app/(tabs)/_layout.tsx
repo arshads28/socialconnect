@@ -4,7 +4,7 @@ import { Platform } from 'react-native';
 
 import { HapticTab } from '@/components/haptic-tab';
 import { IconSymbol } from '@/components/ui/icon-symbol';
-import { Colors } from '@/constants/theme';
+import { Colors } from '@/constants/theme'; 
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
 export default function TabLayout() {
@@ -17,15 +17,12 @@ export default function TabLayout() {
         headerShown: false,
         tabBarButton: HapticTab,
         tabBarStyle: Platform.select({
-          ios: {
-            // Use a transparent background on iOS to show the blur effect
-            position: 'absolute',
-          },
+          ios: { position: 'absolute' },
           default: {},
         }),
       }}>
       
-      {/* HOME TAB */}
+      {/* 1. HOME (Index) - MUST BE FIRST TO BE DEFAULT */}
       <Tabs.Screen
         name="index"
         options={{
@@ -34,18 +31,16 @@ export default function TabLayout() {
         }}
       />
 
-      {/* EXPLORE TAB */}
+      {/* 2. EXPLORE (Search Page) */}
       <Tabs.Screen
         name="explore"
         options={{
-          title: 'Explore',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="paperplane.fill" color={color} />,
+          title: 'Search', // Renamed "Explore" to "Search" to be like Instagram
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="magnifyingglass" color={color} />,
         }}
       />
 
-      {/* PROFILE TAB 
-         (Make sure you create a 'profile.tsx' file inside the (tabs) folder!)
-      */}
+      {/* 3. PROFILE */}
       <Tabs.Screen
         name="profile"
         options={{
