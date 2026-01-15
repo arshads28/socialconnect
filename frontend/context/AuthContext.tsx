@@ -24,32 +24,28 @@ export function useAuth() {
 // ------------------------------------------------------
 // 🔒 FIXED ROUTE PROTECTION
 // ------------------------------------------------------
-function useProtectedRoute(userToken: string | null, isNavigationReady: boolean) {
+function useProtectedRoute(userToken: string | null, isNavigationReady: boolean, isLoading: boolean) {
   const segments = useSegments();
   const router = useRouter();
 
   useEffect(() => {
-    if (!isNavigationReady) return;
+    //  STOP: If navigation isn't ready OR we are still loading the token, do nothing.
+    if (!isNavigationReady || isLoading) return;
 
-    // 1. Get the current root segment (e.g., "login", "signup", "(tabs)")
     const currentRoute = segments[0];
-
-    // 2. Define which routes are PUBLIC (accessible without logging in)
     const isPublicRoute = currentRoute === 'login' || currentRoute === 'signup';
 
-    // 3. LOGIC:
+    // Logic:
     if (!userToken && !isPublicRoute) {
-      // Scenario: Not logged in, trying to access home/tabs
-      // Action: Kick them to Login
+      // Not logged in -> Go to Login
       router.replace('/login');
     
     } else if (userToken && isPublicRoute) {
-      // Scenario: Logged in, but currently stuck on Login or Signup screen
-      // Action: Send them to Home
+      // Logged in -> Go to Home
       router.replace('/(tabs)');
     }
 
-  }, [userToken, segments, isNavigationReady]);
+  }, [userToken, segments, isNavigationReady, isLoading]); // <--- Added isLoading here
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -68,6 +64,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } catch (e) {
         console.log("Failed to load token", e);
       } finally {
+        // Only stop loading after we have checked storage
         setIsLoading(false);
       }
     };
@@ -75,13 +72,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     loadToken();
   }, []);
 
-  // Run the protection hook
-  useProtectedRoute(userToken, isNavigationReady);
+  // Pass isLoading to the protection hook
+  useProtectedRoute(userToken, isNavigationReady, isLoading);
 
   const signIn = async (token: string) => {
     await saveSecure('accessToken', token);
     api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
     setUserToken(token);
+    // Explicitly navigate after sign in
+    // router.replace('/(tabs)'); // handled by useProtectedRoute
   };
 
   const signOut = async () => {
@@ -89,13 +88,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await removeSecure('refreshToken'); 
     delete api.defaults.headers.common['Authorization'];
     setUserToken(null);
-    // Close WebSocket on logout
     if (typeof window !== 'undefined' && (window as any).globalWs) {
       (window as any).globalWs.close();
     }
   };
 
-  // Helper to wait for navigation to be ready
   useEffect(() => {
     setIsNavigationReady(true);
   }, []);
