@@ -313,6 +313,8 @@ class UnifiedConsumer(AsyncWebsocketConsumer):
                 f"user_{self.other_user.id}",
                 {"type": "new_message_notification", "message": message, "sender": self.user.username}
             )
+            # Send push notification
+            await self.send_push_notification(self.other_user, message)
             return
 
         # CALL SIGNAL
@@ -385,9 +387,18 @@ class UnifiedConsumer(AsyncWebsocketConsumer):
         else:
             cache.delete(f'user_online_{user_id}')
             User.objects.filter(id=user_id).update(last_seen=timezone.now())
-            if not cache.get(last_seen_key):
-                User.objects.filter(id=user_id).update(last_seen=timezone.now())
-                cache.set(last_seen_key, True, timeout=500)
-            else:
-                cache.delete(f'user_online_{user_id}')
-                User.objects.filter(id=user_id).update(last_seen=timezone.now())
+
+    async def send_push_notification(self, receiver, message):
+        from apps.accounts.models import PushToken
+        from apps.accounts.push_utils import send_push_notification
+        
+        tokens = await sync_to_async(list)(
+            PushToken.objects.filter(user=receiver).values_list('token', flat=True)
+        )
+        if tokens:
+            await sync_to_async(send_push_notification)(
+                tokens,
+                f"New message from {self.user.username}",
+                message,
+                {"type": "message", "sender": self.user.username}
+            )

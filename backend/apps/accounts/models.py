@@ -33,6 +33,29 @@ class User(AbstractUser):
                 opclasses=["gin_trgm_ops"],
             )
         ]
+
+
+class PushToken(models.Model):
+    PLATFORM_CHOICES = [
+        ('android', 'Android'),
+        ('ios', 'iOS'),
+        ('web', 'Web'),
+    ]
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='push_tokens')
+    token = models.CharField(max_length=1024, unique=True)
+    platform = models.CharField(max_length=10, choices=PLATFORM_CHOICES, default='android')
+    device_name = models.CharField(max_length=255, blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_used_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [models.Index(fields=['user', 'token'])]
+        verbose_name = "Push Token"
+        verbose_name_plural = "Push Tokens"
+
+    def __str__(self):
+        return f"{self.user.username} - {self.platform} - {self.token[:10]}..."
         
 
 

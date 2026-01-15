@@ -5,12 +5,12 @@ from django.contrib.auth.forms import UserCreationForm, AuthenticationForm
 
 from rest_framework.viewsets import ModelViewSet
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.decorators import action
+from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
 from .serializers import ProfileSerializer, ProfileUpdateSerializer
 from rest_framework import status
 from django import forms
-# from django.db.models import Q
+from .models import PushToken
 
 # from .models import Connection
 from django.contrib.auth import get_user_model
@@ -254,6 +254,24 @@ class ProfileViewSet(ModelViewSet):
             {"status": f"You unblocked {user_to_unblock.username}"},
             status=status.HTTP_200_OK
         )
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def save_push_token(request):
+    token = request.data.get('token')
+    platform = request.data.get('platform', 'android')
+    device_name = request.data.get('device_name', '')
+    
+    if not token:
+        return Response({'error': 'Token required'}, status=400)
+    
+    PushToken.objects.update_or_create(
+        user=request.user,
+        token=token,
+        defaults={'platform': platform, 'device_name': device_name}
+    )
+    return Response({'status': 'success'})
 
 
 

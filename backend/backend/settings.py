@@ -287,6 +287,8 @@ LOGOUT_REDIRECT_URL = "/auth/login/"
 
 
 
+
+
 LOGGING_DIR = os.path.join(BASE_DIR, 'logs')
 if not os.path.exists(LOGGING_DIR):
     os.makedirs(LOGGING_DIR)
@@ -333,3 +335,8 @@ if not os.path.exists(LOGGING_DIR):
 #         }
 #     },
 # }
+
+
+
+
+

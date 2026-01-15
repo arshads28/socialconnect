@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import signup_view, login_view, logout_view, ProfileViewSet,password_reset_confirm_view,password_reset_request_view
+from .views import signup_view, login_view, logout_view, ProfileViewSet, password_reset_confirm_view, password_reset_request_view, save_push_token
 from django.contrib.auth import views as auth_views
 from rest_framework.routers import DefaultRouter
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
@@ -22,13 +22,10 @@ urlpatterns = [
     path('reset-password/confirm/', password_reset_confirm_view, name='password_reset_confirm'),
 
     # MOBILE API VIEWS 
-    # The phone will POST to these URLs to get the Access Token
     path("api/login/", TokenObtainPairView.as_view(), name="token_obtain_pair"),
     path("api/token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
     path("api/me/", ProfileViewSet.as_view({'get': 'me'}), name="api_me"),
-
-
-    
+    path("api/push-token/", save_push_token, name="save_push_token"),
 ]
 
 urlpatterns += router.urls

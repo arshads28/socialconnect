@@ -7,7 +7,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import api from '../utils/api'; 
 import { saveSecure } from '../utils/storage';
-import { useAuth } from '../context/AuthContext'; // <--- Fixed Path
+import { useAuth } from '../context/AuthContext'; 
+// ✅ Import the push notification functions
+import { registerForPushNotificationsAsync, sendPushTokenToBackend } from '../utils/pushNotifications';
 
 export default function LoginScreen() {
   const { signIn } = useAuth();
@@ -24,25 +26,35 @@ export default function LoginScreen() {
     setLoading(true);
 
     try {
+      // 1. Authenticate with Django
       const response = await api.post('/auth/api/login/', {
         username: username.trim(),
         password: password,
       });
 
-      // 1. Save Refresh Token manually (if you need it later)
+      // 2. Save Refresh Token manually (if needed)
       if (response.data.refresh) {
         await saveSecure('refreshToken', response.data.refresh);
       }
 
-      // 2. Pass Access Token to Context
-      // This function will:
-      //  - Save accessToken to storage
-      //  - Update global API headers
-      //  - Update State -> Triggering the automatic redirect to Home
+      // 3. Update Global Auth State (Saves access token to storage)
       await signIn(response.data.access);
+
+      // 4. ✅ Register for Push Notifications (Non-blocking)
+      // We run this *after* signIn ensures the token is in storage.
+      try {
+      console.log("Login successful. Initializing push notifications...");
+      const pushToken = await registerForPushNotificationsAsync();
       
-      // No need to call router.replace() here manually!
-      // The AuthContext useEffect will detect the userToken change and move you.
+      if (pushToken) {
+        // We pass 'response.data.access' here so we don't have to wait for AsyncStorage
+        await sendPushTokenToBackend(pushToken, response.data.access);
+      }
+    } catch (pushError) {
+      console.warn("Push notification setup failed:", pushError);
+    }
+
+      // No router.replace needed; AuthContext handles the redirect automatically.
 
     } catch (error: any) {
       console.log("Login Error:", error);
@@ -83,12 +95,18 @@ export default function LoginScreen() {
           />
 
           <TouchableOpacity style={styles.button} onPress={handleLogin} disabled={loading}>
-            {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Log In</Text>}
+            {loading ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.buttonText}>Log In</Text>
+            )}
           </TouchableOpacity>
 
           <View style={styles.footer}>
             <Text style={styles.footerText}>Don't have an account? </Text>
-            {/* Link to signup */}
+            <TouchableOpacity onPress={() => router.push('/signup')}>
+              <Text style={{ color: '#0095f6', fontWeight: 'bold' }}>Sign Up</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </KeyboardAvoidingView>

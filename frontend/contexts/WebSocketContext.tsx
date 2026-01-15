@@ -1,7 +1,9 @@
 import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
 import { Alert, Platform } from 'react-native';
+import * as Notifications from 'expo-notifications';
 import { getSecure } from '../utils/storage';
 import { BASE_URL } from '../utils/api';
+import { registerForPushNotificationsAsync, sendPushTokenToBackend } from '../utils/pushNotifications';
 
 interface WebSocketContextType {
   ws: WebSocket | null;
@@ -72,8 +74,20 @@ export const WebSocketProvider = ({ children }: { children: React.ReactNode }) =
     if (Platform.OS === 'web' && typeof Notification !== 'undefined' && Notification.permission === 'default') {
       Notification.requestPermission();
     }
+    
+    // Register for push notifications
+    registerForPushNotificationsAsync().then(token => {
+      if (token) sendPushTokenToBackend(token);
+    });
+
+    // Handle notification received while app is open
+    const subscription = Notifications.addNotificationReceivedListener(notification => {
+      console.log('Notification received:', notification);
+    });
+
     connect();
     return () => {
+      subscription.remove();
       if (reconnectTimeout.current) clearTimeout(reconnectTimeout.current);
       if (ws) ws.close();
     };
