@@ -15,12 +15,12 @@ class ProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = (
-            'username', 'email', 'bio', 'interests',
+            'id', 'username', 'email', 'bio', 'interests',
             'avatar', 'avatar_url',
             'is_own_profile',
             'connection_status',
         )
-        read_only_fields = ('username', 'email')
+        read_only_fields = ('id', 'username', 'email')
 
     def get_avatar_url(self, obj):
         request = self.context['request']

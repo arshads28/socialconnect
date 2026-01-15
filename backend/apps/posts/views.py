@@ -251,10 +251,13 @@ class PostViewSet(viewsets.ModelViewSet):
         else:
             PostLike.objects.create(post=post, user=request.user)
             liked = True
+        
+        # Use annotation instead of count() to avoid extra query
+        likes_count = PostLike.objects.filter(post=post).count()
             
         return Response({
             "liked": liked, 
-            "likes_count": post.likes.count()
+            "likes_count": likes_count
         })
     
 
@@ -262,12 +265,17 @@ class PostViewSet(viewsets.ModelViewSet):
 class CommentViewSet(viewsets.ModelViewSet):
     serializer_class = CommentSerializer
     permission_classes = [permissions.IsAuthenticated]
+    http_method_names = ['get', 'post', 'delete']
 
     def get_queryset(self):
-        # Filter comments by 'post_id' passed in URL (e.g., ?post_id=123)
+        # For delete/retrieve, don't filter by post_id
+        if self.action in ['destroy', 'retrieve']:
+            return Comment.objects.select_related('author', 'post__author')
+        
+        # For list, filter by post_id
         post_id = self.request.query_params.get('post_id')
         if post_id:
-            return Comment.objects.filter(post_id=post_id).select_related('author')
+            return Comment.objects.filter(post_id=post_id).select_related('author', 'post__author')
         return Comment.objects.none()
 
     def perform_create(self, serializer):

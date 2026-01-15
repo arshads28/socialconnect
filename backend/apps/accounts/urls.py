@@ -25,6 +25,7 @@ urlpatterns = [
     # The phone will POST to these URLs to get the Access Token
     path("api/login/", TokenObtainPairView.as_view(), name="token_obtain_pair"),
     path("api/token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
+    path("api/me/", ProfileViewSet.as_view({'get': 'me'}), name="api_me"),
 
 
     
