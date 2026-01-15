@@ -400,5 +400,9 @@ class UnifiedConsumer(AsyncWebsocketConsumer):
                 tokens,
                 f"New message from {self.user.username}",
                 message,
-                {"type": "message", "sender": self.user.username}
+                {
+                    "type": "message", 
+                    "sender": self.user.username,
+                    "url": f"/chat/{self.user.username}" 
+                }
             )
