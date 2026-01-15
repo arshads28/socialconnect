@@ -219,3 +219,175 @@ class OnlineStatusConsumer(AsyncWebsocketConsumer):
             
             # C. Update "last_seen" in DB so we know when they left
             User.objects.filter(id=user_id).update(last_seen=timezone.now())
+
+
+
+
+
+
+
+
+# UNIFIED CONSUMER (Handles Chat, Notifications, Status, Calls)
+class UnifiedConsumer(AsyncWebsocketConsumer):
+    async def connect(self):
+        self.user = self.scope["user"]
+        if not self.user.is_authenticated:
+            print(f"❌ Unauthenticated user trying to connect")
+            await self.close()
+            return
+
+        # Join personal group for notifications
+        self.personal_group = f"user_{self.user.id}"
+        await self.channel_layer.group_add(self.personal_group, self.channel_name)
+
+        # Join global status group
+        await self.channel_layer.group_add("status_updates", self.channel_name)
+
+        # Check if this is a chat connection
+        self.other_username = self.scope["url_route"]["kwargs"].get("username")
+        if self.other_username:
+            try:
+                self.other_user = await sync_to_async(User.objects.get)(username=self.other_username)
+                user_ids = sorted([str(self.user.id), str(self.other_user.id)])
+                self.chat_room = f"chat_{user_ids[0]}_{user_ids[1]}"
+                await self.channel_layer.group_add(self.chat_room, self.channel_name)
+            except ObjectDoesNotExist:
+                print(f"❌ User {self.other_username} not found")
+                self.other_user = None
+                self.chat_room = None
+        else:
+            self.other_user = None
+            self.chat_room = None
+
+        await self.accept()
+        print(f"✅ {self.user.username} connected to UnifiedConsumer")
+        await self.update_user_status(True)
+        await self.broadcast_status(True)
+
+    async def disconnect(self, close_code):
+        if self.user.is_authenticated:
+            await self.channel_layer.group_discard(self.personal_group, self.channel_name)
+            await self.channel_layer.group_discard("status_updates", self.channel_name)
+            if self.chat_room:
+                await self.channel_layer.group_discard(self.chat_room, self.channel_name)
+            await self.update_user_status(False)
+            await self.broadcast_status(False)
+
+    async def receive(self, text_data):
+        data = json.loads(text_data)
+        command = data.get("command")
+
+        # TYPING INDICATOR
+        if data.get("typing") and self.chat_room:
+            await self.channel_layer.group_send(
+                self.chat_room,
+                {"type": "typing", "user": self.user.username}
+            )
+            return
+
+        # READ RECEIPT
+        if command == "read_receipt" and self.chat_room:
+            await self.channel_layer.group_send(
+                self.chat_room,
+                {"type": "message_read", "message_id": data.get("message_id"), "reader": self.user.username}
+            )
+            return
+
+        # CHAT MESSAGE
+        message = data.get("message")
+        if message and self.other_user:
+            msg_instance = await sync_to_async(Message.objects.create)(
+                sender=self.user, receiver=self.other_user, content=message
+            )
+            await self.channel_layer.group_send(
+                self.chat_room,
+                {
+                    "type": "chat_message",
+                    "message": message,
+                    "sender": self.user.username,
+                    "id": msg_instance.id,
+                    "timestamp": timezone.localtime(msg_instance.timestamp).strftime("%I:%M %p"),
+                }
+            )
+            await self.channel_layer.group_send(
+                f"user_{self.other_user.id}",
+                {"type": "new_message_notification", "message": message, "sender": self.user.username}
+            )
+            return
+
+        # CALL SIGNAL
+        if command == "call_signal":
+            target_username = data.get("target")
+            try:
+                target_user = await sync_to_async(User.objects.get)(username__iexact=target_username)
+                await self.channel_layer.group_send(
+                    f"user_{target_user.id}",
+                    {"type": "webrtc_signal_message", "data": data.get("data"), "sender": self.user.username}
+                )
+            except User.DoesNotExist:
+                pass
+
+    # Handlers
+    async def chat_message(self, event):
+        await self.send(text_data=json.dumps(event))
+
+    async def typing(self, event):
+        await self.send(text_data=json.dumps(event))
+
+    async def message_read(self, event):
+        await self.send(text_data=json.dumps(event))
+
+    async def user_status_event(self, event):
+        await self.send(text_data=json.dumps({
+            "type": "user_status",
+            "username": event["username"],
+            "is_online": event["is_online"],
+            "last_seen": event["last_seen"]
+        }))
+
+    async def webrtc_signal_message(self, event):
+        await self.send(text_data=json.dumps({
+            "type": "call_signal",
+            "data": event["data"],
+            "sender": event["sender"]
+        }))
+
+    async def new_message_notification(self, event):
+        await self.send(text_data=json.dumps({
+            "type": "notification",
+            "message": event["message"],
+            "sender": event["sender"]
+        }))
+
+    async def broadcast_status(self, is_online):
+        timestamp = timezone.localtime(timezone.now()).strftime("%I:%M %p")
+        await self.channel_layer.group_send(
+            "status_updates",
+            {
+                "type": "user_status_event",
+                "username": self.user.username,
+                "is_online": is_online,
+                "last_seen": timestamp
+            }
+        )
+
+    @sync_to_async
+    def update_user_status(self, is_online):
+        user_id = self.user.id
+        online_key = f"user_online_{user_id}"
+        last_seen_key = f"last_seen_updated_{user_id}"
+        
+        if is_online:
+            cache.set(online_key, True, timeout=3600)
+            if not cache.get(last_seen_key):
+                User.objects.filter(id=user_id).update(last_seen=timezone.now())
+                cache.set(last_seen_key, True, timeout=500)
+        else:
+            cache.delete(f'user_online_{user_id}')
+            User.objects.filter(id=user_id).update(last_seen=timezone.now())
+            if not cache.get(last_seen_key):
+                User.objects.filter(id=user_id).update(last_seen=timezone.now())
+                cache.set(last_seen_key, True, timeout=500)
+            else:
+                cache.delete(f'user_online_{user_id}')
+                User.objects.filter(id=user_id).update(last_seen=timezone.now())

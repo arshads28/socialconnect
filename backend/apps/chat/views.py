@@ -9,10 +9,16 @@ from django.shortcuts import render, get_object_or_404
 from django.core.cache import cache
 from django.utils import timezone
 from datetime import timedelta
+from rest_framework import viewsets, mixins
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.decorators import api_view, permission_classes
+from .serializers import InboxSerializer
 
 User = get_user_model()
 
-@login_required
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
 def chat_history(request, username):
     user = request.user
     page_number = request.GET.get('page', 1)
@@ -247,3 +253,49 @@ def search_user(request):
     cache.set(search_key, results, timeout=120)
 
     return JsonResponse({"results": results})
+
+
+class InboxViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
+    permission_classes = [IsAuthenticated]
+    serializer_class = InboxSerializer
+
+    def list(self, request):
+        user = request.user
+        conversations = (
+            Message.objects
+            .filter(Q(sender=user) | Q(receiver=user))
+            .values("sender", "receiver")
+            .annotate(last_time=Max("timestamp"))
+            .order_by("-last_time")
+        )
+
+        chat_users = []
+        seen = set()
+
+        for convo in conversations:
+            other_id = convo["receiver"] if convo["sender"] == user.id else convo["sender"]
+            if other_id not in seen:
+                seen.add(other_id)
+                try:
+                    other_user_obj = User.objects.get(id=other_id)
+                    is_online = is_user_online(other_user_obj.id)
+                    status_text = "Online" if is_online else get_last_seen_text(other_user_obj)
+                    unread_count = Message.objects.filter(
+                        sender=other_user_obj, 
+                        receiver=user, 
+                        is_read=False
+                    ).count()
+
+                    chat_users.append({
+                        "id": str(other_user_obj.id), 
+                        "username": other_user_obj.username,
+                        "avatar_url": other_user_obj.avatar.url if other_user_obj.avatar else None,
+                        "is_online": is_online,
+                        "status_text": status_text,
+                        "unread_count": unread_count,
+                    })
+                except User.DoesNotExist:
+                    continue
+
+        serializer = self.get_serializer(chat_users, many=True)
+        return Response(serializer.data)

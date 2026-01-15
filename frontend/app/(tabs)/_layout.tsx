@@ -35,12 +35,21 @@ export default function TabLayout() {
       <Tabs.Screen
         name="explore"
         options={{
-          title: 'Search', // Renamed "Explore" to "Search" to be like Instagram
+          title: 'Search',
           tabBarIcon: ({ color }) => <IconSymbol size={28} name="magnifyingglass" color={color} />,
         }}
       />
 
-      {/* 3. PROFILE */}
+      {/* 3. MESSAGES */}
+      <Tabs.Screen
+        name="messages"
+        options={{
+          title: 'Messages',
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="paperplane.fill" color={color} />,
+        }}
+      />
+
+      {/* 4. PROFILE */}
       <Tabs.Screen
         name="profile"
         options={{

@@ -4,7 +4,8 @@ import { StatusBar } from 'expo-status-bar';
 import 'react-native-reanimated';
 import { View, ActivityIndicator } from 'react-native';
 
-import { AuthProvider, useAuth } from '../context/AuthContext'; // Check this path!
+import { AuthProvider, useAuth } from '../context/AuthContext';
+import { WebSocketProvider } from '../contexts/WebSocketContext';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
 // 1. Create a separate component that uses the Auth Hook
@@ -35,11 +36,12 @@ function RootLayoutNav() {
   );
 }
 
-// 4. Wrap the whole thing in AuthProvider
 export default function RootLayout() {
   return (
     <AuthProvider>
-      <RootLayoutNav />
+      <WebSocketProvider>
+        <RootLayoutNav />
+      </WebSocketProvider>
     </AuthProvider>
   );
 }

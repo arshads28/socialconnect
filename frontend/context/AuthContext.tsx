@@ -89,6 +89,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await removeSecure('refreshToken'); 
     delete api.defaults.headers.common['Authorization'];
     setUserToken(null);
+    // Close WebSocket on logout
+    if (typeof window !== 'undefined' && (window as any).globalWs) {
+      (window as any).globalWs.close();
+    }
   };
 
   // Helper to wait for navigation to be ready
