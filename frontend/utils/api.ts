@@ -1,3 +1,4 @@
+//api.ts
 import axios from 'axios';
 import { getSecure } from './storage';
 
@@ -22,6 +23,9 @@ export const BASE_URL = IS_PRODUCTION ? PROD_URL : LOCAL_URL;
 const api = axios.create({
   baseURL: BASE_URL,
   timeout: 10000, 
+  headers: {
+    'Content-Type': 'application/json',
+  },
 });
 
 // The Interceptor: This runs BEFORE every request
@@ -33,9 +37,7 @@ api.interceptors.request.use(
     }
     return config;
   },
-  (error) => {
-    return Promise.reject(error);
-  }
+  (error) => Promise.reject(error)
 );
 
 export default api;

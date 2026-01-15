@@ -31,10 +31,8 @@ class CommentSerializer(serializers.ModelSerializer):
 # 3. Main Post Serializer
 class PostSerializer(serializers.ModelSerializer):
     author = AuthorSerializer(read_only=True)
-    is_liked = serializers.SerializerMethodField()
-    likes_count = serializers.SerializerMethodField()
-    
-    # We use this to get the full absolute URL for the image/video
+    likes_count = serializers.IntegerField(read_only=True)
+    is_liked = serializers.BooleanField(read_only=True)
     media = serializers.FileField(required=False, allow_null=True)
 
     class Meta:
@@ -44,13 +42,13 @@ class PostSerializer(serializers.ModelSerializer):
             'created_at', 'likes_count', 'is_liked', 'processing'
         ]
 
-    def get_likes_count(self, obj):
-        return obj.likes.count()
+    # def get_likes_count(self, obj):
+    #     return obj.likes.count()
 
-    def get_is_liked(self, obj):
-        request = self.context.get('request')
-        if request and request.user.is_authenticated:
-            # Efficiently checks if the user liked this specific post
-            return PostLike.objects.filter(post=obj, user=request.user).exists()
-        return False
+    # def get_is_liked(self, obj):
+    #     request = self.context.get('request')
+    #     if request and request.user.is_authenticated:
+    #         # Efficiently checks if the user liked this specific post
+    #         return PostLike.objects.filter(post=obj, user=request.user).exists()
+    #     return False
 

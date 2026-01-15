@@ -4,11 +4,13 @@ import {
   Alert, ActivityIndicator, KeyboardAvoidingView, Platform 
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter, Link } from 'expo-router';
+import { useRouter } from 'expo-router';
 import api from '../utils/api'; 
 import { saveSecure } from '../utils/storage';
+import { useAuth } from '../context/AuthContext'; // <--- Fixed Path
 
 export default function LoginScreen() {
+  const { signIn } = useAuth();
   const router = useRouter();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -22,17 +24,25 @@ export default function LoginScreen() {
     setLoading(true);
 
     try {
-      // Axios detects object -> sets application/json automatically
       const response = await api.post('/auth/api/login/', {
         username: username.trim(),
         password: password,
       });
 
-      const { access, refresh } = response.data;
-      await saveSecure('accessToken', access);
-      await saveSecure('refreshToken', refresh);
+      // 1. Save Refresh Token manually (if you need it later)
+      if (response.data.refresh) {
+        await saveSecure('refreshToken', response.data.refresh);
+      }
 
-      router.replace('/(tabs)'); 
+      // 2. Pass Access Token to Context
+      // This function will:
+      //  - Save accessToken to storage
+      //  - Update global API headers
+      //  - Update State -> Triggering the automatic redirect to Home
+      await signIn(response.data.access);
+      
+      // No need to call router.replace() here manually!
+      // The AuthContext useEffect will detect the userToken change and move you.
 
     } catch (error: any) {
       console.log("Login Error:", error);
@@ -78,9 +88,7 @@ export default function LoginScreen() {
 
           <View style={styles.footer}>
             <Text style={styles.footerText}>Don't have an account? </Text>
-            {/* <Link href="/signup" asChild>
-                <TouchableOpacity><Text style={styles.linkText}>Sign up</Text></TouchableOpacity>
-            </Link> */}
+            {/* Link to signup */}
           </View>
         </View>
       </KeyboardAvoidingView>
@@ -113,5 +121,4 @@ const styles = StyleSheet.create({
   buttonText: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
   footer: { flexDirection: 'row', justifyContent: 'center', marginTop: 30 },
   footerText: { color: '#888' },
-  linkText: { color: '#0095f6', fontWeight: 'bold' }
 });

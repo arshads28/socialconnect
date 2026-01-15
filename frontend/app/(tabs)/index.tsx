@@ -1,45 +1,65 @@
 import { View, Text, StyleSheet, FlatList, Image, ActivityIndicator, RefreshControl, TouchableOpacity } from 'react-native';
 import { useEffect, useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter, usePathname } from 'expo-router'; 
+import { useRouter } from 'expo-router'; 
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../utils/api';
-import { getSecure } from '../../utils/storage';
+import { useAuth } from '../../context/AuthContext'; 
 
 export default function HomeScreen() {
   const router = useRouter();
-  const pathname = usePathname();
+  const { signOut } = useAuth(); // <--- Get signOut function
   
   const [posts, setPosts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  
+  // Pagination State
+  const [nextUrl, setNextUrl] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   useEffect(() => {
-    checkTokenAndFetch();
-  }, []);
-
-  const checkTokenAndFetch = async () => {
-    if (pathname === '/login') return;
-    const token = await getSecure('accessToken');
-    if (!token) {
-      router.replace('/login');
-      return;
-    }
     fetchFeed();
-  };
+  }, []);
 
   const fetchFeed = async () => {
     try {
       const response = await api.get('/api/posts/');
-      setPosts(response.data);
+      
+      if (response.data.results) {
+        setPosts(response.data.results);
+        setNextUrl(response.data.next);
+      } else {
+        setPosts([]);
+      }
+
     } catch (error: any) {
       console.log("Error fetching feed:", error);
+      
+      // ⚠️ CRITICAL FIX: If 401, sign out completely to stop the loop
       if (error.response?.status === 401) {
-        router.replace('/login');
+        signOut(); 
       } 
     } finally {
       setLoading(false);
       setRefreshing(false);
+    }
+  };
+
+  const fetchMore = async () => {
+    if (!nextUrl || loadingMore) return; 
+
+    setLoadingMore(true);
+    try {
+      const response = await api.get(nextUrl);
+      if (response.data.results) {
+        setPosts((prevPosts) => [...prevPosts, ...response.data.results]);
+        setNextUrl(response.data.next);
+      }
+    } catch (error) {
+      console.log("Error fetching more:", error);
+    } finally {
+      setLoadingMore(false);
     }
   };
 
@@ -48,6 +68,7 @@ export default function HomeScreen() {
     const post = newPosts[index];
     const wasLiked = post.is_liked;
 
+    // Optimistic Update (Update UI instantly)
     post.is_liked = !wasLiked;
     post.likes_count = wasLiked ? post.likes_count - 1 : post.likes_count + 1;
     setPosts(newPosts);
@@ -55,6 +76,7 @@ export default function HomeScreen() {
     try {
       await api.post(`/api/posts/${postId}/like/`);
     } catch (error) {
+      // Revert if server fails
       post.is_liked = wasLiked; 
       post.likes_count = wasLiked ? post.likes_count + 1 : post.likes_count - 1; 
       setPosts([...posts]);
@@ -63,6 +85,7 @@ export default function HomeScreen() {
 
   const renderItem = ({ item, index }: { item: any, index: number }) => (
     <View style={styles.card}>
+      {/* Header */}
       <View style={styles.cardHeader}>
         <Image 
           source={{ uri: item.author.avatar || 'https://via.placeholder.com/50' }} 
@@ -74,18 +97,21 @@ export default function HomeScreen() {
         </View>
       </View>
 
+      {/* Content */}
       {item.content ? <Text style={styles.content}>{item.content}</Text> : null}
 
-      {item.media && item.media_type === 'image' && (
-        <Image source={{ uri: item.media }} style={styles.postImage} resizeMode="cover"/>
-      )}
-      
-      {item.media && item.media_type === 'video' && (
-        <View style={styles.videoPlaceholder}>
-           <Ionicons name="play-circle-outline" size={64} color="white" />
-        </View>
+      {/* Media */}
+      {item.media && (
+        item.media_type === 'video' ? (
+           <View style={styles.videoPlaceholder}>
+              <Ionicons name="play-circle-outline" size={64} color="white" />
+           </View>
+        ) : (
+           <Image source={{ uri: item.media }} style={styles.postImage} resizeMode="cover"/>
+        )
       )}
 
+      {/* Footer */}
       <View style={styles.footer}>
         <TouchableOpacity onPress={() => handleLike(item.id, index)} style={styles.actionButton}>
           <Ionicons 
@@ -125,6 +151,11 @@ export default function HomeScreen() {
           keyExtractor={(item) => item.id.toString()}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchFeed(); }} />
+          }
+          onEndReached={fetchMore}
+          onEndReachedThreshold={0.5}
+          ListFooterComponent={
+            loadingMore ? <ActivityIndicator size="small" color="#0095f6" style={{ margin: 20 }} /> : null
           }
           contentContainerStyle={{ paddingBottom: 20 }}
           ListEmptyComponent={<Text style={styles.emptyText}>No posts yet.</Text>}

@@ -19,7 +19,7 @@ export async function getSecure(key: string) {
   }
 }
 
-export async function deleteSecure(key: string) {
+export async function removeSecure(key: string) {
   if (isWeb) {
     localStorage.removeItem(key);
   } else {

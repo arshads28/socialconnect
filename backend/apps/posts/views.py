@@ -202,18 +202,23 @@ class PostViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         # FEED LOGIC: Exclude blocked users, order by newest
         user = self.request.user
-        return Post.objects.select_related("author")\
-            .exclude(author__blocked_by=user)\
-            .exclude(author__blocking=user)\
+
+        liked_subquery = PostLike.objects.filter(
+                            post=OuterRef("pk"),
+                            user=user
+                        )
+
+        return (Post.objects
+            .select_related("author")
+            .annotate(likes_count=Count("likes", distinct=True),is_liked=Exists(liked_subquery))
+            .exclude(author__blocked_by=user)
+            .exclude(author__blocking=user)
             .order_by("-created_at")
+            )
 
     def perform_create(self, serializer):
         media_file = self.request.data.get('media')
         media_type = Post.MediaType.NONE
-
-        print(f"DEBUG: Received Media: {media_file}")
-        print(f"DEBUG: Type of Media: {type(media_file)}")
-        print(f"DEBUG: Request FILES: {self.request.FILES}")
 
         # Check if it's a real file
         if media_file and hasattr(media_file, 'content_type'):
