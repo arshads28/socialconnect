@@ -74,7 +74,7 @@ export default function SignupScreen() {
         style={styles.container}
       >
         <View style={styles.formContainer}>
-          <Text style={styles.title}>SocialConnect</Text>
+          <Text style={styles.title}>Connect</Text>
           <Text style={styles.subtitle}>Sign up to see photos and videos from your friends.</Text>
           
           <TextInput 

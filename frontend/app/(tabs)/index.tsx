@@ -348,7 +348,7 @@ export default function HomeScreen() {
       
       {/* ----------------- TOP BAR ----------------- */}
       <View style={styles.topBar}>
-         <Text style={styles.logo}>SocialConnect</Text>
+         <Text style={styles.logo}>Connect</Text>
          
          <View style={{ flexDirection: 'row', gap: 15, alignItems: 'center' }}>
              

@@ -72,7 +72,7 @@ export default function LoginScreen() {
         style={styles.container}
       >
         <View style={styles.formContainer}>
-          <Text style={styles.title}>SocialConnect</Text>
+          <Text style={styles.title}>Connect</Text>
           <Text style={styles.subtitle}>Welcome back, please log in.</Text>
           
           <TextInput 

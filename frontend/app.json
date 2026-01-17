@@ -1,8 +1,8 @@
 {
   "expo": {
-    "name": "SocialConnect",
-    "slug": "socialconnect",
-    "scheme": "socialconnect",
+    "name": "Connect",
+    "slug": "connect",
+    "scheme": "connect",
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
@@ -17,8 +17,8 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.connect.app",
       "infoPlist": {
-        "NSCameraUsageDescription": "SocialConnect needs access to your camera for video calls.",
-        "NSMicrophoneUsageDescription": "SocialConnect needs access to your microphone to let you make voice and video calls.",
+        "NSCameraUsageDescription": "Connect needs access to your camera for video calls.",
+        "NSMicrophoneUsageDescription": "Connect needs access to your microphone to let you make voice and video calls.",
         "UIBackgroundModes": [
           "voip",
           "audio",
@@ -63,15 +63,15 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Allow SocialConnect to access your camera",
-          "microphonePermission": "Allow SocialConnect to access your microphone"
+          "cameraPermission": "Allow Connect to access your camera",
+          "microphonePermission": "Allow Connect to access your microphone"
         }
       ],
       [
         "@config-plugins/react-native-webrtc",
         {
-          "cameraPermission": "Allow SocialConnect to access your camera for calls",
-          "microphonePermission": "Allow SocialConnect to access your microphone for calls"
+          "cameraPermission": "Allow Connect to access your camera for calls",
+          "microphonePermission": "Allow Connect to access your microphone for calls"
         }
       ],
       [

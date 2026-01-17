@@ -196,7 +196,7 @@ export default function ChatScreen() {
           
           <TouchableOpacity 
             style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }} 
-            onPress={() => router.push(`/profile/${username}`)} // ✅ FIX: Go to THEIR profile
+            onPress={() => router.push(`/profile/${username}`)}
           >
             {targetProfile?.avatar ? (
               <Image source={{ uri: targetProfile.avatar }} style={styles.avatar} />

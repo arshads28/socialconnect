@@ -1,34 +1,41 @@
 import api from './api';
 import { saveMessage } from './db';
 import { decryptMessage } from './crypto';
-import { DeviceEventEmitter } from 'react-native';
+import { DeviceEventEmitter, Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// Sync (Downloads Pending Messages & Deletes from Server)
+const LAST_SYNC_KEY = 'connect_last_msg_id_v1';
+
 export const syncPendingMessages = async () => {
   try {
     console.log("📥 Checking for pending messages...");
-    
-    // Hit the new endpoint: /chat/sync/
-    const response = await api.get('/chat/sync/');
-    const { messages, count } = response.data;
+
+    // 1. Get the Last ID we successfully synced
+    let lastId = 0;
+    if (Platform.OS === 'web') {
+        lastId = parseInt(localStorage.getItem(LAST_SYNC_KEY) || '0');
+    } else {
+        const stored = await AsyncStorage.getItem(LAST_SYNC_KEY);
+        lastId = stored ? parseInt(stored) : 0;
+    }
+
+    // 2. Ask Server: "Give me everything AFTER this ID"
+    const response = await api.get(`/chat/sync/?after_id=${lastId}`);
+    const { messages, count, last_id } = response.data;
 
     if (count === 0) {
-      console.log("✅ No pending messages.");
+      console.log("✅ No new messages.");
       return;
     }
 
-    console.log(`📥 Downloading ${count} messages...`);
+    console.log(`📥 Downloading ${count} new messages...`);
 
-    // Process all pending messages
     for (const msg of messages) {
-      // A. Decrypt
       const plainText = decryptMessage(msg.ciphertext);
-
-      // B. Save to SQLite
       saveMessage({
-        id: msg.id.toString(),         // Server ID
-        client_id: msg.client_id,      // Original Client ID
-        conversation_id: msg.sender,   // Group by Sender
+        id: msg.id.toString(),
+        client_id: msg.client_id,
+        conversation_id: msg.sender,
         sender: msg.sender,
         content: plainText,
         status: 'delivered',
@@ -37,7 +44,15 @@ export const syncPendingMessages = async () => {
       });
     }
 
-    // C. Refresh UI (Tell ChatScreen and MessagesScreen to reload)
+    // 3. Save the new "High Score" (ID) so we don't fetch these again
+    if (last_id > 0) {
+        if (Platform.OS === 'web') {
+            localStorage.setItem(LAST_SYNC_KEY, last_id.toString());
+        } else {
+            await AsyncStorage.setItem(LAST_SYNC_KEY, last_id.toString());
+        }
+    }
+
     DeviceEventEmitter.emit('new_message', { count });
     console.log("✅ Sync complete.");
 
@@ -45,6 +60,14 @@ export const syncPendingMessages = async () => {
     console.error("❌ Sync Failed:", error);
   }
 };
+
+// ... keep syncServerInbox as is ...
+
+
+
+
+
+
 
 // Syncs the Inbox List (Previews)
 export const syncServerInbox = async () => {
