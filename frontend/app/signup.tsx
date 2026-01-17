@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, Link } from 'expo-router';
-import api from '../utils/api'; 
+import api, { setClientToken } from '../utils/api'; 
 import { useAuth } from '../context/AuthContext';
 
 export default function SignupScreen() {
@@ -26,35 +26,39 @@ export default function SignupScreen() {
     setLoading(true);
 
     try {
-      // 1. Register the user
-      // Adjust the endpoint based on your backend (e.g., /auth/users/ or /auth/api/register/)
+      // 1. Register
       await api.post('/auth/api/register/', {
         username: username.trim(),
         email: email.trim(),
         password: password,
       });
 
-      // 2. Automatically Log In after successful registration
-      // (This prevents the user from having to type their password again)
+      // 2. Auto Login (Get Tokens)
       const loginResponse = await api.post('/auth/api/login/', {
         username: username.trim(),
         password: password,
       });
 
-      // 3. Save tokens and update Context
-      await signIn(loginResponse.data.access);
+      const { access, refresh } = loginResponse.data;
 
-      // 4. Redirect is handled automatically by AuthContext, 
-      // but strictly speaking, we can do nothing here or show a success message.
+      // 3. ✅ Update API Memory Immediately
+      setClientToken(access);
+
+      // 4. Fetch User Details
+      const userResponse = await api.get('/auth/api/me/');
+
+      // 5. Update Context
+      await signIn(access, refresh, userResponse.data);
+      
+      // Note: We don't necessarily need to trigger push notifications here 
+      // because the user will likely configure that on the next screen or Dashboard.
       
     } catch (error: any) {
       console.log("Signup Error:", error.response?.data || error);
       
-      // Extract error message from backend (Django usually sends object with field errors)
       let msg = "Could not create account.";
       if (error.response?.data) {
         const data = error.response.data;
-        // Check for specific field errors (username, email, password)
         if (data.username) msg = `Username: ${data.username[0]}`;
         else if (data.email) msg = `Email: ${data.email[0]}`;
         else if (data.password) msg = `Password: ${data.password[0]}`;
@@ -134,22 +138,8 @@ const styles = StyleSheet.create({
   formContainer: { width: '100%', maxWidth: 400, alignSelf: 'center' },
   title: { fontSize: 32, fontWeight: '800', textAlign: 'center', color: '#000', marginBottom: 10 },
   subtitle: { fontSize: 16, color: '#666', textAlign: 'center', marginBottom: 40, paddingHorizontal: 20 },
-  input: { 
-    backgroundColor: '#fafafa', 
-    borderWidth: 1, 
-    borderColor: '#dbdbdb', 
-    borderRadius: 8, 
-    padding: 16, 
-    fontSize: 16,
-    marginBottom: 15 
-  },
-  button: { 
-    backgroundColor: '#0095f6', 
-    paddingVertical: 16, 
-    borderRadius: 8, 
-    alignItems: 'center', 
-    marginTop: 10,
-  },
+  input: { backgroundColor: '#fafafa', borderWidth: 1, borderColor: '#dbdbdb', borderRadius: 8, padding: 16, fontSize: 16, marginBottom: 15 },
+  button: { backgroundColor: '#0095f6', paddingVertical: 16, borderRadius: 8, alignItems: 'center', marginTop: 10 },
   buttonText: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
   footer: { flexDirection: 'row', justifyContent: 'center', marginTop: 30 },
   footerText: { color: '#888' },

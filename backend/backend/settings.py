@@ -15,6 +15,7 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 import dj_database_url
+from datetime import timedelta
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -193,6 +194,20 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 
+
+
+SIMPLE_JWT = {
+    # 1. Access Token: Short life (Security)
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=30), 
+    
+    # The user won't need to login again for 90 days
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=90),
+    
+    'ROTATE_REFRESH_TOKENS': True, # Return a new refresh token on use
+    'BLACKLIST_AFTER_ROTATION': True,
+    'UPDATE_LAST_LOGIN': True,
+}
+
 # settings.py
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
@@ -210,7 +225,7 @@ REST_FRAMEWORK = {
 
 LANGUAGE_CODE = 'en-us'
 
-TIME_ZONE = 'Asia/Kolkata'
+TIME_ZONE = 'UTC'
 
 USE_L10N = True
 

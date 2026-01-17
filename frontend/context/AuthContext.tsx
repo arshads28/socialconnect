@@ -1,22 +1,24 @@
-//socialconnect/frontend/context/AuthContext.tsx
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { useRouter, useSegments } from 'expo-router';
 import { getSecure, saveSecure, removeSecure } from '../utils/storage'; 
-import api from '../utils/api';
+import api, { setClientToken } from '../utils/api'; // ✅ Import setClientToken
 
-// 1. Define the User Shape (Adjust based on your backend response)
+// 1. Define the User Shape
 type UserType = {
   id: number;
   username: string;
   email: string;
   avatar?: string;
+  is_online?: boolean; // Optional based on your backend
 };
 
+// 2. Define the Context Shape
 type AuthType = {
-  user: UserType | null; // <--- ADDED THIS
+  user: UserType | null;
   userToken: string | null;
   isLoading: boolean;
-  signIn: (token: string, userData: UserType) => Promise<void>; // <--- Updated to accept user data
+  // ✅ signIn now accepts 3 arguments
+  signIn: (accessToken: string, refreshToken: string, userData: UserType) => Promise<void>; 
   signOut: () => Promise<void>;
 };
 
@@ -32,9 +34,7 @@ export function useAuth() {
   return useContext(AuthContext);
 }
 
-// ------------------------------------------------------
-// 🔒 ROUTE PROTECTION (unchanged)
-// ------------------------------------------------------
+// 🔒 Route Protection Hook
 function useProtectedRoute(userToken: string | null, isNavigationReady: boolean, isLoading: boolean) {
   const segments = useSegments();
   const router = useRouter();
@@ -50,32 +50,32 @@ function useProtectedRoute(userToken: string | null, isNavigationReady: boolean,
     } else if (userToken && isPublicRoute) {
       router.replace('/(tabs)');
     }
-
   }, [userToken, segments, isNavigationReady, isLoading]);
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [userToken, setUserToken] = useState<string | null>(null);
-  const [user, setUser] = useState<UserType | null>(null); // <--- State for User
+  const [user, setUser] = useState<UserType | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isNavigationReady, setIsNavigationReady] = useState(false);
 
+  // 1. Load Session on App Start
   useEffect(() => {
     const loadSession = async () => {
       try {
         const token = await getSecure('accessToken');
         if (token) {
-          api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+          // Initialize API Memory immediately
+          setClientToken(token); 
           setUserToken(token);
           
-          // 2. FETCH USER DETAILS ON LOAD
-          // We need to know "Who am I?" to enable chat features
+          // Fetch User Data
           try {
             const response = await api.get('/auth/api/me/');
             setUser(response.data);
           } catch (err) {
             console.log("Token invalid or expired", err);
-            // Optional: signOut() if token is invalid
+            // Optionally force logout here if 401
           }
         }
       } catch (e) {
@@ -90,21 +90,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useProtectedRoute(userToken, isNavigationReady, isLoading);
 
-  const signIn = async (token: string, userData: UserType) => {
-    await saveSecure('accessToken', token);
-    api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-    setUserToken(token);
-    setUser(userData); // <--- Set User
+  // 2. Sign In Function
+  const signIn = async (accessToken: string, refreshToken: string, userData: UserType) => {
+    // A. Save to Disk (Async)
+    await saveSecure('accessToken', accessToken);
+    await saveSecure('refreshToken', refreshToken);
+    
+    // B. Set Memory (Instant)
+    setClientToken(accessToken);
+
+    // C. Update State
+    setUserToken(accessToken);
+    setUser(userData); 
   };
 
+  // 3. Sign Out Function
   const signOut = async () => {
+    // A. Clear Disk
     await removeSecure('accessToken');
     await removeSecure('refreshToken'); 
-    delete api.defaults.headers.common['Authorization'];
-    setUserToken(null);
-    setUser(null); // <--- Clear User
     
-    // Close WebSocket if open
+    // B. Clear Memory
+    setClientToken(null);
+    
+    // C. Clear State
+    setUserToken(null);
+    setUser(null); 
+    
+    // D. Close WebSocket if it exists
     if (typeof window !== 'undefined' && (window as any).globalWs) {
       (window as any).globalWs.close();
     }

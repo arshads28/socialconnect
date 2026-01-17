@@ -1,4 +1,4 @@
-from exponent_server_sdk import PushClient, PushMessage, DeviceNotRegisteredError
+from exponent_server_sdk import PushClient, PushMessage
 from .models import PushToken
 
 def send_push_notification(tokens, title, body, data=None):

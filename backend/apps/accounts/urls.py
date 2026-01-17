@@ -1,6 +1,6 @@
 from django.urls import path
 from .views import signup_view, login_view, logout_view, ProfileViewSet, password_reset_confirm_view, password_reset_request_view, save_push_token
-from django.contrib.auth import views as auth_views
+# from django.contrib.auth import views as auth_views
 from rest_framework.routers import DefaultRouter
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 

@@ -5,10 +5,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import api from '../utils/api'; 
-import { saveSecure } from '../utils/storage';
+import api, { setClientToken } from '../utils/api'; 
 import { useAuth } from '../context/AuthContext'; 
-// ✅ Import the push notification functions
 import { registerForPushNotificationsAsync, sendPushTokenToBackend } from '../utils/pushNotifications';
 
 export default function LoginScreen() {
@@ -26,35 +24,35 @@ export default function LoginScreen() {
     setLoading(true);
 
     try {
-      // 1. Authenticate with Django
+      // 1. Authenticate (Get Tokens)
       const response = await api.post('/auth/api/login/', {
         username: username.trim(),
         password: password,
       });
 
-      // 2. Save Refresh Token manually (if needed)
-      if (response.data.refresh) {
-        await saveSecure('refreshToken', response.data.refresh);
-      }
+      const { access, refresh } = response.data;
 
-      // 3. Update Global Auth State (Saves access token to storage)
-      await signIn(response.data.access);
+      // 2. Update API Memory Immediately
+      // This ensures the NEXT request (get /me) has the Authorization header
+      setClientToken(access);
 
-      // 4. ✅ Register for Push Notifications (Non-blocking)
-      // We run this *after* signIn ensures the token is in storage.
+      // 3. Fetch User Details
+      const userResponse = await api.get('/auth/api/me/');
+
+      // 4. Update Context
+      await signIn(access, refresh, userResponse.data);
+
+      // 5. Setup Push Notifications (Non-blocking)
       try {
-      console.log("Login successful. Initializing push notifications...");
-      const pushToken = await registerForPushNotificationsAsync();
-      
-      if (pushToken) {
-        // We pass 'response.data.access' here so we don't have to wait for AsyncStorage
-        await sendPushTokenToBackend(pushToken, response.data.access);
+        console.log("Initializing push notifications...");
+        const pushToken = await registerForPushNotificationsAsync();
+        if (pushToken) {
+          // Send to backend (Token is already in headers thanks to setClientToken)
+          await sendPushTokenToBackend(pushToken, access);
+        }
+      } catch (pushError) {
+        console.warn("Push notification setup failed:", pushError);
       }
-    } catch (pushError) {
-      console.warn("Push notification setup failed:", pushError);
-    }
-
-      // No router.replace needed; AuthContext handles the redirect automatically.
 
     } catch (error: any) {
       console.log("Login Error:", error);
@@ -120,22 +118,8 @@ const styles = StyleSheet.create({
   formContainer: { width: '100%', maxWidth: 400, alignSelf: 'center' },
   title: { fontSize: 32, fontWeight: '800', textAlign: 'center', color: '#000', marginBottom: 10 },
   subtitle: { fontSize: 16, color: '#666', textAlign: 'center', marginBottom: 40 },
-  input: { 
-    backgroundColor: '#fafafa', 
-    borderWidth: 1, 
-    borderColor: '#dbdbdb', 
-    borderRadius: 8, 
-    padding: 16, 
-    fontSize: 16,
-    marginBottom: 15 
-  },
-  button: { 
-    backgroundColor: '#0095f6', 
-    paddingVertical: 16, 
-    borderRadius: 8, 
-    alignItems: 'center', 
-    marginTop: 10,
-  },
+  input: { backgroundColor: '#fafafa', borderWidth: 1, borderColor: '#dbdbdb', borderRadius: 8, padding: 16, fontSize: 16, marginBottom: 15 },
+  button: { backgroundColor: '#0095f6', paddingVertical: 16, borderRadius: 8, alignItems: 'center', marginTop: 10 },
   buttonText: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
   footer: { flexDirection: 'row', justifyContent: 'center', marginTop: 30 },
   footerText: { color: '#888' },

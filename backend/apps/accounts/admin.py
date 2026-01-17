@@ -6,7 +6,7 @@ from django.contrib.auth.forms import UserChangeForm, UserCreationForm
 from django.utils.translation import gettext_lazy as _
 from django.utils.html import format_html
 
-from .models import User
+from .models import User,PushToken
 
 
 # ============================
@@ -158,3 +158,39 @@ class CustomUserAdmin(UserAdmin):
 
 
 # admin.site.register(Connection)
+
+
+
+
+
+
+
+
+
+
+
+
+
+@admin.register(PushToken)
+class PushTokenAdmin(admin.ModelAdmin):
+    # 1. Show these columns in the list
+    list_display = ('user', 'platform', 'device_name', 'short_token', 'last_used_at', 'created_at')
+    
+    # 2. Add Filters on the right side
+    list_filter = ('platform', 'created_at', 'last_used_at')
+    
+    # 3. Add Search (Search by Username or Token)
+    search_fields = ('user__username', 'user__email', 'token', 'device_name')
+    
+    # 4. Make dates read-only so you don't accidentally change history
+    readonly_fields = ('created_at', 'last_used_at')
+
+    # 5. Helper to show just the first 20 chars of the token
+    def short_token(self, obj):
+        if obj.token:
+            return f"{obj.token[:20]}..."
+        return "-"
+    short_token.short_description = "Token Preview"
+
+    # 6. Default sorting (Newest first)
+    ordering = ('-created_at',)
