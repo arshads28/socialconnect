@@ -3,6 +3,9 @@ from django.contrib.auth import login,  logout
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import UserCreationForm, AuthenticationForm
 
+from django.db.models import Exists, OuterRef, Value, BooleanField
+from django.db.models.functions import Coalesce
+
 from rest_framework.viewsets import ModelViewSet
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.decorators import action, api_view, permission_classes
@@ -172,14 +175,29 @@ class ProfileViewSet(ModelViewSet):
         user = self.request.user
         queryset = User.objects.all()
 
-        #If we are blocking/unblocking, we MUST see the user
-        if self.action in ['block', 'unblock']:
-            return queryset
+        # Handle visibility logic
+        if self.action not in ['block', 'unblock']:
+            queryset = queryset.exclude(blocking=user)
 
-        # For normal profile viewing:
-        # HIDE users who are blocking ME.
-        # (A.blocking contains B -> A is blocking B)
-        return queryset.exclude(blocking=user)
+        # Annotate 'is_blocked_by_me' to solve N+1
+        # This creates a subquery that checks the M2M table in a single SQL query
+        if user.is_authenticated:
+            # We check if the 'user' (request.user) is in the 'blocked_by' 
+            # related name of the profile being viewed (obj)
+            is_blocked_subquery = User.blocking.through.objects.filter(
+                from_user_id=user.id,
+                to_user_id=OuterRef('pk')
+            )
+            queryset = queryset.annotate(
+                is_blocked_by_me=Exists(is_blocked_subquery)
+            )
+        else:
+            queryset = queryset.annotate(
+                is_blocked_by_me=Value(False, output_field=BooleanField())
+            )
+
+        return queryset
+
 
     # -----------------------------
     # Serializer selection

@@ -10,14 +10,21 @@
       "**/*"
     ],
     "notification": {
-      "vapidPublicKey": "BNiug5Sm-HTCeXav2TwHe-ciE7ORzGLTud4meHEtRjHKIBSeIAnvOt1Lh3_QKb3sOu-opZuDfXqqjK2_3OSazHM"
+      "icon": "./assets/images/icon.png",
+      "color": "#0095f6"
     },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.connect.app",
       "infoPlist": {
+        "NSCameraUsageDescription": "SocialConnect needs access to your camera for video calls.",
         "NSMicrophoneUsageDescription": "SocialConnect needs access to your microphone to let you make voice and video calls.",
-        "NSCameraUsageDescription": "SocialConnect needs access to your camera for video calls."
+        "UIBackgroundModes": [
+          "voip",
+          "audio",
+          "fetch",
+          "remote-notification"
+        ]
       }
     },
     "android": {
@@ -25,17 +32,24 @@
       "softwareKeyboardLayoutMode": "resize",
       "googleServicesFile": "./google-services.json",
       "permissions": [
-        "CAMERA",
-        "READ_EXTERNAL_STORAGE",
-        "WRITE_EXTERNAL_STORAGE",
-        "NOTIFICATIONS",
-        "RECORD_AUDIO",
-        "MODIFY_AUDIO_SETTINGS",
         "android.permission.CAMERA",
-        "android.permission.RECORD_AUDIO"
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.INTERNET",
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.BLUETOOTH_CONNECT",
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.MANAGE_OWN_CALLS",
+        "android.permission.READ_PHONE_STATE",
+        "android.permission.USE_FULL_SCREEN_INTENT", 
+        "android.permission.FOREGROUND_SERVICE", 
+        "android.permission.WAKE_LOCK"
       ]
     },
     "extra": {
+      "vapidPublicKey": "BNiug5Sm-HTCeXav2TwHe-ciE7ORzGLTud4meHEtRjHKIBSeIAnvOt1Lh3_QKb3sOu-opZuDfXqqjK2_3OSazHM",
       "eas": {
         "projectId": "5ba69721-0fca-4d14-8f9b-744fc9cc8fbe"
       }
@@ -45,11 +59,28 @@
     },
     "plugins": [
       "expo-notifications",
+      "expo-sqlite",
       [
         "expo-camera",
         {
           "cameraPermission": "Allow SocialConnect to access your camera",
           "microphonePermission": "Allow SocialConnect to access your microphone"
+        }
+      ],
+      [
+        "@config-plugins/react-native-webrtc",
+        {
+          "cameraPermission": "Allow SocialConnect to access your camera for calls",
+          "microphonePermission": "Allow SocialConnect to access your microphone for calls"
+        }
+      ],
+      [
+        "@config-plugins/react-native-callkeep",
+        {
+          "android": {
+            "imageName": "ic_launcher",
+            "selfManaged": true
+          }
         }
       ]
     ],

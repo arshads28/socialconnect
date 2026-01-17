@@ -11,7 +11,7 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 
 function RootLayoutNav() {
   const colorScheme = useColorScheme();
-  const { isLoading } = useAuth(); // <--- Now uses the improved AuthContext
+  const { isLoading } = useAuth(); 
   const router = useRouter();
 
   // Notification Listener (Deep Linking)
@@ -41,8 +41,9 @@ function RootLayoutNav() {
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="login" options={{ headerShown: false }} />
         <Stack.Screen name="signup" options={{ headerShown: false }} />
+        {/* Hide header for chat because the screen has its own custom header */}
+        <Stack.Screen name="chat/[username]" options={{ headerShown: false }} /> 
         <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
-        {/* Chat screen is auto-detected */}
       </Stack>
       <StatusBar style="auto" />
     </ThemeProvider>

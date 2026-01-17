@@ -1,106 +1,137 @@
 import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
-import { Alert, Platform } from 'react-native';
-import * as Notifications from 'expo-notifications';
+import { DeviceEventEmitter } from 'react-native';
 import { getSecure } from '../utils/storage';
 import { BASE_URL } from '../utils/api';
-import { registerForPushNotificationsAsync, sendPushTokenToBackend } from '../utils/pushNotifications';
+import { initDB, saveMessage, updateMessageStatus } from '../utils/db';
+import { decryptMessage } from '../utils/crypto';
+import { useAuth } from '../context/AuthContext';
+import { syncPendingMessages } from '../utils/sync';
 
 interface WebSocketContextType {
   ws: WebSocket | null;
   isConnected: boolean;
+  sendMessage: (targetUser: string, text: string, clientId: string) => void;
+  sendSeen: (targetUser: string) => void;
 }
 
-const WebSocketContext = createContext<WebSocketContextType>({ ws: null, isConnected: false });
+const WebSocketContext = createContext<WebSocketContextType>({ 
+  ws: null, isConnected: false, sendMessage: () => {}, sendSeen: () => {} 
+});
 
 export const useWebSocket = () => useContext(WebSocketContext);
 
 export const WebSocketProvider = ({ children }: { children: React.ReactNode }) => {
+  const { userToken } = useAuth(); // ✅ Get Token from Auth Context
   const [ws, setWs] = useState<WebSocket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
-  const reconnectTimeout = useRef<NodeJS.Timeout>();
   const wsRef = useRef<WebSocket | null>(null);
+  const pingInterval = useRef<any>(null);
+
+  // Only connect when userToken is ready
+  useEffect(() => {
+    initDB();
+    
+    if (userToken) {
+      connect();
+    } else {
+      // Cleanup if logged out
+      if (wsRef.current) wsRef.current.close();
+      setIsConnected(false);
+    }
+
+    return () => {
+      if (pingInterval.current) clearInterval(pingInterval.current);
+      if (wsRef.current) wsRef.current.close();
+    };
+  }, [userToken]); 
 
   const connect = async () => {
-    try {
-      const token = await getSecure('accessToken');
-      if (!token) return;
+    // Double check token from storage to be safe
+    const token = await getSecure('accessToken');
+    if (!token) return;
 
-      // Close existing connection
-      if (wsRef.current) {
-        wsRef.current.close();
+    const protocol = BASE_URL.startsWith('https') ? 'wss' : 'ws';
+    const wsUrl = `${protocol}://${BASE_URL.replace(/^https?:\/\//, '')}/ws/unified/?token=${token}`;
+    
+    const socket = new WebSocket(wsUrl);
+    wsRef.current = socket;
+
+    socket.onopen = () => {
+      console.log('✅ Global WebSocket connected');
+      setIsConnected(true);
+      
+      // TRIGGER SYNC: Download missed messages immediately
+      syncPendingMessages();
+
+      pingInterval.current = setInterval(() => {
+        if (socket.readyState === WebSocket.OPEN) {
+          socket.send(JSON.stringify({ command: 'ping' }));
+        }
+      }, 20000);
+    };
+
+    socket.onmessage = async (e) => {
+      const data = JSON.parse(e.data);
+
+      // INCOMING MESSAGE
+      if (data.type === 'chat_message') {
+        const decryptedContent = decryptMessage(data.ciphertext);
+        
+        saveMessage({
+          id: data.id.toString(),
+          client_id: data.client_id,
+          conversation_id: data.sender,
+          sender: data.sender,
+          content: decryptedContent,
+          status: 'delivered',
+          timestamp: data.timestamp,
+          is_own: false
+        });
+
+        DeviceEventEmitter.emit('new_message', { conversation_id: data.sender });
       }
 
-      const protocol = BASE_URL.startsWith('https') ? 'wss' : 'ws';
-      const wsUrl = `${protocol}://${BASE_URL.replace(/^https?:\/\//, '')}/ws/unified/?token=${token}`;
+      // STATUS UPDATE
+      if (data.type === 'status_update') {
+        updateMessageStatus(data.client_id, data.status);
+        DeviceEventEmitter.emit('message_status_changed', data);
+      }
       
-      const socket = new WebSocket(wsUrl);
-      wsRef.current = socket;
+      // PRESENCE UPDATE (Real-time Online/Offline)
+      if (data.type === 'user_status_event') {
+         DeviceEventEmitter.emit('presence_update', data);
+      }
+    };
 
-      socket.onopen = () => {
-        console.log('Global WebSocket connected');
-        setIsConnected(true);
-      };
+    socket.onclose = () => {
+      console.log('❌ WebSocket Disconnected');
+      setIsConnected(false);
+      // Only reconnect if we still have a token
+      if (userToken) setTimeout(connect, 3000); 
+    };
 
-      socket.onmessage = (e) => {
-        const data = JSON.parse(e.data);
-        if (data.type === 'notification') {
-          console.log('📩 New message from:', data.sender, '-', data.message);
-          if (Platform.OS === 'web') {
-            if (Notification.permission === 'granted') {
-              new Notification(`New message from ${data.sender}`, { body: data.message });
-            }
-          } else {
-            Alert.alert(`New message from ${data.sender}`, data.message);
-          }
-        }
-      };
+    setWs(socket);
+  };
 
-      socket.onerror = () => setIsConnected(false);
-
-      socket.onclose = () => {
-        console.log('Global WebSocket closed');
-        setIsConnected(false);
-        wsRef.current = null;
-        reconnectTimeout.current = setTimeout(connect, 3000);
-      };
-
-      setWs(socket);
-    } catch (error) {
-      console.error('WebSocket connection error:', error);
+  const sendMessage = (targetUser: string, ciphertext: string, clientId: string) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({
+        command: 'send_message',
+        message: 'blob',
+        ciphertext: ciphertext,
+        client_id: clientId
+      }));
     }
   };
 
-  useEffect(() => {
-    if (Platform.OS === 'web' && typeof Notification !== 'undefined' && Notification.permission === 'default') {
-      Notification.requestPermission();
+  const sendSeen = (targetUser: string) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ command: 'mark_seen' }));
     }
-    
-    // Register for push notifications
-    registerForPushNotificationsAsync().then(token => {
-      if (token) sendPushTokenToBackend(token);
-    });
-
-    // Handle notification received while app is open
-    const subscription = Notifications.addNotificationReceivedListener(notification => {
-      console.log('Notification received:', notification);
-    });
-
-    connect();
-    return () => {
-      subscription.remove();
-      if (reconnectTimeout.current) clearTimeout(reconnectTimeout.current);
-      if (ws) ws.close();
-    };
-  }, []);
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      (window as any).globalWs = ws;
-    }
-  }, [ws]);
+  };
 
   return (
-    <WebSocketContext.Provider value={{ ws, isConnected }}>
+    <WebSocketContext.Provider value={{ ws, isConnected, sendMessage, sendSeen }}>
       {children}
     </WebSocketContext.Provider>
   );

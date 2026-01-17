@@ -1,28 +1,45 @@
-from exponent_server_sdk import PushClient, PushMessage, PushServerError
-from requests.exceptions import ConnectionError, HTTPError
+from exponent_server_sdk import PushClient, PushMessage, DeviceNotRegisteredError
+from .models import PushToken
 
 def send_push_notification(tokens, title, body, data=None):
     """Send push notification to multiple tokens"""
     if not tokens:
         return
     
-    messages = []
-    for token in tokens:
-        try:
-            messages.append(PushMessage(
-                to=token,
-                title=title,
-                body=body,
-                data=data or {},
-                sound='default',
-                priority='high',
-                channel_id='default',  # <--- CRITICAL FIX FOR ANDROID
-            ))
-        except Exception as e:
-            print(f"Error creating message for {token}: {e}")
-    
     try:
-        response = PushClient().publish_multiple(messages)
-        print(f"✅ Expo Delivery Result: {response}") # <--- NOW WE WILL SEE IF EXPO ACCEPTED IT
-    except (PushServerError, ConnectionError, HTTPError) as e:
-        print(f"Push notification error: {e}")
+        messages = []
+        for token in tokens:
+            messages.append(
+                PushMessage(
+                    to=token,
+                    title=title,
+                    body=body,
+                    data=data,
+                    priority='high',
+                    sound='default',
+                )
+            )
+
+        # Send to Expo
+        responses = PushClient().publish_multiple(messages)
+
+        #CLEANUP DEAD TOKENS
+        #zip the tokens with their responses to check which one failed
+        for token, response in zip(tokens, responses):
+            try:
+                # If Expo says "DeviceNotRegistered", the user uninstalled the app.
+                if response.status == 'error':
+                    details = response.details
+                    if details.get('error') == 'DeviceNotRegistered':
+                        print(f"🗑️ Deleting dead token: {token}")
+                        PushToken.objects.filter(token = token).delete()
+
+            except Exception as e:
+                print(f"Error checking token status: {e}")
+
+    except Exception as e:
+        print(f" Push token Error: {e}")
+
+    
+
+

@@ -81,34 +81,36 @@ export default function ExploreScreen() {
   // ---------------------------------------------------------
   // 2. RENDER ROW
   // ---------------------------------------------------------
-  const renderItem = ({ item }: { item: any }) => (
-    <View style={styles.userRow}>
-      <TouchableOpacity 
-        style={styles.profileLink} 
-        onPress={() => router.push(`/(tabs)/profile?username=${item.username}`)} 
-      >
-        {item.avatar_url ? (
-          <Image source={{ uri: item.avatar_url }} style={styles.avatar} />
-        ) : (
-          <View style={styles.avatarPlaceholder}>
-             <Ionicons name="person" size={20} color="#666" />
-          </View>
-        )}
-        
-        <View style={styles.userInfo}>
-          <Text style={styles.username}>{item.username}</Text>
-          <Text style={styles.bio} numberOfLines={1}>{item.bio || "Connect User"}</Text>
+const renderItem = ({ item }: { item: any }) => (
+  <View style={styles.userRow}>
+    <TouchableOpacity 
+      style={styles.profileLink} 
+      // FIX: Direct navigation to the profile/[username] route
+      onPress={() => router.push(`/profile/${item.username}`)} 
+    >
+      {item.avatar_url ? (
+        <Image source={{ uri: item.avatar_url }} style={styles.avatar} />
+      ) : (
+        <View style={styles.avatarPlaceholder}>
+           <Ionicons name="person" size={20} color="#666" />
         </View>
-      </TouchableOpacity>
+      )}
+      
+      <View style={styles.userInfo}>
+        <Text style={styles.username}>{item.username}</Text>
+        <Text style={styles.bio} numberOfLines={1}>{item.bio || "Connect User"}</Text>
+      </View>
+    </TouchableOpacity>
 
-      <TouchableOpacity 
-        style={styles.chatBtn}
-        onPress={() => Alert.alert("Chat", `Start chat with ${item.username}`)} 
-      >
-        <Text style={styles.chatBtnText}>Chat</Text>
-      </TouchableOpacity>
-    </View>
-  );
+    <TouchableOpacity 
+      style={styles.chatBtn}
+      // FIX: Navigate to chat route
+      onPress={() => router.push(`/chat/${item.username}`)} 
+    >
+      <Text style={styles.chatBtnText}>Chat</Text>
+    </TouchableOpacity>
+  </View>
+);
 
   // ---------------------------------------------------------
   // 3. MAIN RETURN (The part you asked for)

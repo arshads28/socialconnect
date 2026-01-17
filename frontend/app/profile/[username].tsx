@@ -5,11 +5,14 @@ import { useEffect, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../utils/api';
 
+// Complete logic for app/profile/[username].tsx
+
 export default function ProfileScreen() {
   const { username } = useLocalSearchParams();
   const router = useRouter();
   const [profile, setProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [isProcessing, setIsProcessing] = useState(false);
 
   useEffect(() => {
     fetchProfile();
@@ -17,52 +20,37 @@ export default function ProfileScreen() {
 
   const fetchProfile = async () => {
     try {
+      // Backend URL is /auth/profile/{username}/
       const response = await api.get(`/auth/profile/${username}/`);
       setProfile(response.data);
     } catch (error) {
       console.error('Error fetching profile:', error);
+      Alert.alert("Error", "Could not load profile");
     } finally {
       setLoading(false);
     }
   };
 
-  const handleBlock = async () => {
+  const toggleBlock = async () => {
+    if (isProcessing) return;
+    setIsProcessing(true);
+    
+    // Determine action based on whether they are currently blocked
+    const action = profile.is_blocked ? 'unblock' : 'block';
+    
     try {
-      await api.post(`/auth/profile/${username}/block/`);
-      Alert.alert('Success', `You blocked ${username}`);
-      router.back();
+      await api.post(`/auth/profile/${username}/${action}/`);
+      Alert.alert('Success', `User ${action}ed`);
+      fetchProfile(); // Refresh profile data to update UI
     } catch (error) {
-      Alert.alert('Error', 'Could not block user');
+      Alert.alert('Error', `Could not ${action} user`);
+    } finally {
+      setIsProcessing(false);
     }
   };
 
-  const handleUnblock = async () => {
-    try {
-      await api.post(`/auth/profile/${username}/unblock/`);
-      Alert.alert('Success', `You unblocked ${username}`);
-      fetchProfile();
-    } catch (error) {
-      Alert.alert('Error', 'Could not unblock user');
-    }
-  };
-
-  if (loading) {
-    return (
-      <View style={styles.centerContainer}>
-        <ActivityIndicator size="large" color="#0095f6" />
-      </View>
-    );
-  }
-
-  if (!profile) {
-    return (
-      <View style={styles.centerContainer}>
-        <Text>User not found</Text>
-      </View>
-    );
-  }
-
-  const isBlocked = profile.connection_status === 'BLOCKED';
+  if (loading) return <ActivityIndicator size="large" style={{flex: 1}} />;
+  if (!profile) return <View style={styles.centerContainer}><Text>User not found</Text></View>;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -70,38 +58,37 @@ export default function ProfileScreen() {
         <TouchableOpacity onPress={() => router.back()}>
           <Ionicons name="arrow-back" size={24} color="#000" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>{profile.username}</Text>
+        <Text style={styles.headerTitle}>@{profile.username}</Text>
         <View style={{ width: 24 }} />
       </View>
 
       <View style={styles.profileContent}>
-        {profile.avatar_url ? (
-          <Image source={{ uri: profile.avatar_url }} style={styles.avatar} />
-        ) : (
-          <View style={styles.avatarPlaceholder}>
-            <Ionicons name="person" size={50} color="#666" />
-          </View>
-        )}
-
-        <Text style={styles.username}>@{profile.username}</Text>
-        <Text style={styles.email}>{profile.email}</Text>
-        
-        {profile.bio && <Text style={styles.bio}>{profile.bio}</Text>}
-        {profile.interests && <Text style={styles.interests}>{profile.interests}</Text>}
+        <Image 
+          source={{ uri: profile.avatar || 'https://via.placeholder.com/150' }} 
+          style={styles.avatar} 
+        />
+        <Text style={styles.username}>{profile.full_name || profile.username}</Text>
+        <Text style={styles.bio}>{profile.bio || "No bio available"}</Text>
 
         <View style={styles.actions}>
+          {/* ✅ MESSAGE BUTTON */}
           <TouchableOpacity 
             style={styles.btnMessage}
             onPress={() => router.push(`/chat/${username}`)}
           >
+            <Ionicons name="chatbubble-outline" size={20} color="#fff" />
             <Text style={styles.btnMessageText}>Message</Text>
           </TouchableOpacity>
 
+          {/* ✅ BLOCK/UNBLOCK BUTTON */}
           <TouchableOpacity 
-            style={styles.btnBlock}
-            onPress={isBlocked ? handleUnblock : handleBlock}
+            style={[styles.btnBlock, profile.is_blocked && { backgroundColor: '#eee' }]}
+            onPress={toggleBlock}
+            disabled={isProcessing}
           >
-            <Text style={styles.btnBlockText}>{isBlocked ? 'Unblock' : 'Block'}</Text>
+            <Text style={[styles.btnBlockText, profile.is_blocked && { color: '#666' }]}>
+              {profile.is_blocked ? 'Unblock' : 'Block'}
+            </Text>
           </TouchableOpacity>
         </View>
       </View>

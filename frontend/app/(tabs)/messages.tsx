@@ -1,53 +1,68 @@
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, Image, ActivityIndicator } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useRouter, useFocusEffect } from 'expo-router';
+import { useState, useCallback } from 'react';
 import { Ionicons } from '@expo/vector-icons';
-import api from '../../utils/api';
+
+// ✅ FIX 1: Import the correct functions from your utils
+import { getLocalInbox } from '../../utils/db';
+import { syncServerInbox } from '../../utils/sync';
 
 export default function MessagesScreen() {
   const router = useRouter();
-  const [users, setUsers] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [conversations, setConversations] = useState<any[]>([]);
 
-  useEffect(() => {
-    fetchInbox();
+  // ✅ FIX 2: Define the refresh logic clearly
+  const refreshInbox = useCallback(async () => {
+    // 1. Instant Load: Grab what we already have in SQLite (Zero latency)
+    const localData = getLocalInbox();
+    setConversations(localData);
+
+    // 2. Background Sync: Ask server for updates (Postman check)
+    await syncServerInbox();
+    
+    // 3. Re-Load: Grab the fresh data (in case server had new stuff)
+    const updatedData = getLocalInbox();
+    setConversations(updatedData);
   }, []);
 
-  const fetchInbox = async () => {
-    try {
-      const response = await api.get('/chat/api/inbox/');
-      setUsers(response.data || []);
-    } catch (error) {
-      console.error('Error fetching inbox:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  // ✅ FIX 3: Actually call the function when screen focuses
+  useFocusEffect(
+    useCallback(() => {
+      refreshInbox();
+    }, [refreshInbox])
+  );
 
   const renderUser = ({ item }: { item: any }) => (
     <TouchableOpacity 
       style={styles.userRow}
-      onPress={() => router.push(`/chat/${item.username}`)}
+      onPress={() => router.push(`/chat/${item.conversation_id}`)}
     >
-      {item.avatar_url ? (
-        <Image source={{ uri: item.avatar_url }} style={styles.avatar} />
-      ) : (
-        <View style={styles.avatarPlaceholder}>
-          <Ionicons name="person" size={24} color="#666" />
-        </View>
-      )}
+      {/* TODO: If you want real avatars here, you'll need to fetch user details 
+         or store avatar_url in the SQLite 'messages' table (complex) 
+         or just keep it simple with a placeholder.
+      */}
+      <View style={styles.avatarPlaceholder}>
+        <Ionicons name="person" size={24} color="#666" />
+      </View>
       
       <View style={styles.userInfo}>
-        <Text style={styles.username}>{item.username}</Text>
-        <Text style={styles.status}>{item.status_text}</Text>
+        <Text style={styles.username}>{item.conversation_id}</Text>
+        <Text style={styles.status} numberOfLines={1}>
+          {item.is_own ? 'You: ' : ''}{item.content}
+        </Text>
       </View>
 
-      {item.unread_count > 0 && (
-        <View style={styles.badge}>
-          <Text style={styles.badgeText}>{item.unread_count}</Text>
-        </View>
-      )}
+      <View style={{ alignItems: 'flex-end' }}>
+        <Text style={styles.time}>
+          {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+        </Text>
+        {item.unread_count > 0 && (
+          <View style={styles.badge}>
+            <Text style={styles.badgeText}>{item.unread_count}</Text>
+          </View>
+        )}
+      </View>
     </TouchableOpacity>
   );
 
@@ -57,18 +72,14 @@ export default function MessagesScreen() {
         <Text style={styles.headerTitle}>Messages</Text>
       </View>
 
-      {loading ? (
-        <ActivityIndicator style={{ marginTop: 20 }} color="#0095f6" />
-      ) : (
-        <FlatList
-          data={users}
-          renderItem={renderUser}
-          keyExtractor={(item) => item.id}
-          ListEmptyComponent={
-            <Text style={styles.emptyText}>No messages yet</Text>
-          }
-        />
-      )}
+      <FlatList
+        data={conversations}
+        renderItem={renderUser}
+        keyExtractor={(item) => item.conversation_id}
+        ListEmptyComponent={
+          <Text style={styles.emptyText}>No messages yet</Text>
+        }
+      />
     </SafeAreaView>
   );
 }
@@ -78,11 +89,11 @@ const styles = StyleSheet.create({
   header: { padding: 16, borderBottomWidth: 1, borderColor: '#eee' },
   headerTitle: { fontSize: 24, fontWeight: 'bold' },
   userRow: { flexDirection: 'row', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderColor: '#f0f0f0' },
-  avatar: { width: 50, height: 50, borderRadius: 25, marginRight: 12 },
   avatarPlaceholder: { width: 50, height: 50, borderRadius: 25, backgroundColor: '#eee', justifyContent: 'center', alignItems: 'center', marginRight: 12 },
   userInfo: { flex: 1 },
   username: { fontSize: 16, fontWeight: '600', marginBottom: 4 },
   status: { fontSize: 14, color: '#666' },
+  time: { fontSize: 12, color: '#999', marginBottom: 4 },
   badge: { backgroundColor: '#0095f6', borderRadius: 12, minWidth: 24, height: 24, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 8 },
   badgeText: { color: '#fff', fontSize: 12, fontWeight: 'bold' },
   emptyText: { textAlign: 'center', color: '#888', marginTop: 50 },

@@ -24,7 +24,7 @@ import { getSecure } from '../../utils/storage';
 
 export default function HomeScreen() {
   const router = useRouter();
-  const { signOut } = useAuth(); 
+  const { signOut, userToken, isLoading: authLoading } = useAuth();
   
   // Feed State
   const [posts, setPosts] = useState<any[]>([]);
@@ -40,8 +40,11 @@ export default function HomeScreen() {
   const [menuVisible, setMenuVisible] = useState<string | null>(null);
 
   useEffect(() => {
+
+    if (authLoading || !userToken) return;
+
     fetchFeed();
-  }, []);
+  }, [authLoading, userToken]);
 
   // ------------------------------------------------------------------
   // 1. CREATE POST LOGIC (Embedded Card)
@@ -266,11 +269,18 @@ export default function HomeScreen() {
     return (
       <View style={styles.card}>
         <View style={styles.cardHeader}>
-          <Image source={{ uri: item.author.avatar || 'https://via.placeholder.com/50' }} style={styles.avatar} />
-          <View style={{ flex: 1 }}>
-            <Text style={styles.username}>@{item.author.username}</Text>
-            <Text style={styles.date}>{new Date(item.created_at).toLocaleDateString()}</Text>
-          </View>
+          {/* ✅ FIX: Wrap Avatar and Username in TouchableOpacity */}
+          <TouchableOpacity 
+            style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}
+            onPress={() => router.push(`/profile/${item.author.username}`)}
+          >
+            <Image source={{ uri: item.author.avatar || 'https://via.placeholder.com/50' }} style={styles.avatar} />
+            <View>
+              <Text style={styles.username}>@{item.author.username}</Text>
+              <Text style={styles.date}>{new Date(item.created_at).toLocaleDateString()}</Text>
+            </View>
+          </TouchableOpacity>
+
           {item.is_author && (
             <TouchableOpacity onPress={() => setMenuVisible(item.id)} style={styles.menuBtn}>
               <Ionicons name="ellipsis-horizontal" size={20} color="#666" />

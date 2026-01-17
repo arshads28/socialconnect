@@ -361,7 +361,7 @@
         {% if user.is_authenticated %}
         function connectSocket() {
             const protocol = window.location.protocol === "https:" ? "wss://" : "ws://";
-            globalStatusSocket = new WebSocket(protocol + window.location.host + '/ws/online-status/');
+            globalStatusSocket = new WebSocket(protocol + window.location.host + '/ws/unified/');
 
             globalStatusSocket.onopen = () => console.log("✅ Global Socket Connected");
             

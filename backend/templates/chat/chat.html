@@ -308,7 +308,7 @@
     function connectChatSocket(username) {
         if(activeChatSocket) activeChatSocket.close();
         const protocol = window.location.protocol === "https:" ? "wss://" : "ws://";
-        activeChatSocket = new WebSocket(protocol + window.location.host + "/ws/chat/" + username + "/");
+        activeChatSocket = new WebSocket(protocol + window.location.host + "/ws/unified/" + username + "/");
 
         activeChatSocket.onmessage = (e) => {
             const data = JSON.parse(e.data);

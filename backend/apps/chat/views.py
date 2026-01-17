@@ -1,7 +1,7 @@
 from django.http import JsonResponse
 from django.contrib.auth.decorators import login_required
 from .models import Message
-from django.db.models import Q, Max
+from django.db.models import Count, OuterRef, Subquery, Q, Max
 from django.shortcuts import render
 from django.contrib.auth import get_user_model
 from django.core.paginator import Paginator
@@ -82,25 +82,25 @@ def chat_history(request, username):
 
 
 
-@login_required
-def chat_view(request, username):
-    # Get the actual User object (needed for is_online/last_seen)
-    other_user_obj = get_object_or_404(User, username=username)
+# @login_required
+# def chat_view(request, username):
+#     # Get the actual User object (needed for is_online/last_seen)
+#     other_user_obj = get_object_or_404(User, username=username)
 
-    # 2. Get the formatted text
-    is_online = is_user_online(other_user_obj.id)
-    last_seen_text = "Active now" if is_online else get_last_seen_text(other_user_obj)
+#     # 2. Get the formatted text
+#     is_online = is_user_online(other_user_obj.id)
+#     last_seen_text = "Active now" if is_online else get_last_seen_text(other_user_obj)
 
-    messages = Message.objects.filter(
-        Q(sender=request.user, receiver=other_user_obj) |
-        Q(sender=other_user_obj, receiver=request.user)
-    ).order_by("timestamp")
+#     messages = Message.objects.filter(
+#         Q(sender=request.user, receiver=other_user_obj) |
+#         Q(sender=other_user_obj, receiver=request.user)
+#     ).order_by("timestamp")
 
-    return render(request, "chat/chat.html", {
-        "messages": messages,
-        "other_user": other_user_obj,  # Passing Object, not just string
-        "last_seen_text": last_seen_text, # Passing the text
-    })
+#     return render(request, "chat/chat.html", {
+#         "messages": messages,
+#         "other_user": other_user_obj,  # Passing Object, not just string
+#         "last_seen_text": last_seen_text, # Passing the text
+#     })
 
 
 
@@ -259,43 +259,95 @@ class InboxViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = InboxSerializer
 
-    def list(self, request):
-        user = request.user
-        conversations = (
-            Message.objects
-            .filter(Q(sender=user) | Q(receiver=user))
-            .values("sender", "receiver")
-            .annotate(last_time=Max("timestamp"))
-            .order_by("-last_time")
-        )
+    def get_queryset(self):
+        user = self.request.user
 
-        chat_users = []
-        seen = set()
+        # 1. Subquery to get the latest message content for the preview
+        last_msg_subquery = Message.objects.filter(
+            receiver=user, 
+            sender_id=OuterRef('pk')
+        ).order_by('-timestamp')
 
-        for convo in conversations:
-            other_id = convo["receiver"] if convo["sender"] == user.id else convo["sender"]
-            if other_id not in seen:
-                seen.add(other_id)
-                try:
-                    other_user_obj = User.objects.get(id=other_id)
-                    is_online = is_user_online(other_user_obj.id)
-                    status_text = "Online" if is_online else get_last_seen_text(other_user_obj)
-                    unread_count = Message.objects.filter(
-                        sender=other_user_obj, 
-                        receiver=user, 
-                        is_read=False
-                    ).count()
+        # 2. Filter users who have sent messages to the current user
+        # Annotate the unread count and the last message content in one go
+        return User.objects.filter(
+            sent_messages__receiver=user
+        ).annotate(
+            pending_count=Count('sent_messages', filter=Q(sent_messages__receiver=user)),
+            last_msg_preview=Subquery(last_msg_subquery.values('encrypted_content')[:1]),
+            last_msg_timestamp=Subquery(last_msg_subquery.values('timestamp')[:1])
+        ).distinct()
 
-                    chat_users.append({
-                        "id": str(other_user_obj.id), 
-                        "username": other_user_obj.username,
-                        "avatar_url": other_user_obj.avatar.url if other_user_obj.avatar else None,
-                        "is_online": is_online,
-                        "status_text": status_text,
-                        "unread_count": unread_count,
-                    })
-                except User.DoesNotExist:
-                    continue
+    def list(self, request, *args, **kwargs):
+        queryset = self.get_queryset()
+        
+        # We still need to check cache for 'is_online'
+        # To keep this O(1) or O(N) without DB hits, we use cache.get_many
+        user_ids = [str(u.id) for u in queryset]
+        online_statuses = cache.get_many([f"user_online_{uid}" for uid in user_ids])
 
-        serializer = self.get_serializer(chat_users, many=True)
+        # Serialize data
+        serializer = self.get_serializer(queryset, many=True, context={
+            'online_statuses': online_statuses,
+            'request': request
+        })
         return Response(serializer.data)
+    
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def sync_messages(request):
+    """
+    The 'Postman' Route:
+    1. Fetch all pending messages for this user.
+    2. Return them.
+    3. DELETE them from the server instantly.
+    """
+    user = request.user
+    
+    # Fetch pending messages (Oldest first)
+    pending_messages = Message.objects.filter(receiver=user).order_by('timestamp')
+    
+    data = []
+    for msg in pending_messages:
+        data.append({
+            "id": msg.id,                     # Server ID (Temporary)
+            "client_id": str(msg.client_id),  # UUID from Sender
+            "sender": msg.sender.username,
+            "ciphertext": msg.encrypted_content, # The encrypted blob
+            "timestamp": msg.timestamp.isoformat(), # UTC ISO String
+        })
+    
+    # We do this AFTER building the list to ensure data integrity
+    count = pending_messages.count()
+    pending_messages.delete()
+    
+    return Response({"messages": data, "count": count})
+
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def clear_chat_history(request, username):
+    """
+    Deletes all messages between the authenticated user and the target 'username'.
+    This clears the 'Server Queue' so messages don't re-sync.
+    """
+    try:
+        target_user = User.objects.get(username=username)
+        
+        # Delete messages where:
+        # 1. I sent it to them (sender=me, receiver=them)
+        # 2. They sent it to me (sender=them, receiver=me)
+        deleted_count, _ = Message.objects.filter(
+            Q(sender=request.user, receiver=target_user) | 
+            Q(sender=target_user, receiver=request.user)
+        ).delete()
+        
+        return Response({"status": "success", "deleted": deleted_count})
+        
+    except User.DoesNotExist:
+        return Response({"error": "User not found"}, status=404)
+    except Exception as e:
+        return Response({"error": str(e)}, status=500)

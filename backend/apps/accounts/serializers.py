@@ -38,8 +38,10 @@ class ProfileSerializer(serializers.ModelSerializer):
         if request.user == obj:
             return 'SELF'
 
-        # Check if the logged-in user has this profile in their 'blocking' list
-        if request.user.blocking.filter(pk=obj.pk).exists():
+        # We read the attribute annotated in get_queryset
+        is_blocked = getattr(obj, 'is_blocked_by_me', False)
+        
+        if is_blocked:
             return 'BLOCKED'
 
         return 'NONE'
