@@ -141,19 +141,6 @@ class UnifiedConsumer(AsyncWebsocketConsumer):
     async def handle_leave_room(self):
         if self.current_room:
             await self.channel_layer.group_discard(self.current_room, self.channel_name)
-        
-        if self.watched_user_group:
-            await self.channel_layer.group_discard(self.watched_user_group, self.channel_name)
-            self.watched_user_group = None
-            
-        await sync_to_async(cache.delete)(f"presence_room_{self.user.id}")
-        self.current_room = None
-        self.other_user_in_room = None
-
-
-    async def handle_leave_room(self):
-        if self.current_room:
-            await self.channel_layer.group_discard(self.current_room, self.channel_name)
             if self.watched_user_group:
                 await self.channel_layer.group_discard(self.watched_user_group, self.channel_name)
                 self.watched_user_group = None
@@ -170,6 +157,8 @@ class UnifiedConsumer(AsyncWebsocketConsumer):
         )
 
     async def handle_send_message(self, data):
+        if not self.other_user_in_room:
+            return
         client_id = data.get("client_id")
         ciphertext = data.get("ciphertext")
         
@@ -329,9 +318,6 @@ class UnifiedConsumer(AsyncWebsocketConsumer):
         msg.status = 'delivered'
         msg.save(update_fields=['status'])
 
-    @database_sync_to_async
-    def delete_message(self, msg_instance):
-        msg_instance.delete()
 
     @sync_to_async
     def update_user_status(self, is_online):

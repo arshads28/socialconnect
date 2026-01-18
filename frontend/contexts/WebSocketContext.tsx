@@ -100,7 +100,11 @@ export const WebSocketProvider = ({ children }: { children: React.ReactNode }) =
         const data = JSON.parse(e.data);
 
         // If I sent this message, ignore it (I already have it locally).
-        if (data.sender === user?.username) return; 
+        if (data.sender === user?.username) {
+           // We might still want to process status updates (like blue ticks), 
+           // but NOT 'chat_message'
+           if (data.type === 'chat_message') return; 
+        }
 
         // 1. INCOMING CHAT MESSAGE
         if (data.type === 'chat_message') {

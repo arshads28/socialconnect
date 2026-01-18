@@ -11,27 +11,32 @@ export default function MessagesScreen() {
   const [conversations, setConversations] = useState<any[]>([]);
 
   const refreshInbox = useCallback(async () => {
+    // 1. Show whatever local history we have (Real messages from open chats)
     const localData = getLocalInbox();
     setConversations(localData);
 
+    // 2. Fetch fresh previews from Server
     const serverData = await syncServerInbox();
     
     if (serverData && serverData.length > 0) {
-      const formatted = serverData.map((item: any) => ({
-         conversation_id: item.username,
-         // Prefer local decrypted content if available
-         content: localData.find(l => l.conversation_id === item.username)?.content || "New Message", 
-         timestamp: item.last_message_time,
-         unread_count: item.unread_count,
+      const formatted = serverData.map((item: any) => {
+         // Check if we have a real local message (Offline support)
+         const localMatch = localData.find(l => l.conversation_id === item.username);
          
-         avatar: item.avatar_url, 
-         
-         is_own: false
-      }));
+         return {
+           conversation_id: item.username,
+           
+           //Prefer Server Preview (Real-time), fallback to Local, then placeholder
+           content: item.content || localMatch?.content || "New Message", 
+           
+           timestamp: item.timestamp,
+           unread_count: item.unread_count,
+           avatar: item.avatar_url, 
+           is_own: false
+         };
+      });
       setConversations(formatted);
-    } else {
-      setConversations(getLocalInbox());
-    }
+    } 
   }, []);
 
   useFocusEffect(

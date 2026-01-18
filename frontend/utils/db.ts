@@ -2,7 +2,7 @@ import { Platform } from 'react-native';
 import * as SQLite from 'expo-sqlite';
 
 // =======================================================
-// 1. THE INTERFACE (The Contract)
+// 1. THE INTERFACE
 // =======================================================
 interface IDatabaseAdapter {
   init(): void;
@@ -15,7 +15,7 @@ interface IDatabaseAdapter {
 }
 
 // =======================================================
-// 2. WEB ADAPTER (LocalStorage Implementation)
+// 2. WEB ADAPTER (LocalStorage)
 // =======================================================
 class WebDatabaseAdapter implements IDatabaseAdapter {
   private STORAGE_KEY = 'connect_messages_v1';
@@ -30,15 +30,13 @@ class WebDatabaseAdapter implements IDatabaseAdapter {
   }
 
   init() {
-    console.log('🌐 Web Adapter Initialized (LocalStorage)');
+    console.log('🌐 Web Adapter Initialized');
   }
 
   saveMessage(msg: any) {
     const data = this.getData();
-    // Logic: Update if exists, Insert if new
     const index = data.findIndex((m: any) => m.client_id === msg.client_id);
     
-    // Sanitize for JSON (ensure booleans/nulls are safe)
     const cleanMsg = {
         ...msg, 
         status: msg.status || 'delivered',
@@ -84,43 +82,34 @@ class WebDatabaseAdapter implements IDatabaseAdapter {
     const data = this.getData();
     const filtered = data.filter((m: any) => m.conversation_id !== username);
     this.saveData(filtered);
-    console.log(`🗑️ Deleted web chat with ${username}`);
   }
 
   getLocalInbox() {
+    // (Same logic as before for web)
     const data = this.getData();
     const inboxMap = new Map();
-
-    // Group By Logic for Web
     data.forEach((msg: any) => {
       const existing = inboxMap.get(msg.conversation_id);
       if (!existing || new Date(msg.timestamp) > new Date(existing.timestamp)) {
         inboxMap.set(msg.conversation_id, msg);
       }
     });
-
     return Array.from(inboxMap.values())
-      .map((chat: any) => {
-        const unreadCount = data.filter(
-          (m: any) => m.conversation_id === chat.conversation_id && m.status !== 'read' && !m.is_own
-        ).length;
-        return { ...chat, unread_count: unreadCount };
-      })
+      .map((chat: any) => ({
+        ...chat,
+        unread_count: data.filter((m:any) => m.conversation_id === chat.conversation_id && m.status !== 'read' && !m.is_own).length
+      }))
       .sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
   }
 }
 
-
-
-
 // =======================================================
-// 3. NATIVE ADAPTER (SQLite Implementation)
+// 3. NATIVE ADAPTER (SQLite - THE FIX)
 // =======================================================
 class NativeDatabaseAdapter implements IDatabaseAdapter {
   private db: any;
 
   constructor() {
-    // Only open DB if we are NOT on web to prevent crashes
     if (Platform.OS !== 'web') {
         this.db = SQLite.openDatabaseSync('connect.db');
     }
@@ -128,10 +117,12 @@ class NativeDatabaseAdapter implements IDatabaseAdapter {
 
   init() {
     if (Platform.OS === 'web') return;
+    
+    // client_id is now PRIMARY KEY
     this.db.execSync(`
       CREATE TABLE IF NOT EXISTS messages (
-        id TEXT PRIMARY KEY,
-        client_id TEXT UNIQUE,
+        client_id TEXT PRIMARY KEY, 
+        id TEXT, 
         conversation_id TEXT,
         sender TEXT,
         content TEXT,
@@ -140,17 +131,25 @@ class NativeDatabaseAdapter implements IDatabaseAdapter {
         is_own INTEGER DEFAULT 0
       );
     `);
-    console.log('📦 SQLite Initialized');
+    console.log('📦 SQLite Initialized with Fixed Schema');
   }
 
   saveMessage(msg: any) {
     try {
+      // Conflict on client_id replaces the row
       this.db.runSync(
-        `INSERT OR REPLACE INTO messages (id, client_id, conversation_id, sender, content, status, timestamp, is_own)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT OR REPLACE INTO messages (
+           client_id, id, conversation_id, sender, content, status, timestamp, is_own
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         [
-          msg.id, msg.client_id, msg.conversation_id, msg.sender, msg.content, 
-          msg.status || 'delivered', msg.timestamp, msg.is_own ? 1 : 0
+          msg.client_id, 
+          msg.id, 
+          msg.conversation_id, 
+          msg.sender, 
+          msg.content, 
+          msg.status || 'delivered', 
+          msg.timestamp, 
+          msg.is_own ? 1 : 0
         ]
       );
     } catch (e) {
@@ -174,12 +173,7 @@ class NativeDatabaseAdapter implements IDatabaseAdapter {
   }
 
   deleteLocalChat(username: string) {
-    try {
-      this.db.runSync(`DELETE FROM messages WHERE conversation_id = ?`, [username]);
-      console.log(`🗑️ Deleted local chat with ${username}`);
-    } catch (e) {
-      console.error("Error deleting chat:", e);
-    }
+    this.db.runSync(`DELETE FROM messages WHERE conversation_id = ?`, [username]);
   }
 
   getLocalInbox() {
@@ -190,21 +184,12 @@ class NativeDatabaseAdapter implements IDatabaseAdapter {
         m.timestamp, 
         m.status,
         m.is_own,
-        (
-          SELECT COUNT(*) 
-          FROM messages 
-          WHERE conversation_id = m.conversation_id 
-          AND status != 'read' 
-          AND is_own = 0
-        ) as unread_count
+        (SELECT COUNT(*) FROM messages WHERE conversation_id = m.conversation_id AND status != 'read' AND is_own = 0) as unread_count
       FROM messages m
       INNER JOIN (
-        SELECT conversation_id, MAX(timestamp) as max_ts
-        FROM messages
-        GROUP BY conversation_id
+        SELECT conversation_id, MAX(timestamp) as max_ts FROM messages GROUP BY conversation_id
       ) latest 
-      ON m.conversation_id = latest.conversation_id 
-      AND m.timestamp = latest.max_ts
+      ON m.conversation_id = latest.conversation_id AND m.timestamp = latest.max_ts
       WHERE m.conversation_id IS NOT NULL 
       ORDER BY m.timestamp DESC;
     `);
@@ -214,13 +199,8 @@ class NativeDatabaseAdapter implements IDatabaseAdapter {
 // =======================================================
 // 4. FACTORY & EXPORTS
 // =======================================================
+const adapter: IDatabaseAdapter = Platform.OS === 'web' ? new WebDatabaseAdapter() : new NativeDatabaseAdapter();
 
-// Instantiate the correct class based on the platform
-const adapter: IDatabaseAdapter = Platform.OS === 'web' 
-  ? new WebDatabaseAdapter() 
-  : new NativeDatabaseAdapter();
-
-// Export the methods directly so the rest of the app doesn't need to change
 export const initDB = () => adapter.init();
 export const saveMessage = (msg: any) => adapter.saveMessage(msg);
 export const updateMessageStatus = (cid: string, status: string) => adapter.updateMessageStatus(cid, status);
@@ -229,18 +209,10 @@ export const markChatAsRead = (user: string) => adapter.markChatAsRead(user);
 export const deleteLocalChat = (user: string) => adapter.deleteLocalChat(user);
 export const getLocalInbox = () => adapter.getLocalInbox();
 
-// Helper: Generate UUID (Works on both)
 export const generateUUID = () => {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID();
-  }
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-    if (Platform.OS === 'web') {
-        return (Math.random() * 16 | 0).toString(16);
-    }
-    // @ts-ignore
-    const r = crypto.getRandomValues(new Uint8Array(1))[0] & 0x0f; 
-    const v = c === 'x' ? r : (r & 0x3 | 0x8);
-    return v.toString(16);
+    const r = Math.random() * 16 | 0;
+    return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
   });
 };

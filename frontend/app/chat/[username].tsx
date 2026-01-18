@@ -143,8 +143,8 @@ export default function ChatScreen() {
 
     // 1. Optimistic Save (This creates the "Temporary" row)
     saveMessage({
-      id: clientId, // Use UUID as temp ID
-      client_id: clientId,
+      id: null, 
+      client_id: clientId, 
       conversation_id: username,
       sender: user?.username,
       content: text, 
