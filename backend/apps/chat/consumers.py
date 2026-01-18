@@ -81,12 +81,8 @@ class UnifiedConsumer(AsyncWebsocketConsumer):
             elif command == "send_message":
                 await self.handle_send_message(data)
 
-            elif command == "mark_seen":
-                if self.current_room:
-                    await self.channel_layer.group_send(
-                        self.current_room,
-                        {"type": "seen_receipt", "reader": self.user.username}
-                    )
+            elif command == "mark_read":
+                await self.handle_mark_read(data)
 
             elif command == "typing":
                 await self.handle_typing()
@@ -159,16 +155,12 @@ class UnifiedConsumer(AsyncWebsocketConsumer):
 
     async def handle_typing(self):
         if not self.current_room: return
-        
-        key = f"typing_{self.current_room}_{self.user.id}"
-        is_throttled = await sync_to_async(cache.get)(key)
-
-        if not is_throttled:
-            await self.channel_layer.group_send(
-                self.current_room, 
-                {"type": "typing_event", "user": self.user.username}
-            )
-            await sync_to_async(cache.set)(key, True, timeout=3)
+ 
+        # but a small 2s throttle prevents flood.
+        await self.channel_layer.group_send(
+            self.current_room, 
+            {"type": "typing_event", "sender": self.user.username}
+        )
 
     async def handle_send_message(self, data):
         client_id = data.get("client_id")
@@ -205,7 +197,7 @@ class UnifiedConsumer(AsyncWebsocketConsumer):
                 # A. Target is here -> Send to Room
                 await self.channel_layer.group_send(self.current_room, payload)
                 
-                # 🔥 OPTIMIZED: Send ACK immediately. 
+                #  OPTIMIZED: Send ACK immediately. 
                 # Don't wait for DB delete. Do it in background.
                 await self.send_ack(client_id, msg_instance.id, "delivered")
                 asyncio.create_task(self.delete_message(msg_instance))
@@ -214,12 +206,12 @@ class UnifiedConsumer(AsyncWebsocketConsumer):
         # B. Target elsewhere -> Send ACK & Notify
         await self.send_ack(client_id, msg_instance.id, "sent")
         
-        # 🔥 OPTIMIZED: Background Notification (Don't block the socket!)
+        #  OPTIMIZED: Background Notification (Don't block the socket!)
         asyncio.create_task(self.handle_notifications(self.other_user_in_room))
 
     async def handle_call_signal(self, data):
         target_username = data.get("target")
-        # 🔥 OPTIMIZED: Don't fetch full user object, just ID if possible or keep logic simple
+        #  OPTIMIZED: Don't fetch full user object, just ID if possible or keep logic simple
         try:
             target_user = await self.get_user_optimized(target_username)
             await self.channel_layer.group_send(
@@ -244,6 +236,25 @@ class UnifiedConsumer(AsyncWebsocketConsumer):
             )
         else:
             await self.send_push_notification(receiver)
+
+    async def handle_mark_read(self, data):
+        sender_username = data.get('sender') 
+        if not sender_username: return
+
+        # Update DB
+        count = await self.update_messages_to_read(sender_username)
+
+
+        if count > 0:
+            await self.channel_layer.group_send(
+                f"user_{sender_username}", # Send to the person who wrote the messages
+                {
+                    'type': 'status_update',
+                    'status': 'read',
+                    'reader': self.user.username,
+                    'conversation_id': self.user.username 
+                }
+            )
 
     # ===============================================================
     # 📡 SENDERS (Server -> Client Events)
@@ -282,6 +293,18 @@ class UnifiedConsumer(AsyncWebsocketConsumer):
             "data": event["data"],
             "sender": event["sender"]
         }))
+
+    async def typing_event(self, event):
+        # Don't send my own typing status to me
+        if event["sender"] != self.user.username:
+            await self.send(text_data=json.dumps(event))
+
+    async def status_update(self, event):
+        await self.send(text_data=json.dumps(event))
+
+
+    async def new_message_notification(self, event):
+        await self.send(text_data=json.dumps(event))
 
     # ===============================================================
     # 🛠 UTILITIES & DATABASE
@@ -322,6 +345,19 @@ class UnifiedConsumer(AsyncWebsocketConsumer):
             cache.delete(key)
             # Use update() instead of save() to avoid full row rewrite
             User.objects.filter(id=self.user.id).update(last_seen=timezone.now())
+
+    @database_sync_to_async
+    def update_messages_to_read(self, sender_username):
+        try:
+            sender = User.objects.get(username=sender_username)
+            # Update all messages I received from them to 'read'
+            return Message.objects.filter(
+                sender=sender, 
+                receiver=self.user, 
+                status__in=['sent', 'delivered']
+            ).update(status='read')
+        except User.DoesNotExist:
+            return 0
 
     async def broadcast_status_to_watchers(self, is_online):
         await self.channel_layer.group_send(

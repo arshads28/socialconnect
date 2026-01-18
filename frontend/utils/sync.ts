@@ -61,33 +61,36 @@ export const syncPendingMessages = async () => {
   }
 };
 
-// ... keep syncServerInbox as is ...
-
-
-
-
-
-
 
 // Syncs the Inbox List (Previews)
 export const syncServerInbox = async () => {
   try {
     const response = await api.get('/chat/inbox/');
-    const serverInbox = response.data;
+
+    const serverInbox = Array.isArray(response.data) 
+      ? response.data 
+      : response.data.results; 
+
+    if (!serverInbox) return [];
 
     for (const entry of serverInbox) {
       if (entry.last_message) {
-        const plainText = decryptMessage(entry.last_message);
-        saveMessage({
-          id: `preview_${entry.id}`, 
-          client_id: `preview_${entry.id}`, 
-          conversation_id: entry.username,
-          sender: entry.username,
-          content: plainText,
-          status: 'delivered',
-          timestamp: entry.last_message_time,
-          is_own: false 
-        });
+        // Try/Catch for decryption to prevent one bad message crashing the whole sync
+        try {
+          const plainText = decryptMessage(entry.last_message);
+          saveMessage({
+            id: `preview_${entry.id}`, 
+            client_id: `preview_${entry.id}`, 
+            conversation_id: entry.username,
+            sender: entry.username,
+            content: plainText,
+            status: 'delivered',
+            timestamp: entry.last_message_time,
+            is_own: false 
+          });
+        } catch (decryptError) {
+          console.warn(`Failed to decrypt preview for ${entry.username}`);
+        }
       }
     }
     return serverInbox;

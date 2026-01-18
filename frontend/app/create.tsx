@@ -135,7 +135,7 @@ export default function CreateCameraScreen() {
         } as any);
       }
 
-      const res = await fetch(`${BASE_URL}/api/posts/`, {
+      const res = await fetch(`${BASE_URL}/api/updates/`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,

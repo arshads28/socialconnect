@@ -17,6 +17,16 @@ class Message(models.Model):
         related_name="received_messages",
         on_delete=models.CASCADE,
     )
+
+    status = models.CharField(
+        max_length=20, 
+        default='sent',
+        choices=[
+            ('sent', 'Sent'), 
+            ('delivered', 'Delivered'), 
+            ('read', 'Read')
+        ]
+    )
     
     # We rename 'content' to 'encrypted_content' to be clear: The server CANNOT read this.
     encrypted_content = models.TextField(blank=True) 

@@ -3,8 +3,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useState, useCallback } from 'react';
 import { Ionicons } from '@expo/vector-icons';
-
-// ✅ FIX 1: Import the correct functions from your utils
 import { getLocalInbox } from '../../utils/db';
 import { syncServerInbox } from '../../utils/sync';
 
@@ -12,21 +10,30 @@ export default function MessagesScreen() {
   const router = useRouter();
   const [conversations, setConversations] = useState<any[]>([]);
 
-  // ✅ FIX 2: Define the refresh logic clearly
   const refreshInbox = useCallback(async () => {
-    // 1. Instant Load: Grab what we already have in SQLite (Zero latency)
     const localData = getLocalInbox();
     setConversations(localData);
 
-    // 2. Background Sync: Ask server for updates (Postman check)
-    await syncServerInbox();
+    const serverData = await syncServerInbox();
     
-    // 3. Re-Load: Grab the fresh data (in case server had new stuff)
-    const updatedData = getLocalInbox();
-    setConversations(updatedData);
+    if (serverData && serverData.length > 0) {
+      const formatted = serverData.map((item: any) => ({
+         conversation_id: item.username,
+         // Prefer local decrypted content if available
+         content: localData.find(l => l.conversation_id === item.username)?.content || "New Message", 
+         timestamp: item.last_message_time,
+         unread_count: item.unread_count,
+         
+         avatar: item.avatar_url, 
+         
+         is_own: false
+      }));
+      setConversations(formatted);
+    } else {
+      setConversations(getLocalInbox());
+    }
   }, []);
 
-  // ✅ FIX 3: Actually call the function when screen focuses
   useFocusEffect(
     useCallback(() => {
       refreshInbox();
@@ -38,18 +45,20 @@ export default function MessagesScreen() {
       style={styles.userRow}
       onPress={() => router.push(`/chat/${item.conversation_id}`)}
     >
-      {/* TODO: If you want real avatars here, you'll need to fetch user details 
-         or store avatar_url in the SQLite 'messages' table (complex) 
-         or just keep it simple with a placeholder.
-      */}
-      <View style={styles.avatarPlaceholder}>
-        <Ionicons name="person" size={24} color="#666" />
+      <View style={styles.avatarContainer}>
+        {item.avatar ? (
+          <Image source={{ uri: item.avatar }} style={styles.avatar} />
+        ) : (
+          <View style={styles.avatarPlaceholder}>
+            <Ionicons name="person" size={24} color="#666" />
+          </View>
+        )}
       </View>
       
       <View style={styles.userInfo}>
         <Text style={styles.username}>{item.conversation_id}</Text>
         <Text style={styles.status} numberOfLines={1}>
-          {item.is_own ? 'You: ' : ''}{item.content}
+          {item.content}
         </Text>
       </View>
 
@@ -89,7 +98,9 @@ const styles = StyleSheet.create({
   header: { padding: 16, borderBottomWidth: 1, borderColor: '#eee' },
   headerTitle: { fontSize: 24, fontWeight: 'bold' },
   userRow: { flexDirection: 'row', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderColor: '#f0f0f0' },
-  avatarPlaceholder: { width: 50, height: 50, borderRadius: 25, backgroundColor: '#eee', justifyContent: 'center', alignItems: 'center', marginRight: 12 },
+  avatarContainer: { marginRight: 12 },
+  avatar: { width: 50, height: 50, borderRadius: 25, backgroundColor: '#eee' },
+  avatarPlaceholder: { width: 50, height: 50, borderRadius: 25, backgroundColor: '#eee', justifyContent: 'center', alignItems: 'center' },
   userInfo: { flex: 1 },
   username: { fontSize: 16, fontWeight: '600', marginBottom: 4 },
   status: { fontSize: 14, color: '#666' },

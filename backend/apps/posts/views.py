@@ -187,12 +187,12 @@ def delete_comment(request, comment_id):
 
 
 
-class PostViewSet(viewsets.ModelViewSet):
+class UpdateViewSet(viewsets.ModelViewSet):
     """
     Handles:
-    - GET /api/posts/       (The Feed)
-    - POST /api/posts/      (Create Post with Image/Video)
-    - DELETE /api/posts/id/ (Delete Post)
+    - GET /api/updates/       (The Feed/updates)
+    - POST /api/updates/      (Create Update with Image/Video)
+    - DELETE /api/updates/id/ (Delete Update)
     """
     serializer_class = PostSerializer
     permission_classes = [permissions.IsAuthenticated]

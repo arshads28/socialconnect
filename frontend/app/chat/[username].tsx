@@ -1,32 +1,29 @@
 import { 
-  View, 
-  Text, 
-  FlatList, 
-  TextInput, 
-  TouchableOpacity, 
-  StyleSheet, 
-  KeyboardAvoidingView, 
-  Platform, 
-  DeviceEventEmitter, 
-  Image,
-  Alert 
+  View, Text, FlatList, TextInput, TouchableOpacity, StyleSheet, 
+  KeyboardAvoidingView, Platform, DeviceEventEmitter, Image, Alert 
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { Ionicons } from '@expo/vector-icons';
+import Toast from 'react-native-toast-message';
 import api from '../../utils/api'; 
 
 import { useWebSocket } from '../../contexts/WebSocketContext';
 import { encryptMessage } from '../../utils/crypto';
-import { saveMessage, getMessagesForChat, markChatAsRead, deleteLocalChat, generateUUID } from '../../utils/db';
+import { 
+  saveMessage, getMessagesForChat, markChatAsRead, 
+  deleteLocalChat, generateUUID 
+} from '../../utils/db';
 import { useAuth } from '../../context/AuthContext';
 
 export default function ChatScreen() {
   const { username } = useLocalSearchParams<{ username: string }>();
   const router = useRouter();
   const { user } = useAuth();
-  const { sendMessage, sendSeen, ws } = useWebSocket();
+  
+  // Extract all WS functions
+  const { sendMessage, sendReadSignal, sendTypingSignal, ws } = useWebSocket();
   
   const [messages, setMessages] = useState<any[]>([]);
   const [text, setText] = useState('');
@@ -36,86 +33,86 @@ export default function ChatScreen() {
   
   const flatListRef = useRef<FlatList>(null);
   const typingTimeout = useRef<any>(null);
+  const lastTypingSent = useRef<number>(0); // THROTTLE REF
 
-  const handleClearChat = () => {
-    Alert.alert(
-      "Clear Chat?",
-      "This will permanently delete the chat history from your phone and the server.",
-      [
-        { text: "Cancel", style: "cancel" },
-        { 
-          text: "Delete", 
-          style: "destructive", 
-          onPress: async () => {
-            performClearChat();
-          } 
-        }
-      ]
-    );
-  };
-
-  const performClearChat = async () => {
-    try {
-      deleteLocalChat(username as string);
-      setMessages([]); 
-
-      await api.post(`/chat/clear/${username}/`);
-      
-    } catch (error) {
-      console.error("Failed to clear server history:", error);
-      Alert.alert("Notice", "Chat cleared locally, but server sync failed. Check internet.");
-    }
-  };
-
+  // 1. INITIAL LOAD & CLEANUP
   useEffect(() => {
     loadLocalMessages();
     fetchTargetProfile();
     markChatAsRead(username as string);
-    
+    sendReadSignal(username as string);
+
+    // Join Room
     if (ws?.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ command: 'join_room', username }));
     }
 
-    const msgListener = DeviceEventEmitter.addListener('new_message', (event) => {
-      if (event.conversation_id === username) {
-        loadLocalMessages();
-        sendSeen(username as string); 
-        markChatAsRead(username as string);
-      }
-    });
-
-    const statusListener = DeviceEventEmitter.addListener('message_status_changed', () => {
-      loadLocalMessages(); 
-    });
-
-    const typingListener = DeviceEventEmitter.addListener('typing_event', (event) => {
-      if (event.sender === username) {
-        setIsTyping(true);
-        if (typingTimeout.current) clearTimeout(typingTimeout.current);
-        typingTimeout.current = setTimeout(() => setIsTyping(false), 3000);
-      }
-    });
-
-    const presenceListener = DeviceEventEmitter.addListener('presence_update', (data) => {
-      if (data.username === username) {
-        setIsOnline(data.is_online);
-      }
-    });
-
     return () => {
-      presenceListener.remove();
-      msgListener.remove();
-      statusListener.remove();
-      typingListener.remove();
+      // Leave Room on Unmount
       if (ws?.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ command: 'leave_room' }));
       }
     };
   }, [username, ws]);
 
+  // 2. EVENT LISTENERS (Optimized)
+  useEffect(() => {
+    // A. NEW MESSAGE
+    const msgListener = DeviceEventEmitter.addListener('new_message', (event) => {
+      if (event.conversation_id === username) {
+        // If current chat, reload and mark read immediately
+        loadLocalMessages();
+        markChatAsRead(username as string);
+        sendReadSignal(username as string);
+      }
+    });
+
+    // B. BLUE TICKS
+    const statusListener = DeviceEventEmitter.addListener('message_status_changed', (event) => {
+      // Simple reload is fine here, SQLite is fast
+      loadLocalMessages();
+    });
+
+    // C. TYPING (Filter by sender)
+    const typingListener = DeviceEventEmitter.addListener('typing_event', (event) => {
+      if (event.sender === username) {
+        setIsTyping(true);
+        if (typingTimeout.current) clearTimeout(typingTimeout.current);
+        // Hide after 3 seconds of silence
+        typingTimeout.current = setTimeout(() => setIsTyping(false), 3000);
+      }
+    });
+
+    // D. ONLINE/OFFLINE
+    const presenceListener = DeviceEventEmitter.addListener('presence_update', (data) => {
+      if (data.username === username) {
+        setIsOnline(data.is_online);
+      }
+    });
+
+    // E. SMART TOAST (Don't show if I'm looking at the chat)
+    const toastListener = DeviceEventEmitter.addListener('show_toast', (data) => {
+      if (data.sender !== username) {
+        Toast.show({
+          type: 'info',
+          text1: `New message from ${data.sender}`,
+          text2: 'Tap to view',
+          onPress: () => router.push(`/chat/${data.sender}`)
+        });
+      }
+    });
+
+    return () => {
+      msgListener.remove();
+      statusListener.remove();
+      typingListener.remove();
+      presenceListener.remove();
+      toastListener.remove();
+    };
+  }, [username]);
+
   const fetchTargetProfile = async () => {
     try {
-      // Fetch the OTHER user's profile info
       const res = await api.get(`/auth/profile/${username}/`);
       setTargetProfile(res.data);
       setIsOnline(res.data.is_online);
@@ -124,15 +121,19 @@ export default function ChatScreen() {
     }
   };
 
-  const loadLocalMessages = () => {
+  const loadLocalMessages = useCallback(() => {
     const msgs = getMessagesForChat(username as string);
     setMessages(msgs);
-  };
+  }, [username]);
 
   const handleTyping = (val: string) => {
     setText(val);
-    if (ws?.readyState === WebSocket.OPEN && val.length > 0) {
-       ws.send(JSON.stringify({ command: 'typing' }));
+    
+    // OPTIMIZATION: Throttle typing signal to once every 2 seconds
+    const now = Date.now();
+    if (val.length > 0 && (now - lastTypingSent.current > 2000)) {
+      sendTypingSignal(username as string);
+      lastTypingSent.current = now;
     }
   };
 
@@ -143,6 +144,7 @@ export default function ChatScreen() {
     const ciphertext = encryptMessage(text);
     const timestamp = new Date().toISOString();
 
+    // Optimistic UI Update
     saveMessage({
       id: clientId, 
       client_id: clientId,
@@ -156,7 +158,28 @@ export default function ChatScreen() {
 
     loadLocalMessages();
     setText('');
+    
+    // Send to Socket
     sendMessage(username as string, ciphertext, clientId);
+  };
+
+  const handleClearChat = () => {
+      Alert.alert(
+        "Clear Chat?",
+        "Delete local and server history?",
+        [
+          { text: "Cancel", style: "cancel" },
+          { 
+            text: "Delete", 
+            style: "destructive", 
+            onPress: async () => {
+              deleteLocalChat(username as string);
+              setMessages([]); 
+              try { await api.post(`/chat/clear/${username}/`); } catch(e){}
+            } 
+          }
+        ]
+      );
   };
 
   const renderMessage = ({ item }: { item: any }) => {
@@ -164,10 +187,11 @@ export default function ChatScreen() {
     
     const renderTicks = () => {
       if (!isMe) return null;
-      if (item.status === 'sending') return <Ionicons name="time-outline" size={12} color="#fff" />;
-      if (item.status === 'sent') return <Ionicons name="checkmark" size={12} color="#fff" />;
-      if (item.status === 'delivered') return <Ionicons name="checkmark-done" size={12} color="#fff" />;
-      if (item.status === 'read') return <Ionicons name="checkmark-done" size={12} color="#7bf" />;
+      // Using icons for clear status
+      if (item.status === 'sending') return <Ionicons name="time-outline" size={14} color="#ddd" />;
+      if (item.status === 'sent') return <Ionicons name="checkmark" size={16} color="#ddd" />;
+      if (item.status === 'delivered') return <Ionicons name="checkmark-done" size={16} color="#ddd" />;
+      if (item.status === 'read') return <Ionicons name="checkmark-done" size={16} color="#4dabf7" />; // Blue
       return null;
     };
 
@@ -188,6 +212,7 @@ export default function ChatScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
+      {/* Header */}
       <View style={styles.header}>
         <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
           <TouchableOpacity onPress={() => router.back()} style={{ marginRight: 10 }}>
@@ -216,17 +241,15 @@ export default function ChatScreen() {
           </TouchableOpacity>
         </View>
         
-        {/* Right Actions */}
         <View style={{ flexDirection: 'row', gap: 15, alignItems: 'center' }}>
             <TouchableOpacity onPress={handleClearChat}>
                  <Ionicons name="trash-outline" size={22} color="#ff3b30" />
             </TouchableOpacity>
-            
             <Ionicons name="call-outline" size={24} color="#0095f6" />
-            <Ionicons name="videocam-outline" size={24} color="#0095f6" />
         </View>
       </View>
 
+      {/* Messages List */}
       <KeyboardAvoidingView 
         style={{ flex: 1 }} 
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -242,6 +265,7 @@ export default function ChatScreen() {
           ListFooterComponent={<View style={{ height: 10 }} />}
         />
 
+        {/* Input Area */}
         <View style={styles.inputContainer}>
           <TextInput
             style={styles.input}

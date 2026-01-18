@@ -99,7 +99,7 @@ export default function HomeScreen() {
         }
       }
 
-      const response = await fetch(`${BASE_URL}/api/posts/`, {
+      const response = await fetch(`${BASE_URL}/api/updates/`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -135,7 +135,7 @@ export default function HomeScreen() {
   // ------------------------------------------------------------------
   const fetchFeed = async () => {
     try {
-      const response = await api.get('/api/posts/');
+      const response = await api.get('/api/updates/');
       if (response.data.results) {
         setPosts(response.data.results);
         setNextUrl(response.data.next);
@@ -177,7 +177,7 @@ export default function HomeScreen() {
     setPosts(newPosts);
 
     try {
-      await api.post(`/api/posts/${postId}/like/`);
+      await api.post(`/api/updates/${postId}/like/`);
     } catch (error) {
       post.is_liked = wasLiked; 
       post.likes_count = wasLiked ? post.likes_count + 1 : post.likes_count - 1; 
@@ -191,7 +191,7 @@ export default function HomeScreen() {
       if (window.confirm('Are you sure you want to delete this update?')) {
         console.log('Deleting Update:', postId);
         try {
-          await api.delete(`/api/posts/${postId}/`);
+          await api.delete(`/api/updates/${postId}/`);
           setPosts(posts.filter(p => p.id !== postId));
           console.log('Post deleted successfully');
         } catch (error) {
@@ -211,7 +211,7 @@ export default function HomeScreen() {
             onPress: async () => {
               console.log('Deleting post:', postId);
               try {
-                await api.delete(`/api/posts/${postId}/`);
+                await api.delete(`/api/updates/${postId}/`);
                 setPosts(posts.filter(p => p.id !== postId));
                 console.log('Post deleted successfully');
               } catch (error) {

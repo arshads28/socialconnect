@@ -1,11 +1,12 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
+
 User = get_user_model()
 
 class InboxSerializer(serializers.ModelSerializer):
-    unread_count = serializers.IntegerField(source='pending_count', read_only=True)
-    last_message = serializers.CharField(source='last_msg_preview', read_only=True)
-    last_message_time = serializers.DateTimeField(source='last_msg_timestamp', read_only=True)
+    unread_count = serializers.IntegerField(read_only=True)
+    last_message = serializers.CharField(read_only=True)
+    last_message_time = serializers.DateTimeField(read_only=True)
     is_online = serializers.SerializerMethodField()
     avatar_url = serializers.SerializerMethodField()
 

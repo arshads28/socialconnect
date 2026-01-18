@@ -258,27 +258,31 @@ def search_user(request):
 
 
 class InboxViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
-    # permission_classes = [IsAuthenticated] by default now
+    permission_classes = [IsAuthenticated]
     serializer_class = InboxSerializer
 
     def get_queryset(self):
         user = self.request.user
 
-        # 1. Subquery to get the latest message content for the preview
-        last_msg_subquery = Message.objects.filter(
-            receiver=user, 
-            sender_id=OuterRef('pk')
+        # Subquery: Find last message
+        last_msg_qs = Message.objects.filter(
+            Q(sender=OuterRef('pk'), receiver=user) | 
+            Q(sender=user, receiver=OuterRef('pk'))
         ).order_by('-timestamp')
 
-        # 2. Filter users who have sent messages to the current user
-        # Annotate the unread count and the last message content in one go
-        return User.objects.filter(
-            sent_messages__receiver=user
-        ).annotate(
-            pending_count=Count('sent_messages', filter=Q(sent_messages__receiver=user)),
-            last_msg_preview=Subquery(last_msg_subquery.values('encrypted_content')[:1]),
-            last_msg_timestamp=Subquery(last_msg_subquery.values('timestamp')[:1])
-        ).distinct()
+        # Main Query: Find Users involved in ANY message with me
+        return User.objects.annotate(
+            last_message=Subquery(last_msg_qs.values('encrypted_content')[:1]),
+            last_message_time=Subquery(last_msg_qs.values('timestamp')[:1]),
+            unread_count=Count(
+                'sent_messages', 
+                filter=Q(
+                    sent_messages__receiver=user, 
+                    sent_messages__status__in=['sent', 'delivered'] 
+                )
+            )
+        ).filter(last_message_time__isnull=False
+        ).order_by('-last_message_time')
 
     def list(self, request, *args, **kwargs):
         queryset = self.get_queryset()
@@ -288,7 +292,15 @@ class InboxViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         user_ids = [str(u.id) for u in queryset]
         online_statuses = cache.get_many([f"user_online_{uid}" for uid in user_ids])
 
-        # Serialize data
+        # Serialize
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True, context={
+                'online_statuses': online_statuses,
+                'request': request
+            })
+            return self.get_paginated_response(serializer.data)
+
         serializer = self.get_serializer(queryset, many=True, context={
             'online_statuses': online_statuses,
             'request': request

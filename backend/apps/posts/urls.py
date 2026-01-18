@@ -2,12 +2,12 @@ from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from .views import (
     home, create_post, delete_post, toggle_like, add_comment, delete_comment,
-    PostViewSet ,CommentViewSet
+    UpdateViewSet ,CommentViewSet
 )
 
 # Create the Router
 router = DefaultRouter()
-router.register(r'api/posts', PostViewSet, basename='api_posts')
+router.register(r'api/updates', UpdateViewSet, basename='api_posts')
 router.register(r'api/comments', CommentViewSet, basename='api_comments')
 
 urlpatterns = [
