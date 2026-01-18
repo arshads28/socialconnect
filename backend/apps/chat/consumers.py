@@ -69,6 +69,7 @@ class UnifiedConsumer(AsyncWebsocketConsumer):
             if command == "ping":
                 # Direct await is fast (Redis)
                 await self.update_user_status(True)
+                await self.broadcast_status_to_watchers(True)
 
             # -----------------------------------------------------------
             # NAVIGATION (Virtual Rooms)
@@ -151,6 +152,11 @@ class UnifiedConsumer(AsyncWebsocketConsumer):
 
     async def handle_typing(self):
         if not self.current_room: return
+        # Refresh online status
+        
+        await self.update_user_status(True)
+        await self.broadcast_status_to_watchers(True)
+
         await self.channel_layer.group_send(
             self.current_room, 
             {"type": "typing_event", "sender": self.user.username}

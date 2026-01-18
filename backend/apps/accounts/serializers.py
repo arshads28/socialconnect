@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 # from .models import Connection
 
 User = get_user_model()
@@ -9,8 +10,8 @@ class ProfileSerializer(serializers.ModelSerializer):
     avatar_url = serializers.SerializerMethodField()
     is_own_profile = serializers.SerializerMethodField()
     connection_status = serializers.SerializerMethodField()
-    # followers_count = serializers.SerializerMethodField()
-    # following_count = serializers.SerializerMethodField()
+    is_online = serializers.SerializerMethodField()
+
 
     class Meta:
         model = User
@@ -19,6 +20,8 @@ class ProfileSerializer(serializers.ModelSerializer):
             'avatar', 'avatar_url',
             'is_own_profile',
             'connection_status',
+            'is_online',
+            'last_seen'
         )
         read_only_fields = ('id', 'username', 'email')
 
@@ -45,6 +48,10 @@ class ProfileSerializer(serializers.ModelSerializer):
             return 'BLOCKED'
 
         return 'NONE'
+    
+    def get_is_online(self,obj):
+        is_online = (f"user_online_{obj.id}")
+        return True if is_online else False
 
     def validate_avatar(self, value):
         if value.size > 1 * 1024 * 1024:
