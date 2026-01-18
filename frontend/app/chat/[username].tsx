@@ -6,7 +6,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { Ionicons } from '@expo/vector-icons';
-import Toast from 'react-native-toast-message';
 import api from '../../utils/api'; 
 
 import { useWebSocket } from '../../contexts/WebSocketContext';

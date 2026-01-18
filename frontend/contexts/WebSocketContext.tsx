@@ -85,10 +85,14 @@ export const WebSocketProvider = ({ children }: { children: React.ReactNode }) =
       setIsConnected(true);
       setWs(socket);
       syncPendingMessages();
+      if (pingInterval.current) clearInterval(pingInterval.current);
       
       pingInterval.current = setInterval(() => {
-        if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ command: 'ping' }));
-      }, 25000); 
+        if (socket.readyState === WebSocket.OPEN) {
+          console.log("💓 Sending Ping...");
+          socket.send(JSON.stringify({ command: 'ping' }));
+        }
+      }, 30000); 
     };
 
     socket.onmessage = async (e) => {

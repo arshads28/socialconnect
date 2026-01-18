@@ -12,8 +12,9 @@ from datetime import timedelta
 from rest_framework import viewsets, mixins
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import api_view
 from .serializers import InboxSerializer
+from django.utils.dateparse import parse_datetime
 
 User = get_user_model()
 
@@ -311,35 +312,38 @@ class InboxViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
 
 @api_view(['GET'])
 def sync_messages(request):
-    """
-    The 'Postman' Route: #But for web we store one day old message (clear_chat_history still works)
-    1. Fetch all pending messages for this user.
-    2. Return them.
-    3. DELETE them from the server instantly.
-    """
     user = request.user
+    last_sync_str = request.GET.get('last_sync')
     
-    # Fetch pending messages (Oldest first)
-    pending_messages = Message.objects.filter(receiver=user).order_by('timestamp')
-    
-    data = []
-    for msg in pending_messages:
-        data.append({
-            "id": msg.id,                     # Server ID (Temporary)
-            "client_id": str(msg.client_id),  # UUID from Sender
-            "sender": msg.sender.username,
-            "ciphertext": msg.encrypted_content, # The encrypted blob
-            "timestamp": msg.timestamp.isoformat(), # UTC ISO String
-        })
-    
-    # We do this AFTER building the list to ensure data integrity
-    count = pending_messages.count()
+    # 1. Base Query (Uses Index: receiver_id + timestamp)
+    pending_messages = Message.objects.filter(receiver=user)
 
-    # pending_messages.delete()
-    one_day_old = timezone.now() - timedelta(days=1)
-    Message.objects.filter(receiver=user, timestamp__lt=one_day_old).delete()
-    
-    return Response({"messages": data, "count": count})
+    if last_sync_str and last_sync_str != 'null':
+        last_sync = parse_datetime(last_sync_str)
+        if last_sync:
+            pending_messages = pending_messages.filter(timestamp__gt=last_sync)
+
+
+    pending_messages = pending_messages.order_by('timestamp')[:60] 
+
+    # 3. Optimized Serialization (Values List is faster than Model Instantiation)
+    data = list(pending_messages.values(
+        'id', 'client_id', 'sender__username', 'encrypted_content', 'timestamp'
+    ))
+
+    # Rename keys to match frontend expectation if needed
+    formatted_data = [
+        {
+            "id": msg['id'],
+            "client_id": str(msg['client_id']),
+            "sender": msg['sender__username'], # accessing joined field
+            "ciphertext": msg['encrypted_content'],
+            "timestamp": msg['timestamp'].isoformat()
+        } 
+        for msg in data
+    ]
+
+    return Response({"messages": formatted_data, "count": len(formatted_data)})
 
 
 

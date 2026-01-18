@@ -189,6 +189,7 @@ class UnifiedConsumer(AsyncWebsocketConsumer):
             "type": "chat_message",
             "ciphertext": ciphertext,
             "sender": self.user.username,
+            "sender_id": str(self.user.id),
             "id": msg_instance.id,
             "client_id": str(msg_instance.client_id),
             "timestamp": msg_instance.timestamp.isoformat(),
@@ -271,7 +272,7 @@ class UnifiedConsumer(AsyncWebsocketConsumer):
     # ===============================================================
 
     async def chat_message(self, event):
-        if event["sender"] == self.user.username:
+        if str(event.get("sender_id")) == str(self.user.id):
             return
         await self.send(text_data=json.dumps(event))
 

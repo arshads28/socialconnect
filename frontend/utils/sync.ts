@@ -6,7 +6,7 @@ import { decryptMessage } from './crypto';
 import { DeviceEventEmitter, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const LAST_SYNC_KEY = 'connect_last_msg_id_v1';
+const LAST_SYNC_TS_KEY = 'connect_last_sync_ts_v1';
 
 // ==============================================================================
 // 1. GLOBAL SYNC (Background "Postman" fetch)
@@ -17,28 +17,36 @@ export const syncPendingMessages = async () => {
   try {
     console.log("📥 Checking for pending messages...");
 
-    // Get the Last ID we successfully synced
-    let lastId = 0;
+    // ✅ CHANGE 2: Get Last Timestamp instead of ID
+    let lastSyncTime = null;
     if (Platform.OS === 'web') {
-        lastId = parseInt(localStorage.getItem(LAST_SYNC_KEY) || '0');
+        lastSyncTime = localStorage.getItem(LAST_SYNC_TS_KEY);
     } else {
-        const stored = await AsyncStorage.getItem(LAST_SYNC_KEY);
-        lastId = stored ? parseInt(stored) : 0;
+        lastSyncTime = await AsyncStorage.getItem(LAST_SYNC_TS_KEY);
     }
 
-    // Ask Server: "Give me everything AFTER this ID"
-    const response = await api.get(`/chat/sync/?after_id=${lastId}`);
-    const { messages, count, last_id } = response.data;
+    // ✅Send 'last_sync' param
+    // If lastSyncTime is null, send empty string (Backend handles it)
+    const url = lastSyncTime 
+        ? `/chat/sync/?last_sync=${encodeURIComponent(lastSyncTime)}` 
+        : `/chat/sync/`;
 
-    if (count === 0) {
+    const response = await api.get(url);
+    const { messages, count } = response.data;
+
+    if (!messages || messages.length === 0) {
       console.log("✅ No new messages.");
       return;
     }
 
     console.log(`📥 Downloading ${count} new messages...`);
 
+    // Keep track of the newest timestamp we receive
+    let newestTimestamp = lastSyncTime; 
+
     for (const msg of messages) {
       const plainText = decryptMessage(msg.ciphertext);
+      
       saveMessage({
         id: msg.id.toString(),
         client_id: msg.client_id,
@@ -49,14 +57,19 @@ export const syncPendingMessages = async () => {
         timestamp: msg.timestamp,
         is_own: false
       });
+
+      // Update newest timestamp logic
+      if (!newestTimestamp || new Date(msg.timestamp) > new Date(newestTimestamp)) {
+        newestTimestamp = msg.timestamp;
+      }
     }
 
-    // Save the new "High Score" (ID)
-    if (last_id > 0) {
+    // ✅ CHANGE 4: Save the Newest Timestamp
+    if (newestTimestamp) {
         if (Platform.OS === 'web') {
-            localStorage.setItem(LAST_SYNC_KEY, last_id.toString());
+            localStorage.setItem(LAST_SYNC_TS_KEY, newestTimestamp);
         } else {
-            await AsyncStorage.setItem(LAST_SYNC_KEY, last_id.toString());
+            await AsyncStorage.setItem(LAST_SYNC_TS_KEY, newestTimestamp);
         }
     }
 

@@ -41,7 +41,7 @@ class Message(models.Model):
             # "Show me all messages between Me and Sam"
             models.Index(fields=['sender', 'receiver']),
             # "Show me messages for Me that came after ID 500" Sync instant.
-            models.Index(fields=['receiver', 'id']),
+            models.Index(fields=['receiver', 'timestamp'])
         ]
 
     def __str__(self):
