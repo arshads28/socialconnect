@@ -1,6 +1,6 @@
 // socialconnect/frontend/utils/sync.ts
 import api from './api';
-import { saveMessage } from './db';
+import { saveMessage, getQueue } from './db';
 import { decryptMessage } from './crypto';
 import { DeviceEventEmitter, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -13,6 +13,8 @@ const LAST_SYNC_TS_KEY = 'connect_last_sync_ts_v1';
 // ==============================================================================
 export const syncPendingMessages = async () => {
   try {
+    const queue = getQueue(); 
+     if (!queue || queue.length === 0) return;
     console.log("📥 Checking for pending messages...");
 
     let lastSyncTime = null;

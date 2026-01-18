@@ -35,30 +35,38 @@ class User(AbstractUser):
         ]
 
 
-class PushToken(models.Model):
-    PLATFORM_CHOICES = [
-        ('android', 'Android'),
-        ('ios', 'iOS'),
-        ('web', 'Web'),
-    ]
 
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='push_tokens')
-    token = models.CharField(max_length=1024, unique=True)
-    platform = models.CharField(max_length=10, choices=PLATFORM_CHOICES, default='android')
+
+class PushDevice(models.Model):
+    PLATFORM_CHOICES = (
+        ('ios', 'iOS'),
+        ('android', 'Android'),
+        ('web', 'Web'),
+    )
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='push_devices')
+    
+    # device_id comes from our frontend utils/deviceId.ts (the UUID)
+    device_id = models.CharField(max_length=255) 
+    platform = models.CharField(max_length=10, choices=PLATFORM_CHOICES)
+    
+    # The actual address for the notification
+    token = models.CharField(max_length=1024) 
     device_name = models.CharField(max_length=255, blank=True, null=True)
+
+    is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
-    last_used_at = models.DateTimeField(auto_now=True)
+    last_seen_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        indexes = [models.Index(fields=['user', 'token'])]
-        verbose_name = "Push Token"
-        verbose_name_plural = "Push Tokens"
+        # One token per Installation ID per User
+        unique_together = ('user', 'device_id') 
+        indexes = [
+            models.Index(fields=['user', 'last_seen_at']),
+        ]
 
     def __str__(self):
-        return f"{self.user.username} - {self.platform} - {self.token[:10]}..."
-        
-
-
+        return f"{self.user.username} - {self.device_name}"
 
 
 

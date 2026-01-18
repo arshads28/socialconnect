@@ -45,7 +45,7 @@ export default function SignupScreen() {
       setClientToken(access);
 
       // 4. Fetch User Details
-      const userResponse = await api.get('/auth/api/me/');
+      const userResponse = await api.get('/auth/api/profile/me');
 
       // 5. Update Context
       await signIn(access, refresh, userResponse.data);

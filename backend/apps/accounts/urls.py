@@ -1,5 +1,5 @@
 from django.urls import path, include
-from .views import signup_view, login_view, logout_view, ProfileViewSet, password_reset_confirm_view, password_reset_request_view, save_push_token
+from .views import signup_view, login_view, logout_view, ProfileViewSet, password_reset_confirm_view, password_reset_request_view, register_push_device
 # from django.contrib.auth import views as auth_views
 from rest_framework.routers import DefaultRouter
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
@@ -24,7 +24,7 @@ urlpatterns = [
     # MOBILE API VIEWS 
     path("api/login/", TokenObtainPairView.as_view(), name="token_obtain_pair"),
     path("api/token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
-    path("api/push-token/", save_push_token, name="save_push_token"),
+    path("api/push/register/", register_push_device, name="register_push_device"),
     path("api/", include(router.urls)),
 ]
 

@@ -1,6 +1,9 @@
 import { Platform } from 'react-native';
 import * as SQLite from 'expo-sqlite';
 
+// ✅ CONFIG: Maximum allowed pending actions to prevent storage bloat
+const MAX_QUEUE_SIZE = 50;
+
 // =======================================================
 // 1. THE INTERFACE
 // =======================================================
@@ -12,6 +15,11 @@ interface IDatabaseAdapter {
   markChatAsRead(username: string): void;
   deleteLocalChat(username: string): void;
   getLocalInbox(): any[];
+  
+  // ✅ Offline Queue Interface (Returns boolean for success/fail)
+  addToQueue(actionType: string, payload: any): boolean;
+  getQueue(): any[];
+  removeFromQueue(id: number): void;
 }
 
 // =======================================================
@@ -19,6 +27,7 @@ interface IDatabaseAdapter {
 // =======================================================
 class WebDatabaseAdapter implements IDatabaseAdapter {
   private STORAGE_KEY = 'connect_messages_v1';
+  private QUEUE_KEY = 'connect_offline_queue_v1';
 
   private getData(): any[] {
     const raw = localStorage.getItem(this.STORAGE_KEY);
@@ -29,10 +38,21 @@ class WebDatabaseAdapter implements IDatabaseAdapter {
     localStorage.setItem(this.STORAGE_KEY, JSON.stringify(data));
   }
 
+  // --- Queue Helpers (Web) ---
+  private getQueueData(): any[] {
+    const raw = localStorage.getItem(this.QUEUE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  }
+
+  private saveQueueData(data: any[]) {
+    localStorage.setItem(this.QUEUE_KEY, JSON.stringify(data));
+  }
+
   init() {
     console.log('🌐 Web Adapter Initialized');
   }
 
+  // ... (Existing Message Methods) ...
   saveMessage(msg: any) {
     const data = this.getData();
     const index = data.findIndex((m: any) => m.client_id === msg.client_id);
@@ -85,7 +105,6 @@ class WebDatabaseAdapter implements IDatabaseAdapter {
   }
 
   getLocalInbox() {
-    // (Same logic as before for web)
     const data = this.getData();
     const inboxMap = new Map();
     data.forEach((msg: any) => {
@@ -101,10 +120,42 @@ class WebDatabaseAdapter implements IDatabaseAdapter {
       }))
       .sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
   }
+
+  // ✅ Web Queue Implementation with Limit
+  addToQueue(actionType: string, payload: any): boolean {
+    const queue = this.getQueueData();
+    
+    if (queue.length >= MAX_QUEUE_SIZE) {
+        console.warn(`⚠️ [Web] Queue full (${queue.length}). Action rejected.`);
+        return false;
+    }
+
+    const newId = queue.length > 0 ? Math.max(...queue.map((i: any) => i.id)) + 1 : 1;
+    
+    queue.push({
+      id: newId,
+      action_type: actionType,
+      payload: JSON.stringify(payload),
+      timestamp: new Date().toISOString()
+    });
+    this.saveQueueData(queue);
+    console.log(`🌐 [Web] Queued: ${actionType}`);
+    return true;
+  }
+
+  getQueue() {
+    return this.getQueueData();
+  }
+
+  removeFromQueue(id: number) {
+    const queue = this.getQueueData();
+    const filtered = queue.filter((item: any) => item.id !== id);
+    this.saveQueueData(filtered);
+  }
 }
 
 // =======================================================
-// 3. NATIVE ADAPTER (SQLite - THE FIX)
+// 3. NATIVE ADAPTER (SQLite)
 // =======================================================
 class NativeDatabaseAdapter implements IDatabaseAdapter {
   private db: any;
@@ -118,7 +169,7 @@ class NativeDatabaseAdapter implements IDatabaseAdapter {
   init() {
     if (Platform.OS === 'web') return;
     
-    // client_id is now PRIMARY KEY
+    // 1. Messages Table (Correct Schema with Primary Key)
     this.db.execSync(`
       CREATE TABLE IF NOT EXISTS messages (
         client_id TEXT PRIMARY KEY, 
@@ -131,12 +182,22 @@ class NativeDatabaseAdapter implements IDatabaseAdapter {
         is_own INTEGER DEFAULT 0
       );
     `);
-    console.log('📦 SQLite Initialized with Fixed Schema');
+
+    // 2. Offline Queue Table
+    this.db.execSync(`
+      CREATE TABLE IF NOT EXISTS offline_queue (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        action_type TEXT,
+        payload TEXT,
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    console.log('📦 SQLite Initialized (Messages + Queue)');
   }
 
+  // ... (Existing Message Methods) ...
   saveMessage(msg: any) {
     try {
-      // Conflict on client_id replaces the row
       this.db.runSync(
         `INSERT OR REPLACE INTO messages (
            client_id, id, conversation_id, sender, content, status, timestamp, is_own
@@ -194,6 +255,39 @@ class NativeDatabaseAdapter implements IDatabaseAdapter {
       ORDER BY m.timestamp DESC;
     `);
   }
+
+  // ✅ Native Queue Implementation with Limit
+  addToQueue(actionType: string, payload: any): boolean {
+    try {
+      // 1. Check Count
+      const result = this.db.getAllSync('SELECT COUNT(*) as count FROM offline_queue');
+      const count = result[0]?.count || 0;
+
+      if (count >= MAX_QUEUE_SIZE) {
+        console.warn(`⚠️ [SQLite] Queue full (${count}). Rejected.`);
+        return false;
+      }
+
+      // 2. Insert
+      this.db.runSync(
+        `INSERT INTO offline_queue (action_type, payload) VALUES (?, ?)`,
+        [actionType, JSON.stringify(payload)]
+      );
+      console.log(`📱 [SQLite] Queued: ${actionType}`);
+      return true;
+    } catch (e) {
+      console.error("Queue Error:", e);
+      return false;
+    }
+  }
+
+  getQueue() {
+    return this.db.getAllSync('SELECT * FROM offline_queue ORDER BY id ASC');
+  }
+
+  removeFromQueue(id: number) {
+    this.db.runSync('DELETE FROM offline_queue WHERE id = ?', [id]);
+  }
 }
 
 // =======================================================
@@ -201,6 +295,7 @@ class NativeDatabaseAdapter implements IDatabaseAdapter {
 // =======================================================
 const adapter: IDatabaseAdapter = Platform.OS === 'web' ? new WebDatabaseAdapter() : new NativeDatabaseAdapter();
 
+// Existing exports
 export const initDB = () => adapter.init();
 export const saveMessage = (msg: any) => adapter.saveMessage(msg);
 export const updateMessageStatus = (cid: string, status: string) => adapter.updateMessageStatus(cid, status);
@@ -208,6 +303,9 @@ export const getMessagesForChat = (user: string) => adapter.getMessagesForChat(u
 export const markChatAsRead = (user: string) => adapter.markChatAsRead(user);
 export const deleteLocalChat = (user: string) => adapter.deleteLocalChat(user);
 export const getLocalInbox = () => adapter.getLocalInbox();
+export const addToQueue = (actionType: string, payload: any) => adapter.addToQueue(actionType, payload);
+export const getQueue = () => adapter.getQueue();
+export const removeFromQueue = (id: number) => adapter.removeFromQueue(id);
 
 export const generateUUID = () => {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();

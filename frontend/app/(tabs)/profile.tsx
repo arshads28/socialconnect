@@ -17,7 +17,7 @@ export default function ProfileScreen() {
 
   const fetchProfile = async () => {
     try {
-      const response = await api.get('/auth/api/me/');
+      const response = await api.get('/auth/api/profile/me');
       setProfile(response.data);
     } catch (error) {
       console.error('Error:', error);

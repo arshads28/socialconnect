@@ -75,3 +75,21 @@ def run_cleanup_job(request):
         "deleted_messages": deleted_count, 
         "timestamp": timezone.now().isoformat()
     })
+
+
+
+
+
+from django.core.management.base import BaseCommand
+from apps.accounts.models import PushDevice
+from datetime import timedelta
+from django.utils.timezone import now
+
+class Command(BaseCommand):
+    help = 'Deletes inactive push devices older than 60 days'
+
+    def handle(self, *args, **options):
+        days = 60
+        cutoff = now() - timedelta(days=days)
+        count, _ = PushDevice.objects.filter(last_seen_at__lt=cutoff).delete()
+        self.stdout.write(f"Deleted {count} old devices.")

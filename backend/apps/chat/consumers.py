@@ -205,7 +205,7 @@ class UnifiedConsumer(AsyncWebsocketConsumer):
         await self.send_ack(client_id, msg_instance.id, "sent")
         
         # C. Notifications (Check if Online -> Mark Delivered)
-        await self.handle_notifications(self.other_user_in_room, msg_instance)
+        asyncio.create_task(self.handle_notifications(self.other_user_in_room, msg_instance))
 
     async def handle_call_signal(self, data):
         target_username = data.get("target")
@@ -235,9 +235,8 @@ class UnifiedConsumer(AsyncWebsocketConsumer):
             await self.send_ack(msg_instance.client_id, msg_instance.id, "delivered")
         
         else:
-            # Push Notification (Keep this async/task as it is external and slow)
-            import asyncio
-            asyncio.create_task(self.send_push_notification(receiver))
+           
+            await self.send_push_notification(receiver)
 
     async def handle_mark_read(self, data):
         sender_username = data.get('sender') 
@@ -366,23 +365,20 @@ class UnifiedConsumer(AsyncWebsocketConsumer):
         }))
 
     async def send_push_notification(self, receiver):
-        # This is SLOW (external API). Always run in background.
+        # ✅ FIX: Pass the 'receiver' (User Object) directly.
+        # Do NOT pass a list of tokens.
         try:
-            from apps.accounts.models import PushToken
             from apps.accounts.push_utils import send_push_notification
             
-            tokens = await database_sync_to_async(list)(
-                PushToken.objects.filter(user=receiver).values_list('token', flat=True)
+            # Run the synchronous push function in a thread
+            await database_sync_to_async(send_push_notification)(
+                receiver, # <--- Pass the User object, not 'tokens'
+                f"New message from {self.user.username}",
+                "You have a new encrypted message",
+                {"type": "chat", "sender": self.user.username}
             )
-            if tokens:
-                await database_sync_to_async(send_push_notification)(
-                    tokens,
-                    f"New message from {self.user.username}",
-                    "You have a new encrypted message",
-                    {"type": "chat", "sender": self.user.username}
-                )
         except Exception as e:
-            print(f"Push Notification Error: {e}")
+            print(f"Push Notification Logic Error: {e}")
 
 
 

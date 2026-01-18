@@ -29,7 +29,7 @@ export default function CommentsScreen() {
 
   const fetchCurrentUser = async () => {
     try {
-      const response = await api.get('/auth/api/me/');
+      const response = await api.get('/auth/api/profile/me');
       console.log('Current user data:', response.data);
       // The response might have 'id' or 'pk' field
       const userId = response.data.id || response.data.pk;

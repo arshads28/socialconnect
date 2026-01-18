@@ -21,7 +21,7 @@ export default function ProfileScreen() {
   const fetchProfile = async () => {
     try {
       // Backend URL is /auth/api/profile{username}/
-      const response = await api.get(`/auth/api/profile${username}/`);
+      const response = await api.get(`/auth/api/profile/${username}/`);
       setProfile(response.data);
     } catch (error) {
       console.error('Error fetching profile:', error);
@@ -39,7 +39,7 @@ export default function ProfileScreen() {
     const action = profile.is_blocked ? 'unblock' : 'block';
     
     try {
-      await api.post(`/auth/api/profile${username}/${action}/`);
+      await api.post(`/auth/api/profile/${username}/${action}/`);
       Alert.alert('Success', `User ${action}ed`);
       fetchProfile(); // Refresh profile data to update UI
     } catch (error) {

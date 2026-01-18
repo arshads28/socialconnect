@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { getSecure, saveSecure, removeSecure } from './storage';
 import { router } from 'expo-router';
+import { DeviceEventEmitter } from 'react-native';
 
 // ... Environment Variables setup ...
 const PROD_URL = 'https://socialconnect-nhna.onrender.com';
@@ -56,34 +57,36 @@ api.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config;
 
+    // If 401 (Unauthorized) and we haven't retried yet
     if (error.response?.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true;
+      console.log("🔄 Access Token expired. Refreshing...");
 
       try {
-        console.log("🔄 Access Token expired. Refreshing...");
         const refreshToken = await getSecure('refreshToken');
-        if (!refreshToken) throw new Error("No refresh token");
 
-        const response = await axios.post(`${BASE_URL}/auth/api/token/refresh/`, {
+        // 🔴 CRITICAL FIX: If no refresh token, FORCE LOGOUT
+        if (!refreshToken) {
+          console.log("❌ No refresh token found. Force Logout.");
+          DeviceEventEmitter.emit('auth_session_expired'); 
+          return Promise.reject(new Error("No refresh token"));
+        }
+
+        const response = await axios.post(`${BASE_URL}auth/api/token/refresh/`, {
           refresh: refreshToken,
         });
 
         const newAccessToken = response.data.access;
-
-        //  Update Memory & Disk
         await saveSecure('accessToken', newAccessToken);
-        setClientToken(newAccessToken); // Updates _currentAccessToken & Defaults
 
-        // Retry original request
+        console.log("✅ Token Refreshed!");
         originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
         return api(originalRequest);
 
       } catch (refreshError) {
-        console.log("❌ Session expired.");
-        setClientToken(null); // Clear memory
-        await removeSecure('accessToken');
-        await removeSecure('refreshToken');
-        router.replace('/login');
+        console.log("❌ Session expired completely.");
+        // 🔴 CRITICAL FIX: If refresh API fails, FORCE LOGOUT
+        DeviceEventEmitter.emit('auth_session_expired');
         return Promise.reject(refreshError);
       }
     }

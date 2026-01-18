@@ -12,10 +12,11 @@ import { useWebSocket } from '../../contexts/WebSocketContext';
 import { encryptMessage } from '../../utils/crypto';
 import { 
   saveMessage, getMessagesForChat, markChatAsRead, 
-  deleteLocalChat, generateUUID 
+  deleteLocalChat, generateUUID, addToQueue 
 } from '../../utils/db';
 import { useAuth } from '../../context/AuthContext';
 import { syncChatMessages } from '../../utils/sync';
+import NetInfo from '@react-native-community/netinfo';
 
 export default function ChatScreen() {
   const { username } = useLocalSearchParams<{ username: string }>();
@@ -39,25 +40,21 @@ export default function ChatScreen() {
     let isMounted = true;
 
     const initChat = async () => {
-      // A. Load Local (Fast)
       loadLocalMessages();
       fetchTargetProfile();
 
-      // B. Sync Server (Fixes gaps/duplicates)
       const synced = await syncChatMessages(username as string);
       
       if (isMounted && synced) {
-        loadLocalMessages(); // Reload only if sync happened
+        loadLocalMessages();
       }
       
-      // C. Mark Read
       markChatAsRead(username as string);
       sendReadSignal(username as string);
     };
 
     initChat();
 
-    // D. Join Room
     if (ws?.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ command: 'join_room', username }));
     }
@@ -72,7 +69,6 @@ export default function ChatScreen() {
 
   // 2. LISTENERS
   useEffect(() => {
-    // A. NEW MESSAGE
     const msgListener = DeviceEventEmitter.addListener('new_message', (event) => {
       if (event.conversation_id === username) {
         loadLocalMessages();
@@ -81,12 +77,10 @@ export default function ChatScreen() {
       }
     });
 
-    // B. STATUS CHANGES (Blue Ticks)
     const statusListener = DeviceEventEmitter.addListener('message_status_changed', (event) => {
       loadLocalMessages();
     });
 
-    // C. TYPING
     const typingListener = DeviceEventEmitter.addListener('typing_event', (event) => {
       if (event.sender === username) {
         setIsTyping(true);
@@ -95,7 +89,6 @@ export default function ChatScreen() {
       }
     });
 
-    // D. PRESENCE
     const presenceListener = DeviceEventEmitter.addListener('presence_update', (data) => {
       if (data.username === username) {
         setIsOnline(data.is_online);
@@ -112,7 +105,7 @@ export default function ChatScreen() {
 
   const fetchTargetProfile = async () => {
     try {
-      const res = await api.get(`/auth/api/profile${username}/`);
+      const res = await api.get(`/auth/profile/${username}/`);
       setTargetProfile(res.data);
       // setIsOnline(res.data.is_online);
     } catch (e) {
@@ -134,7 +127,7 @@ export default function ChatScreen() {
     }
   };
 
-  const handleSend = () => {
+  const handleSend = async () => {
     if (!text.trim()) return;
 
     const clientId = generateUUID();
@@ -157,8 +150,30 @@ export default function ChatScreen() {
     loadLocalMessages();
     setText('');
     
-    // 3. Send to Server (Server will return ACK later)
-    sendMessage(username as string, ciphertext, clientId);
+    // 3. Network Check & Queue
+    const netState = await NetInfo.fetch();
+
+    if (!netState.isConnected || ws?.readyState !== WebSocket.OPEN) {
+        // OFFLINE: Attempt to Queue
+        const queued = addToQueue('SEND_MESSAGE', {
+            conversation_id: username,
+            ciphertext: ciphertext,
+            client_id: clientId
+        });
+
+        if (!queued) {
+            Alert.alert(
+                "Not Sent", 
+                "Offline queue is full. Message not saved. Connect to internet."
+            );
+            // Optional: Remove the message if queue failed
+            // deleteLocalMessage(clientId); 
+            // loadLocalMessages();
+        }
+    } else {
+        //  ONLINE: Send via Socket
+        sendMessage(username as string, ciphertext, clientId);
+    }
   };
 
   const handleClearChat = () => {

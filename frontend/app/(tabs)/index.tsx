@@ -21,6 +21,8 @@ import * as ImagePicker from 'expo-image-picker';
 import api, { BASE_URL } from '../../utils/api';
 import { useAuth } from '../../context/AuthContext'; 
 import { getSecure } from '../../utils/storage';
+import NetInfo from '@react-native-community/netinfo';
+import { addToQueue } from '../../utils/db';
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -33,21 +35,19 @@ export default function HomeScreen() {
   const [nextUrl, setNextUrl] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
 
-  // Create Post State (For the embedded card)
+  // Create Post State
   const [newPostContent, setNewPostContent] = useState('');
   const [newPostImage, setNewPostImage] = useState<string | null>(null);
   const [isPosting, setIsPosting] = useState(false);
   const [menuVisible, setMenuVisible] = useState<string | null>(null);
 
   useEffect(() => {
-
     if (authLoading || !userToken) return;
-
     fetchFeed();
   }, [authLoading, userToken]);
 
   // ------------------------------------------------------------------
-  // 1. CREATE POST LOGIC (Embedded Card)
+  // 1. CREATE POST LOGIC (Offline-First)
   // ------------------------------------------------------------------
   const pickImage = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -71,6 +71,49 @@ export default function HomeScreen() {
     if (!newPostContent.trim() && !newPostImage) return;
 
     setIsPosting(true);
+    const netState = await NetInfo.fetch(); // Check internet
+
+    // 1. OFFLINE MODE
+    if (!netState.isConnected) {
+        
+        // Try to add to queue
+        const queued = addToQueue('CREATE_POST', { 
+            content: newPostContent, 
+            imageUri: newPostImage 
+        });
+
+        if (!queued) {
+            Alert.alert(
+                "Queue Full", 
+                "You have too many pending actions. Connect to internet to sync."
+            );
+            setIsPosting(false);
+            return;
+        }
+
+        // Optimistic UI Update
+        const optimisticPost = {
+            id: Date.now(), // Temp ID
+            content: newPostContent,
+            media: newPostImage,
+            created_at: new Date().toISOString(),
+            author: { username: 'me', avatar: null }, 
+            is_liked: false,
+            likes_count: 0,
+            comments_count: 0,
+            is_local: true // Flag
+        };
+
+        setPosts(prev => [optimisticPost, ...prev]);
+        setNewPostContent('');
+        setNewPostImage(null);
+        setIsPosting(false);
+        
+        Alert.alert("Offline", "Post saved. Will send when online.");
+        return;
+    }
+
+    // 2. ONLINE MODE
     try {
       const token = await getSecure('accessToken');
       if (!token) {
@@ -168,6 +211,7 @@ export default function HomeScreen() {
   };
 
   const handleLike = async (postId: string, index: number) => {
+    // Optimistic Like
     const newPosts = [...posts];
     const post = newPosts[index];
     const wasLiked = post.is_liked;
@@ -176,9 +220,12 @@ export default function HomeScreen() {
     post.likes_count = wasLiked ? post.likes_count - 1 : post.likes_count + 1;
     setPosts(newPosts);
 
+    // If offline, just queue it (implement in future if needed)
+    // For now, only online likes are sent, or simple fail silently
     try {
       await api.post(`/api/updates/${postId}/like/`);
     } catch (error) {
+      // Revert if failed
       post.is_liked = wasLiked; 
       post.likes_count = wasLiked ? post.likes_count + 1 : post.likes_count - 1; 
       setPosts([...posts]);
@@ -186,13 +233,26 @@ export default function HomeScreen() {
   };
 
   const handleDeletePost = async (postId: string) => {
-    console.log('Delete Update clicked:', postId);
+    const netState = await NetInfo.fetch();
+
+    // 1. Optimistic UI Update (Always remove from screen first)
+    setPosts(posts.filter(p => p.id !== postId));
+
+    // 2. Offline: Queue it
+    if (!netState.isConnected) {
+        const queued = addToQueue('DELETE_POST', { postId });
+        if (!queued) {
+            Alert.alert("Sync Error", "Could not queue deletion. Connect to internet.");
+             // Ideally revert the UI deletion here, but for deletion it's rare to revert
+        }
+        return;
+    }
+
+    // 3. Online: Send request
     if (Platform.OS === 'web') {
       if (window.confirm('Are you sure you want to delete this update?')) {
-        console.log('Deleting Update:', postId);
         try {
           await api.delete(`/api/updates/${postId}/`);
-          setPosts(posts.filter(p => p.id !== postId));
           console.log('Post deleted successfully');
         } catch (error) {
           console.error('Delete error:', error);
@@ -209,10 +269,8 @@ export default function HomeScreen() {
             text: 'Delete',
             style: 'destructive',
             onPress: async () => {
-              console.log('Deleting post:', postId);
               try {
                 await api.delete(`/api/updates/${postId}/`);
-                setPosts(posts.filter(p => p.id !== postId));
                 console.log('Post deleted successfully');
               } catch (error) {
                 console.error('Delete error:', error);
@@ -267,9 +325,8 @@ export default function HomeScreen() {
 
   const renderPostItem = ({ item, index }: { item: any, index: number }) => {
     return (
-      <View style={styles.card}>
+      <View style={[styles.card, item.is_local && { opacity: 0.7 }]}>
         <View style={styles.cardHeader}>
-          {/* ✅ FIX: Wrap Avatar and Username in TouchableOpacity */}
           <TouchableOpacity 
             style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}
             onPress={() => router.push(`/profile/${item.author.username}`)}
@@ -277,7 +334,10 @@ export default function HomeScreen() {
             <Image source={{ uri: item.author.avatar || 'https://via.placeholder.com/50' }} style={styles.avatar} />
             <View>
               <Text style={styles.username}>@{item.author.username}</Text>
-              <Text style={styles.date}>{new Date(item.created_at).toLocaleDateString()}</Text>
+              <Text style={styles.date}>
+                {new Date(item.created_at).toLocaleDateString()}
+                {item.is_local ? ' • Pending' : ''}
+              </Text>
             </View>
           </TouchableOpacity>
 
@@ -327,7 +387,6 @@ export default function HomeScreen() {
                 <TouchableOpacity 
                   style={styles.menuOption} 
                   onPress={() => {
-                    console.log('Delete button pressed for post:', item.id);
                     setMenuVisible(null);
                     setTimeout(() => handleDeletePost(item.id), 100);
                   }}
@@ -349,22 +408,15 @@ export default function HomeScreen() {
       {/* ----------------- TOP BAR ----------------- */}
       <View style={styles.topBar}>
          <Text style={styles.logo}>Connect</Text>
-         
          <View style={{ flexDirection: 'row', gap: 15, alignItems: 'center' }}>
-             
-             {/* 1. Search Button */}
              <TouchableOpacity onPress={() => router.push('/(tabs)/explore')}>
                 <Ionicons name="search-outline" size={26} color="#000" />
              </TouchableOpacity>
-
-             {/* 2. ✅ NEW CAMERA BUTTON (Snapchat Style) */}
              <TouchableOpacity onPress={() => router.push('/create')}>
                 <Ionicons name="camera-outline" size={30} color="#000" />
              </TouchableOpacity>
-
          </View>
       </View>
-      {/* ------------------------------------------- */}
 
       {loading ? (
         <ActivityIndicator size="large" color="#0095f6" style={{ marginTop: 20 }} />

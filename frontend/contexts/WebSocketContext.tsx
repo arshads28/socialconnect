@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
-import { DeviceEventEmitter, Platform } from 'react-native';
+import { DeviceEventEmitter, AppState } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import { getSecure } from '../utils/storage';
 import { BASE_URL } from '../utils/api';
@@ -8,16 +8,7 @@ import { decryptMessage } from '../utils/crypto';
 import { useAuth } from '../context/AuthContext';
 import { syncPendingMessages } from '../utils/sync';
 
-// 1. CONFIG: Allow notifications to show even when app is open (WhatsApp Style)
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-    shouldShowBanner: true,
-    shouldShowList: true,  
-  }),
-});
+import { registerForPushNotificationsAsync } from '../utils/pushNotifications'; 
 
 interface WebSocketContextType {
   ws: WebSocket | null;
@@ -41,18 +32,49 @@ export const WebSocketProvider = ({ children }: { children: React.ReactNode }) =
   const { user, userToken } = useAuth();
   const [ws, setWs] = useState<WebSocket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
+  
   const wsRef = useRef<WebSocket | null>(null);
   const pingInterval = useRef<any>(null);
   const reconnectTimeout = useRef<any>(null);
+  const appState = useRef(AppState.currentState);
 
+  // 1. REGISTER PUSH TOKEN ON MOUNT (Using the new file)
+  useEffect(() => {
+    if (userToken) {
+      registerForPushNotificationsAsync();
+    }
+  }, [userToken]);
+
+  // 2. MANAGE CONNECTION (Disconnect when backgrounded)
   useEffect(() => {
     initDB();
+
     if (userToken) {
-      connect();
+        connect();
+        syncPendingMessages();
     } else {
-      cleanup();
+        cleanup();
     }
-    return () => cleanup();
+
+    const subscription = AppState.addEventListener('change', nextAppState => {
+      // APP FOREGROUND: Reconnect Socket
+      if (appState.current.match(/inactive|background/) && nextAppState === 'active') {
+        console.log(' App Foreground: Reconnecting...');
+        connect();
+        syncPendingMessages();
+      } 
+      // APP BACKGROUND: Disconnect Socket -> Server will send PUSH
+      else if (nextAppState.match(/inactive|background/)) {
+        console.log(' App Background: Disconnecting Socket (Force Offline)...');
+        if (wsRef.current) wsRef.current.close();
+      }
+      appState.current = nextAppState;
+    });
+
+    return () => {
+      subscription.remove();
+      cleanup();
+    };
   }, [userToken]);
 
   const cleanup = () => {
@@ -67,7 +89,6 @@ export const WebSocketProvider = ({ children }: { children: React.ReactNode }) =
   };
 
   const connect = async () => {
-    // Prevent multiple connections
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
 
     const token = await getSecure('accessToken');
@@ -81,15 +102,12 @@ export const WebSocketProvider = ({ children }: { children: React.ReactNode }) =
     wsRef.current = socket;
 
     socket.onopen = () => {
-      console.log('✅ Global WebSocket connected');
+      console.log('✅ WebSocket Connected');
       setIsConnected(true);
       setWs(socket);
-      syncPendingMessages();
       if (pingInterval.current) clearInterval(pingInterval.current);
-      
       pingInterval.current = setInterval(() => {
         if (socket.readyState === WebSocket.OPEN) {
-          console.log("💓 Sending Ping...");
           socket.send(JSON.stringify({ command: 'ping' }));
         }
       }, 30000); 
@@ -99,14 +117,10 @@ export const WebSocketProvider = ({ children }: { children: React.ReactNode }) =
       try {
         const data = JSON.parse(e.data);
 
-        // If I sent this message, ignore it (I already have it locally).
-        if (data.sender === user?.username) {
-           // We might still want to process status updates (like blue ticks), 
-           // but NOT 'chat_message'
-           if (data.type === 'chat_message') return; 
-        }
+        // Ignore my own messages
+        if (data.sender === user?.username && data.type === 'chat_message') return;
 
-        // 1. INCOMING CHAT MESSAGE
+        // 1. INCOMING CHAT
         if (data.type === 'chat_message') {
           const decryptedContent = decryptMessage(data.ciphertext);
           
@@ -130,21 +144,21 @@ export const WebSocketProvider = ({ children }: { children: React.ReactNode }) =
           DeviceEventEmitter.emit('message_status_changed', data);
         }
         
-        // 3. PRESENCE / TYPING
+        // 3. PRESENCE
         if (data.type === 'user_status_event') DeviceEventEmitter.emit('presence_update', data);
         if (data.type === 'typing_event') DeviceEventEmitter.emit('typing_event', data);
 
-        // 4. SYSTEM NOTIFICATION
-        // If the server tells us to notify (because we are outside the chat room)
+        // 4. LOCAL NOTIFICATION (Banner when App is Open)
+        // Note: 'registerForPushNotificationsAsync' handles the handler setup, 
+        // so this schedule call works automatically.
         if (data.type === 'new_message_notification') {
           await Notifications.scheduleNotificationAsync({
             content: {
               title: data.sender,
               body: "Sent you a message", 
-              // This 'url' data allows _layout.tsx to redirect you when tapped
               data: { url: `/chat/${data.sender}` }, 
             },
-            trigger: null, // Show immediately
+            trigger: null, 
           });
         }
 
@@ -156,9 +170,11 @@ export const WebSocketProvider = ({ children }: { children: React.ReactNode }) =
     socket.onclose = () => {
       setIsConnected(false);
       setWs(null);
-      reconnectTimeout.current = setTimeout(() => {
-        if (userToken) connect();
-      }, 3000);
+      if (AppState.currentState === 'active') {
+          reconnectTimeout.current = setTimeout(() => {
+            if (userToken) connect();
+          }, 3000);
+      }
     };
   };
 

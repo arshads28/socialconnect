@@ -1,7 +1,9 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { useRouter, useSegments } from 'expo-router';
 import { getSecure, saveSecure, removeSecure } from '../utils/storage'; 
-import api, { setClientToken } from '../utils/api'; // ✅ Import setClientToken
+import api, { setClientToken } from '../utils/api';
+import { DeviceEventEmitter } from 'react-native';
+const router = useRouter();
 
 // 1. Define the User Shape
 type UserType = {
@@ -71,7 +73,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           
           // Fetch User Data
           try {
-            const response = await api.get('/auth/api/me/');
+            const response = await api.get('/auth/api/profile/me');
             setUser(response.data);
           } catch (err) {
             console.log("Token invalid or expired", err);
@@ -122,6 +124,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       (window as any).globalWs.close();
     }
   };
+
+  // ✅ NEW: Listen for Session Expiry
+  useEffect(() => {
+    const subscription = DeviceEventEmitter.addListener('auth_session_expired', () => {
+      console.log("👋 Session expired event received. Logging out...");
+      signOut();
+      router.replace('/login');
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, []);
 
   useEffect(() => {
     setIsNavigationReady(true);

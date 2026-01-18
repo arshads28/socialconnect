@@ -25,7 +25,8 @@
           "fetch",
           "remote-notification"
         ]
-      }
+      },
+      "bitcode": false
     },
     "android": {
       "package": "com.connect.app",
@@ -43,15 +44,20 @@
         "android.permission.POST_NOTIFICATIONS",
         "android.permission.MANAGE_OWN_CALLS",
         "android.permission.READ_PHONE_STATE",
-        "android.permission.USE_FULL_SCREEN_INTENT", 
-        "android.permission.FOREGROUND_SERVICE", 
-        "android.permission.WAKE_LOCK"
+        "android.permission.USE_FULL_SCREEN_INTENT",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.WAKE_LOCK",
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.BLUETOOTH",
+        "android.permission.BIND_TELECOM_CONNECTION_SERVICE",
+        "android.permission.CALL_PHONE"
       ]
     },
     "extra": {
       "vapidPublicKey": "BNiug5Sm-HTCeXav2TwHe-ciE7ORzGLTud4meHEtRjHKIBSeIAnvOt1Lh3_QKb3sOu-opZuDfXqqjK2_3OSazHM",
       "eas": {
-        "projectId": "5ba69721-0fca-4d14-8f9b-744fc9cc8fbe"
+        "projectId": "a4844a00-642a-4045-9d32-ace3e35e22ce"
       }
     },
     "web": {
@@ -60,6 +66,12 @@
     "plugins": [
       "expo-notifications",
       "expo-sqlite",
+      [
+        "expo-background-fetch",
+        {
+          "isStatusbarTranslucent": true
+        }
+      ],
       [
         "expo-camera",
         {
@@ -82,7 +94,8 @@
             "selfManaged": true
           }
         }
-      ]
+      ],
+      "expo-secure-store"
     ],
     "owner": "arsh2128"
   }

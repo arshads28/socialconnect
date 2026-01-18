@@ -6,7 +6,7 @@ from django.contrib.auth.forms import UserChangeForm, UserCreationForm
 from django.utils.translation import gettext_lazy as _
 from django.utils.html import format_html
 
-from .models import User,PushToken
+from .models import User,PushDevice
 
 
 # ============================
@@ -171,26 +171,25 @@ class CustomUserAdmin(UserAdmin):
 
 
 
-@admin.register(PushToken)
-class PushTokenAdmin(admin.ModelAdmin):
-    # 1. Show these columns in the list
-    list_display = ('user', 'platform', 'device_name', 'short_token', 'last_used_at', 'created_at')
+@admin.register(PushDevice)
+class PushDeviceAdmin(admin.ModelAdmin):
+    list_display = ('user', 'device_name', 'platform', 'is_active', 'last_seen_at', 'created_at')
+    list_filter = ('platform', 'is_active', 'created_at')
+    search_fields = ('user__username', 'user__email', 'device_name', 'device_id')
+    readonly_fields = ('created_at', 'last_seen_at')
     
-    # 2. Add Filters on the right side
-    list_filter = ('platform', 'created_at', 'last_used_at')
-    
-    # 3. Add Search (Search by Username or Token)
-    search_fields = ('user__username', 'user__email', 'token', 'device_name')
-    
-    # 4. Make dates read-only so you don't accidentally change history
-    readonly_fields = ('created_at', 'last_used_at')
+    fieldsets = (
+        (None, {
+            'fields': ('user', 'is_active')
+        }),
+        ('Device Info', {
+            'fields': ('device_name', 'platform', 'device_id', 'token')
+        }),
+        ('Timestamps', {
+            'fields': ('last_seen_at', 'created_at')
+        }),
+    )
 
-    # 5. Helper to show just the first 20 chars of the token
-    def short_token(self, obj):
-        if obj.token:
-            return f"{obj.token[:20]}..."
-        return "-"
-    short_token.short_description = "Token Preview"
-
-    # 6. Default sorting (Newest first)
-    ordering = ('-created_at',)
+    def get_queryset(self, request):
+        # Optimization: Prefetch user to avoid N+1 queries in the list view
+        return super().get_queryset(request).select_related('user')

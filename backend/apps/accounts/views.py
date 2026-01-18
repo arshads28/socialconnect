@@ -13,7 +13,7 @@ from rest_framework.response import Response
 from .serializers import ProfileSerializer, ProfileUpdateSerializer
 from rest_framework import status
 from django import forms
-from .models import PushToken
+from .models import PushDevice
 
 # from .models import Connection
 from django.contrib.auth import get_user_model
@@ -249,18 +249,29 @@ class ProfileViewSet(ModelViewSet):
     # BLOCK USER
     # -----------------------------
     @action(detail=True, methods=["post"])
-    def block(self, request, username=None):
-        user_to_block = self.get_object()
+    def block(self, request, pk=None): # Note: 'pk' or 'username' depends on your lookup_field
+        target_user = self.get_object()
+        current_user = request.user
 
-        if user_to_block == request.user:
+        if target_user == current_user:
             return Response(
                 {"error": "You cannot block yourself."},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        request.user.blocking.add(user_to_block)
+        # Check if they have already blocked you
+        # .exists() is much faster than fetching the whole list.
+        if current_user.blocked_by.filter(id=target_user.id).exists():
+            return Response(
+                {"error": f"You cannot block {target_user.username} because they have already blocked you."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # 3. Perform the Block
+        current_user.blocking.add(target_user)
+        
         return Response(
-            {"status": f"You blocked {user_to_block.username}"},
+            {"status": f"You blocked {target_user.username}"},
             status=status.HTTP_200_OK
         )
 
@@ -279,23 +290,35 @@ class ProfileViewSet(ModelViewSet):
 
 
 @api_view(['POST'])
-# @permission_classes([IsAuthenticated])
-def save_push_token(request):
-    token = request.data.get('token')
-    platform = request.data.get('platform', 'android')
-    device_name = request.data.get('device_name', '')
-    
-    if not token:
-        return Response({'error': 'Token required'}, status=400)
-    
-    PushToken.objects.update_or_create(
-        user=request.user,
-        token=token,
-        defaults={'platform': platform, 'device_name': device_name}
+@permission_classes([IsAuthenticated])
+def register_push_device(request):
+    user = request.user
+    data = request.data
+
+    # Debug Print to confirm it's hitting the server
+    print(f"📲 Registering Push Device for {user.username}: {data.get('device_name')}")
+
+    token = data.get('token')
+    device_id = data.get('device_id')
+    platform = data.get('platform')
+    device_name = data.get('device_name', 'Unknown Device')
+
+    if not all([token, device_id, platform]):
+        return Response({'error': 'Invalid payload'}, status=400)
+
+    # Smart Update
+    obj, created = PushDevice.objects.update_or_create(
+        user=user,
+        device_id=device_id,
+        defaults={
+            'token': token,
+            'platform': platform,
+            'device_name': device_name,
+            'is_active': True
+        }
     )
-    return Response({'status': 'success'})
 
-
+    return Response({'status': 'registered', 'action': 'created' if created else 'updated'})
 
 
 
