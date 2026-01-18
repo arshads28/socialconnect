@@ -5,7 +5,7 @@ from django.core.cache import cache
 from django.conf import settings
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
-from .models import Message
+from apps.chat.models import Message
 
 # Security Key (Set this in your environment variables later!)
 # In cron-job.org, you will add a header: "X-Cron-Secret: my-super-secret-key"
