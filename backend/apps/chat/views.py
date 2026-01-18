@@ -391,6 +391,8 @@ def chat_history(request, username):
                 "sender": msg.sender.username,
                 "conversation_id": username, 
                 "content": msg.encrypted_content, 
+                "encrypted_content": msg.encrypted_content, 
+                "status": msg.status,
                 "timestamp": msg.timestamp.isoformat(),
                 "is_own": msg.sender == request.user
             })

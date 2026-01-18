@@ -16,13 +16,13 @@ import {
   deleteLocalChat, generateUUID 
 } from '../../utils/db';
 import { useAuth } from '../../context/AuthContext';
+import { syncChatMessages } from '../../utils/sync';
 
 export default function ChatScreen() {
   const { username } = useLocalSearchParams<{ username: string }>();
   const router = useRouter();
   const { user } = useAuth();
   
-  // Extract all WS functions
   const { sendMessage, sendReadSignal, sendTypingSignal, ws } = useWebSocket();
   
   const [messages, setMessages] = useState<any[]>([]);
@@ -33,72 +33,73 @@ export default function ChatScreen() {
   
   const flatListRef = useRef<FlatList>(null);
   const typingTimeout = useRef<any>(null);
-  const lastTypingSent = useRef<number>(0); // THROTTLE REF
+  const lastTypingSent = useRef<number>(0);
 
-  // 1. INITIAL LOAD & CLEANUP
+  // 1. INITIAL LOAD & SYNC
   useEffect(() => {
-    loadLocalMessages();
-    fetchTargetProfile();
-    markChatAsRead(username as string);
-    sendReadSignal(username as string);
+    let isMounted = true;
 
-    // Join Room
+    const initChat = async () => {
+      // A. Load Local (Fast)
+      loadLocalMessages();
+      fetchTargetProfile();
+
+      // B. Sync Server (Fixes gaps/duplicates)
+      const synced = await syncChatMessages(username as string);
+      
+      if (isMounted && synced) {
+        loadLocalMessages(); // Reload only if sync happened
+      }
+      
+      // C. Mark Read
+      markChatAsRead(username as string);
+      sendReadSignal(username as string);
+    };
+
+    initChat();
+
+    // D. Join Room
     if (ws?.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ command: 'join_room', username }));
     }
 
     return () => {
-      // Leave Room on Unmount
+      isMounted = false;
       if (ws?.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ command: 'leave_room' }));
       }
     };
   }, [username, ws]);
 
-  // 2. EVENT LISTENERS (Optimized)
+  // 2. LISTENERS
   useEffect(() => {
     // A. NEW MESSAGE
     const msgListener = DeviceEventEmitter.addListener('new_message', (event) => {
       if (event.conversation_id === username) {
-        // If current chat, reload and mark read immediately
         loadLocalMessages();
         markChatAsRead(username as string);
         sendReadSignal(username as string);
       }
     });
 
-    // B. BLUE TICKS
+    // B. STATUS CHANGES (Blue Ticks)
     const statusListener = DeviceEventEmitter.addListener('message_status_changed', (event) => {
-      // Simple reload is fine here, SQLite is fast
       loadLocalMessages();
     });
 
-    // C. TYPING (Filter by sender)
+    // C. TYPING
     const typingListener = DeviceEventEmitter.addListener('typing_event', (event) => {
       if (event.sender === username) {
         setIsTyping(true);
         if (typingTimeout.current) clearTimeout(typingTimeout.current);
-        // Hide after 3 seconds of silence
         typingTimeout.current = setTimeout(() => setIsTyping(false), 3000);
       }
     });
 
-    // D. ONLINE/OFFLINE
+    // D. PRESENCE
     const presenceListener = DeviceEventEmitter.addListener('presence_update', (data) => {
       if (data.username === username) {
         setIsOnline(data.is_online);
-      }
-    });
-
-    // E. SMART TOAST (Don't show if I'm looking at the chat)
-    const toastListener = DeviceEventEmitter.addListener('show_toast', (data) => {
-      if (data.sender !== username) {
-        Toast.show({
-          type: 'info',
-          text1: `New message from ${data.sender}`,
-          text2: 'Tap to view',
-          onPress: () => router.push(`/chat/${data.sender}`)
-        });
       }
     });
 
@@ -107,7 +108,6 @@ export default function ChatScreen() {
       statusListener.remove();
       typingListener.remove();
       presenceListener.remove();
-      toastListener.remove();
     };
   }, [username]);
 
@@ -123,13 +123,11 @@ export default function ChatScreen() {
 
   const loadLocalMessages = useCallback(() => {
     const msgs = getMessagesForChat(username as string);
-    setMessages(msgs);
+    if (msgs) setMessages(msgs);
   }, [username]);
 
   const handleTyping = (val: string) => {
     setText(val);
-    
-    // OPTIMIZATION: Throttle typing signal to once every 2 seconds
     const now = Date.now();
     if (val.length > 0 && (now - lastTypingSent.current > 2000)) {
       sendTypingSignal(username as string);
@@ -144,9 +142,9 @@ export default function ChatScreen() {
     const ciphertext = encryptMessage(text);
     const timestamp = new Date().toISOString();
 
-    // Optimistic UI Update
+    // 1. Optimistic Save (This creates the "Temporary" row)
     saveMessage({
-      id: clientId, 
+      id: clientId, // Use UUID as temp ID
       client_id: clientId,
       conversation_id: username,
       sender: user?.username,
@@ -156,10 +154,11 @@ export default function ChatScreen() {
       is_own: true
     });
 
+    // 2. Refresh UI immediately
     loadLocalMessages();
     setText('');
     
-    // Send to Socket
+    // 3. Send to Server (Server will return ACK later)
     sendMessage(username as string, ciphertext, clientId);
   };
 
@@ -187,11 +186,10 @@ export default function ChatScreen() {
     
     const renderTicks = () => {
       if (!isMe) return null;
-      // Using icons for clear status
       if (item.status === 'sending') return <Ionicons name="time-outline" size={14} color="#ddd" />;
       if (item.status === 'sent') return <Ionicons name="checkmark" size={16} color="#ddd" />;
       if (item.status === 'delivered') return <Ionicons name="checkmark-done" size={16} color="#ddd" />;
-      if (item.status === 'read') return <Ionicons name="checkmark-done" size={16} color="#4dabf7" />; // Blue
+      if (item.status === 'read') return <Ionicons name="checkmark-done" size={16} color="#4dabf7" />;
       return null;
     };
 
@@ -212,7 +210,6 @@ export default function ChatScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Header */}
       <View style={styles.header}>
         <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
           <TouchableOpacity onPress={() => router.back()} style={{ marginRight: 10 }}>
@@ -249,7 +246,6 @@ export default function ChatScreen() {
         </View>
       </View>
 
-      {/* Messages List */}
       <KeyboardAvoidingView 
         style={{ flex: 1 }} 
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -265,7 +261,6 @@ export default function ChatScreen() {
           ListFooterComponent={<View style={{ height: 10 }} />}
         />
 
-        {/* Input Area */}
         <View style={styles.inputContainer}>
           <TextInput
             style={styles.input}
@@ -291,7 +286,6 @@ const styles = StyleSheet.create({
   headerStatusTyping: { fontSize: 12, color: '#0095f6', fontWeight: 'bold' },
   avatar: { width: 36, height: 36, borderRadius: 18, marginRight: 10 },
   avatarPlaceholder: { width: 36, height: 36, borderRadius: 18, marginRight: 10, backgroundColor: '#eee', justifyContent: 'center', alignItems: 'center' },
-  
   messagesList: { padding: 16 },
   messageRow: { marginBottom: 12, maxWidth: '75%' },
   messageRowLeft: { alignSelf: 'flex-start' },
@@ -302,7 +296,6 @@ const styles = StyleSheet.create({
   messageText: { fontSize: 15, marginBottom: 4 },
   metaRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', marginTop: 2 },
   timestamp: { fontSize: 10, color: '#666' },
-  
   inputContainer: { flexDirection: 'row', alignItems: 'center', padding: 10, borderTopWidth: 1, borderColor: '#eee', backgroundColor: '#fff' },
   input: { flex: 1, backgroundColor: '#f0f0f0', borderRadius: 20, paddingHorizontal: 16, paddingVertical: 10, marginRight: 10, maxHeight: 100, fontSize: 16 },
 });

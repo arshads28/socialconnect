@@ -1,3 +1,5 @@
+// socialconnect/frontend/utils/sync.ts
+
 import api from './api';
 import { saveMessage } from './db';
 import { decryptMessage } from './crypto';
@@ -6,11 +8,16 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const LAST_SYNC_KEY = 'connect_last_msg_id_v1';
 
+// ==============================================================================
+// 1. GLOBAL SYNC (Background "Postman" fetch)
+//    - Downloads ALL missed messages from ALL users.
+//    - Runs when app opens or socket reconnects.
+// ==============================================================================
 export const syncPendingMessages = async () => {
   try {
     console.log("📥 Checking for pending messages...");
 
-    // 1. Get the Last ID we successfully synced
+    // Get the Last ID we successfully synced
     let lastId = 0;
     if (Platform.OS === 'web') {
         lastId = parseInt(localStorage.getItem(LAST_SYNC_KEY) || '0');
@@ -19,7 +26,7 @@ export const syncPendingMessages = async () => {
         lastId = stored ? parseInt(stored) : 0;
     }
 
-    // 2. Ask Server: "Give me everything AFTER this ID"
+    // Ask Server: "Give me everything AFTER this ID"
     const response = await api.get(`/chat/sync/?after_id=${lastId}`);
     const { messages, count, last_id } = response.data;
 
@@ -44,7 +51,7 @@ export const syncPendingMessages = async () => {
       });
     }
 
-    // 3. Save the new "High Score" (ID) so we don't fetch these again
+    // Save the new "High Score" (ID)
     if (last_id > 0) {
         if (Platform.OS === 'web') {
             localStorage.setItem(LAST_SYNC_KEY, last_id.toString());
@@ -62,7 +69,10 @@ export const syncPendingMessages = async () => {
 };
 
 
-// Syncs the Inbox List (Previews)
+// ==============================================================================
+// 2. INBOX SYNC (Previews for the list)
+//    - Gets the last message for every conversation to show in the list.
+// ==============================================================================
 export const syncServerInbox = async () => {
   try {
     const response = await api.get('/chat/inbox/');
@@ -75,7 +85,6 @@ export const syncServerInbox = async () => {
 
     for (const entry of serverInbox) {
       if (entry.last_message) {
-        // Try/Catch for decryption to prevent one bad message crashing the whole sync
         try {
           const plainText = decryptMessage(entry.last_message);
           saveMessage({
@@ -97,5 +106,42 @@ export const syncServerInbox = async () => {
   } catch (error) {
     console.error("Inbox Sync Failed:", error);
     return [];
+  }
+};
+
+// ==============================================================================
+// 3. ✅ FULL CHAT HISTORY SYNC (The "Race Condition" Fix)
+//    - Called by ChatScreen to ensure we have every single message for THIS user.
+// ==============================================================================
+export const syncChatMessages = async (username: string) => {
+  try {
+    console.log(`📥 Syncing history for ${username}...`);
+    
+    // Call the History API (Uses 'chat_history' view)
+    const response = await api.get(`/chat/history/${username}/`);
+    const messages = response.data;
+
+    if (!Array.isArray(messages)) return;
+
+    for (const msg of messages) {
+      // Use 'encrypted_content' matching your Python view
+      const plainText = decryptMessage(msg.encrypted_content);
+      
+      saveMessage({
+        id: msg.id.toString(),
+        client_id: msg.client_id,
+        conversation_id: username,
+        sender: msg.sender,
+        content: plainText,
+        status: msg.status || 'read', // Trust server status
+        timestamp: msg.timestamp,
+        is_own: msg.is_own 
+      });
+    }
+    console.log(`✅ History synced for ${username}`);
+    return true;
+  } catch (error) {
+    console.error(`❌ Failed to sync history for ${username}:`, error);
+    return false;
   }
 };

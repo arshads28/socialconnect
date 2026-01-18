@@ -1,12 +1,23 @@
 import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
 import { DeviceEventEmitter, Platform } from 'react-native';
-import Toast from 'react-native-toast-message';
+import * as Notifications from 'expo-notifications';
 import { getSecure } from '../utils/storage';
 import { BASE_URL } from '../utils/api';
 import { initDB, saveMessage, updateMessageStatus } from '../utils/db';
 import { decryptMessage } from '../utils/crypto';
 import { useAuth } from '../context/AuthContext';
 import { syncPendingMessages } from '../utils/sync';
+
+// 1. CONFIG: Allow notifications to show even when app is open (WhatsApp Style)
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+    shouldShowBanner: true,
+    shouldShowList: true,  
+  }),
+});
 
 interface WebSocketContextType {
   ws: WebSocket | null;
@@ -27,7 +38,7 @@ const WebSocketContext = createContext<WebSocketContextType>({
 export const useWebSocket = () => useContext(WebSocketContext);
 
 export const WebSocketProvider = ({ children }: { children: React.ReactNode }) => {
-  const { userToken } = useAuth();
+  const { user, userToken } = useAuth();
   const [ws, setWs] = useState<WebSocket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
@@ -73,21 +84,19 @@ export const WebSocketProvider = ({ children }: { children: React.ReactNode }) =
       console.log('✅ Global WebSocket connected');
       setIsConnected(true);
       setWs(socket);
-      
-      // OPTIMIZATION: Sync missed messages on reconnect
       syncPendingMessages();
-
-      // HEARTBEAT: Keep connection alive without hammering server
+      
       pingInterval.current = setInterval(() => {
-        if (socket.readyState === WebSocket.OPEN) {
-          socket.send(JSON.stringify({ command: 'ping' }));
-        }
+        if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ command: 'ping' }));
       }, 25000); 
     };
 
     socket.onmessage = async (e) => {
       try {
         const data = JSON.parse(e.data);
+
+        // If I sent this message, ignore it (I already have it locally).
+        if (data.sender === user?.username) return; 
 
         // 1. INCOMING CHAT MESSAGE
         if (data.type === 'chat_message') {
@@ -107,27 +116,28 @@ export const WebSocketProvider = ({ children }: { children: React.ReactNode }) =
           DeviceEventEmitter.emit('new_message', { conversation_id: data.sender });
         }
 
-        // 2. STATUS UPDATE (Blue Ticks)
+        // 2. STATUS UPDATE
         if (data.type === 'status_update') {
-          if (data.client_id) {
-            updateMessageStatus(data.client_id, data.status);
-          }
+          if (data.client_id) updateMessageStatus(data.client_id, data.status);
           DeviceEventEmitter.emit('message_status_changed', data);
         }
         
-        // 3. PRESENCE UPDATE (Online/Offline)
-        if (data.type === 'user_status_event') {
-           DeviceEventEmitter.emit('presence_update', data);
-        }
+        // 3. PRESENCE / TYPING
+        if (data.type === 'user_status_event') DeviceEventEmitter.emit('presence_update', data);
+        if (data.type === 'typing_event') DeviceEventEmitter.emit('typing_event', data);
 
-        // 4. TYPING INDICATOR
-        if (data.type === 'typing_event') {
-           DeviceEventEmitter.emit('typing_event', data);
-        }
-
-        // 5. TOAST NOTIFICATION (Web & Mobile)
+        // 4. SYSTEM NOTIFICATION
+        // If the server tells us to notify (because we are outside the chat room)
         if (data.type === 'new_message_notification') {
-           DeviceEventEmitter.emit('show_toast', data);
+          await Notifications.scheduleNotificationAsync({
+            content: {
+              title: data.sender,
+              body: "Sent you a message", 
+              // This 'url' data allows _layout.tsx to redirect you when tapped
+              data: { url: `/chat/${data.sender}` }, 
+            },
+            trigger: null, // Show immediately
+          });
         }
 
       } catch (err) {
@@ -136,17 +146,11 @@ export const WebSocketProvider = ({ children }: { children: React.ReactNode }) =
     };
 
     socket.onclose = () => {
-      console.log('❌ WebSocket Disconnected');
       setIsConnected(false);
       setWs(null);
-      // Auto-reconnect with backoff
       reconnectTimeout.current = setTimeout(() => {
         if (userToken) connect();
       }, 3000);
-    };
-
-    socket.onerror = (e) => {
-      console.log('WS Error:', e);
     };
   };
 
@@ -163,25 +167,19 @@ export const WebSocketProvider = ({ children }: { children: React.ReactNode }) =
 
   const sendReadSignal = (targetUser: string) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ 
-          command: 'mark_read',
-          sender: targetUser 
-      }));
+      wsRef.current.send(JSON.stringify({ command: 'mark_read', sender: targetUser }));
     }
   };
 
   const sendTypingSignal = (targetUser: string) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ 
-        command: 'typing' 
-      }));
+      wsRef.current.send(JSON.stringify({ command: 'typing' }));
     }
   };
 
   return (
     <WebSocketContext.Provider value={{ ws, isConnected, sendMessage, sendReadSignal, sendTypingSignal }}>
       {children}
-      <Toast /> 
     </WebSocketContext.Provider>
   );
 };
