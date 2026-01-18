@@ -186,22 +186,22 @@ export default function HomeScreen() {
   };
 
   const handleDeletePost = async (postId: string) => {
-    console.log('Delete post clicked:', postId);
+    console.log('Delete Update clicked:', postId);
     if (Platform.OS === 'web') {
-      if (window.confirm('Are you sure you want to delete this post?')) {
-        console.log('Deleting post:', postId);
+      if (window.confirm('Are you sure you want to delete this update?')) {
+        console.log('Deleting Update:', postId);
         try {
           await api.delete(`/api/posts/${postId}/`);
           setPosts(posts.filter(p => p.id !== postId));
           console.log('Post deleted successfully');
         } catch (error) {
           console.error('Delete error:', error);
-          alert('Could not delete post');
+          alert('Could not Delete Update');
         }
       }
     } else {
       Alert.alert(
-        'Delete Post',
+        'Delete Update',
         'Are you sure you want to delete this post?',
         [
           { text: 'Cancel', style: 'cancel' },
@@ -216,7 +216,7 @@ export default function HomeScreen() {
                 console.log('Post deleted successfully');
               } catch (error) {
                 console.error('Delete error:', error);
-                Alert.alert('Error', 'Could not delete post');
+                Alert.alert('Error', 'Could not Delete Update');
               }
             },
           },
@@ -333,7 +333,7 @@ export default function HomeScreen() {
                   }}
                 >
                   <Ionicons name="trash-outline" size={20} color="#ff3b30" />
-                  <Text style={styles.menuOptionTextDelete}>Delete Post</Text>
+                  <Text style={styles.menuOptionTextDelete}>Delete Update</Text>
                 </TouchableOpacity>
               </TouchableOpacity>
             </TouchableOpacity>

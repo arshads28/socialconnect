@@ -196,27 +196,26 @@ AUTH_PASSWORD_VALIDATORS = [
 
 
 
-SIMPLE_JWT = {
-    # 1. Access Token: Short life (Security)
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=30), 
-    
-    # The user won't need to login again for 90 days
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=90),
-    
-    'ROTATE_REFRESH_TOKENS': True, # Return a new refresh token on use
-    'BLACKLIST_AFTER_ROTATION': True,
-    'UPDATE_LAST_LOGIN': True,
-}
-
-# settings.py
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'rest_framework_simplejwt.authentication.JWTAuthentication',
+    ],
+    "DEFAULT_PERMISSION_CLASSES": [
+        "rest_framework.permissions.IsAuthenticated",
     ],
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 12,
 }
 
+
+SIMPLE_JWT = {
+    "AUTH_HEADER_TYPES": ("Bearer",),
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=15),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=90),
+    'ROTATE_REFRESH_TOKENS': True, 
+    'BLACKLIST_AFTER_ROTATION': True,
+    'UPDATE_LAST_LOGIN': True,
+}
 
 
 

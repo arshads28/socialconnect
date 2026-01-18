@@ -7,7 +7,7 @@ from django.db.models import Exists, OuterRef, Value, BooleanField
 from django.db.models.functions import Coalesce
 
 from rest_framework.viewsets import ModelViewSet
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
 from .serializers import ProfileSerializer, ProfileUpdateSerializer
@@ -43,6 +43,8 @@ class CustomUserCreationForm(UserCreationForm):
 #     )
 
 
+@api_view(['POST'])
+@permission_classes([AllowAny])
 def signup_view(request):
     if request.method == "POST":
         form = CustomUserCreationForm(request.POST)
@@ -56,6 +58,8 @@ def signup_view(request):
     return render(request, "auth/signup.html", {"form": form})
 
 
+@api_view(['POST'])
+@permission_classes([AllowAny])
 def login_view(request):
     if request.method == "POST":
         form = AuthenticationForm(request, data=request.POST)
@@ -164,7 +168,7 @@ class ProfileViewSet(ModelViewSet):
     """
 
     queryset = User.objects.all()
-    permission_classes = [IsAuthenticated]
+    # permission_classes = [IsAuthenticated] by default form now 
     lookup_field = "username"
     http_method_names = ["get", "patch", "post"]
 
@@ -275,7 +279,7 @@ class ProfileViewSet(ModelViewSet):
 
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])
+# @permission_classes([IsAuthenticated])
 def save_push_token(request):
     token = request.data.get('token')
     platform = request.data.get('platform', 'android')

@@ -206,7 +206,6 @@ def inbox_view(request):
 
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
 def search_user(request):
     query = request.GET.get('q', '').strip().lower()
     data = []
@@ -259,7 +258,7 @@ def search_user(request):
 
 
 class InboxViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
-    permission_classes = [IsAuthenticated]
+    # permission_classes = [IsAuthenticated] by default now
     serializer_class = InboxSerializer
 
     def get_queryset(self):
@@ -299,7 +298,6 @@ class InboxViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
 
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
 def sync_messages(request):
     """
     The 'Postman' Route: #But for web we store one day old message (clear_chat_history still works)
@@ -334,7 +332,6 @@ def sync_messages(request):
 
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])
 def clear_chat_history(request, username):
     """
     Deletes all messages between the authenticated user and the target 'username'.
@@ -361,7 +358,6 @@ def clear_chat_history(request, username):
 
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
 def chat_history(request, username):
     """
     WEB VIEW: Fetches full chat history with a specific user.
