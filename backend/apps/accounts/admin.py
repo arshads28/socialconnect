@@ -6,7 +6,7 @@ from django.contrib.auth.forms import UserChangeForm, UserCreationForm
 from django.utils.translation import gettext_lazy as _
 from django.utils.html import format_html
 
-from .models import User
+from .models import User,PushDevice
 
 
 # ============================
@@ -158,3 +158,38 @@ class CustomUserAdmin(UserAdmin):
 
 
 # admin.site.register(Connection)
+
+
+
+
+
+
+
+
+
+
+
+
+
+@admin.register(PushDevice)
+class PushDeviceAdmin(admin.ModelAdmin):
+    list_display = ('user', 'device_name', 'platform', 'is_active', 'last_seen_at', 'created_at')
+    list_filter = ('platform', 'is_active', 'created_at')
+    search_fields = ('user__username', 'user__email', 'device_name', 'device_id')
+    readonly_fields = ('created_at', 'last_seen_at')
+    
+    fieldsets = (
+        (None, {
+            'fields': ('user', 'is_active')
+        }),
+        ('Device Info', {
+            'fields': ('device_name', 'platform', 'device_id', 'token')
+        }),
+        ('Timestamps', {
+            'fields': ('last_seen_at', 'created_at')
+        }),
+    )
+
+    def get_queryset(self, request):
+        # Optimization: Prefetch user to avoid N+1 queries in the list view
+        return super().get_queryset(request).select_related('user')

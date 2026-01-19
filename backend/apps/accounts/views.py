@@ -3,14 +3,17 @@ from django.contrib.auth import login,  logout
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import UserCreationForm, AuthenticationForm
 
+from django.db.models import Exists, OuterRef, Value, BooleanField
+from django.db.models.functions import Coalesce
+
 from rest_framework.viewsets import ModelViewSet
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.decorators import action
+from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
 from .serializers import ProfileSerializer, ProfileUpdateSerializer
 from rest_framework import status
 from django import forms
-# from django.db.models import Q
+from .models import PushDevice
 
 # from .models import Connection
 from django.contrib.auth import get_user_model
@@ -40,6 +43,8 @@ class CustomUserCreationForm(UserCreationForm):
 #     )
 
 
+@api_view(['POST'])
+@permission_classes([AllowAny])
 def signup_view(request):
     if request.method == "POST":
         form = CustomUserCreationForm(request.POST)
@@ -53,6 +58,8 @@ def signup_view(request):
     return render(request, "auth/signup.html", {"form": form})
 
 
+@api_view(['POST'])
+@permission_classes([AllowAny])
 def login_view(request):
     if request.method == "POST":
         form = AuthenticationForm(request, data=request.POST)
@@ -161,7 +168,7 @@ class ProfileViewSet(ModelViewSet):
     """
 
     queryset = User.objects.all()
-    permission_classes = [IsAuthenticated]
+    # permission_classes = [IsAuthenticated] by default form now 
     lookup_field = "username"
     http_method_names = ["get", "patch", "post"]
 
@@ -172,14 +179,29 @@ class ProfileViewSet(ModelViewSet):
         user = self.request.user
         queryset = User.objects.all()
 
-        #If we are blocking/unblocking, we MUST see the user
-        if self.action in ['block', 'unblock']:
-            return queryset
+        # Handle visibility logic
+        if self.action not in ['block', 'unblock']:
+            queryset = queryset.exclude(blocking=user)
 
-        # For normal profile viewing:
-        # HIDE users who are blocking ME.
-        # (A.blocking contains B -> A is blocking B)
-        return queryset.exclude(blocking=user)
+        # Annotate 'is_blocked_by_me' to solve N+1
+        # This creates a subquery that checks the M2M table in a single SQL query
+        if user.is_authenticated:
+            # We check if the 'user' (request.user) is in the 'blocked_by' 
+            # related name of the profile being viewed (obj)
+            is_blocked_subquery = User.blocking.through.objects.filter(
+                from_user_id=user.id,
+                to_user_id=OuterRef('pk')
+            )
+            queryset = queryset.annotate(
+                is_blocked_by_me=Exists(is_blocked_subquery)
+            )
+        else:
+            queryset = queryset.annotate(
+                is_blocked_by_me=Value(False, output_field=BooleanField())
+            )
+
+        return queryset
+
 
     # -----------------------------
     # Serializer selection
@@ -227,18 +249,29 @@ class ProfileViewSet(ModelViewSet):
     # BLOCK USER
     # -----------------------------
     @action(detail=True, methods=["post"])
-    def block(self, request, username=None):
-        user_to_block = self.get_object()
+    def block(self, request, pk=None): # Note: 'pk' or 'username' depends on your lookup_field
+        target_user = self.get_object()
+        current_user = request.user
 
-        if user_to_block == request.user:
+        if target_user == current_user:
             return Response(
                 {"error": "You cannot block yourself."},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        request.user.blocking.add(user_to_block)
+        # Check if they have already blocked you
+        # .exists() is much faster than fetching the whole list.
+        if current_user.blocked_by.filter(id=target_user.id).exists():
+            return Response(
+                {"error": f"You cannot block {target_user.username} because they have already blocked you."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # 3. Perform the Block
+        current_user.blocking.add(target_user)
+        
         return Response(
-            {"status": f"You blocked {user_to_block.username}"},
+            {"status": f"You blocked {target_user.username}"},
             status=status.HTTP_200_OK
         )
 
@@ -256,6 +289,36 @@ class ProfileViewSet(ModelViewSet):
         )
 
 
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def register_push_device(request):
+    user = request.user
+    data = request.data
+
+    # Debug Print to confirm it's hitting the server
+    print(f"📲 Registering Push Device for {user.username}: {data.get('device_name')}")
+
+    token = data.get('token')
+    device_id = data.get('device_id')
+    platform = data.get('platform')
+    device_name = data.get('device_name', 'Unknown Device')
+
+    if not all([token, device_id, platform]):
+        return Response({'error': 'Invalid payload'}, status=400)
+
+    # Smart Update
+    obj, created = PushDevice.objects.update_or_create(
+        user=user,
+        device_id=device_id,
+        defaults={
+            'token': token,
+            'platform': platform,
+            'device_name': device_name,
+            'is_active': True
+        }
+    )
+
+    return Response({'status': 'registered', 'action': 'created' if created else 'updated'})
 
 
 

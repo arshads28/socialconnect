@@ -1,100 +1,107 @@
 from django.http import JsonResponse
 from django.contrib.auth.decorators import login_required
 from .models import Message
-from django.db.models import Q, Max
-from django.shortcuts import render
+from django.db.models import Count, OuterRef, Subquery, Q, Max
+# from django.shortcuts import render
 from django.contrib.auth import get_user_model
-from django.core.paginator import Paginator
-from django.shortcuts import render, get_object_or_404
+# from django.core.paginator import Paginator
+# from django.shortcuts import render, get_object_or_404
 from django.core.cache import cache
 from django.utils import timezone
 from datetime import timedelta
+from rest_framework import viewsets, mixins
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.decorators import api_view
+from .serializers import InboxSerializer
+from django.utils.dateparse import parse_datetime
 
 User = get_user_model()
 
-@login_required
-def chat_history(request, username):
-    user = request.user
-    page_number = request.GET.get('page', 1)
+# @api_view(['GET'])
+# @permission_classes([IsAuthenticated])
+# def chat_history(request, username):
+#     user = request.user
+#     page_number = request.GET.get('page', 1)
 
-    other_user = get_object_or_404(User, username=username)
+#     other_user = get_object_or_404(User, username=username)
 
-    last_seen_text = get_last_seen_text(other_user)
+#     last_seen_text = get_last_seen_text(other_user)
 
 
-    messages = Message.objects.filter(
-        Q(sender=user, receiver__username=username) |
-        Q(sender__username=username, receiver=user)
-    ).order_by("-timestamp")
+#     messages = Message.objects.filter(
+#         Q(sender=user, receiver__username=username) |
+#         Q(sender__username=username, receiver=user)
+#     ).order_by("-timestamp")
 
     
-    paginator = Paginator(messages, 12)
-    page_obj = paginator.get_page(page_number)
-    page_message = list(page_obj)
+#     paginator = Paginator(messages, 12)
+#     page_obj = paginator.get_page(page_number)
+#     page_message = list(page_obj)
 
-    # Mark these specific messages as read
-    Message.objects.filter(
-        sender__username=username, 
-        receiver=user, 
-        is_read=False,
-        id__in=[msg.id for msg in page_message] 
-    ).update(is_read=True)
+#     # Mark these specific messages as read
+#     Message.objects.filter(
+#         sender__username=username, 
+#         receiver=user, 
+#         is_read=False,
+#         id__in=[msg.id for msg in page_message] 
+#     ).update(is_read=True)
 
-    # deleting the message to save data base and privacy
-    # Message.objects.filter(
-    #     Q(sender=user, receiver__username=username) |
-    #     Q(sender__username=username, receiver=user),
-    #     is_read=True
-    # ).delete()
-
-
-    data = [
-        {   
-            "id": msg.id,
-            "sender": msg.sender.username,
-            "message": msg.content,
-            "is_read": msg.is_read,
-            "timestamp": timezone.localtime(msg.timestamp).strftime("%I:%M %p"), 
-        }
-        for msg in reversed(page_message)
-    ]
-
-    online_status = is_user_online(other_user.id)
-
-    # Return data + has_next flag so JS knows if it should keep scrolling
-    return JsonResponse({
-        "messages": data, 
-        "has_next": page_obj.has_next(),
-        "user_data":{
-            "username": other_user.username,
-            "is_online":online_status,
-            "status_text":"Active now" if online_status else last_seen_text
-
-        }
-    })
+#     # deleting the message to save data base and privacy
+#     # Message.objects.filter(
+#     #     Q(sender=user, receiver__username=username) |
+#     #     Q(sender__username=username, receiver=user),
+#     #     is_read=True
+#     # ).delete()
 
 
+#     data = [
+#         {   
+#             "id": msg.id,
+#             "sender": msg.sender.username,
+#             "message": msg.content,
+#             "is_read": msg.is_read,
+#             "timestamp": timezone.localtime(msg.timestamp).strftime("%I:%M %p"), 
+#         }
+#         for msg in reversed(page_message)
+#     ]
+
+#     online_status = is_user_online(other_user.id)
+
+#     # Return data + has_next flag so JS knows if it should keep scrolling
+#     return JsonResponse({
+#         "messages": data, 
+#         "has_next": page_obj.has_next(),
+#         "user_data":{
+#             "username": other_user.username,
+#             "is_online":online_status,
+#             "status_text":"Active now" if online_status else last_seen_text
+
+#         }
+#     })
 
 
-@login_required
-def chat_view(request, username):
-    # Get the actual User object (needed for is_online/last_seen)
-    other_user_obj = get_object_or_404(User, username=username)
 
-    # 2. Get the formatted text
-    is_online = is_user_online(other_user_obj.id)
-    last_seen_text = "Active now" if is_online else get_last_seen_text(other_user_obj)
 
-    messages = Message.objects.filter(
-        Q(sender=request.user, receiver=other_user_obj) |
-        Q(sender=other_user_obj, receiver=request.user)
-    ).order_by("timestamp")
+# @login_required
+# def chat_view(request, username):
+#     # Get the actual User object (needed for is_online/last_seen)
+#     other_user_obj = get_object_or_404(User, username=username)
 
-    return render(request, "chat/chat.html", {
-        "messages": messages,
-        "other_user": other_user_obj,  # Passing Object, not just string
-        "last_seen_text": last_seen_text, # Passing the text
-    })
+#     # 2. Get the formatted text
+#     is_online = is_user_online(other_user_obj.id)
+#     last_seen_text = "Active now" if is_online else get_last_seen_text(other_user_obj)
+
+#     messages = Message.objects.filter(
+#         Q(sender=request.user, receiver=other_user_obj) |
+#         Q(sender=other_user_obj, receiver=request.user)
+#     ).order_by("timestamp")
+
+#     return render(request, "chat/chat.html", {
+#         "messages": messages,
+#         "other_user": other_user_obj,  # Passing Object, not just string
+#         "last_seen_text": last_seen_text, # Passing the text
+#     })
 
 
 
@@ -198,26 +205,203 @@ def inbox_view(request):
     return JsonResponse({"users": chat_users})
 
 
+
+@api_view(['GET'])
 def search_user(request):
-    query = request.GET.get('q', '')
+    query = request.GET.get('q', '').strip().lower()
     data = []
 
-    if query:
-       
-        users = User.objects.filter(
-            username__icontains=query
-        ).exclude(id=request.user.id)[:20] 
-        
-        
-        for u in users:
-            avatar_url = ""
-            if hasattr(u, 'profile') and u.profile.image:
-                avatar_url = u.profile.image.url
-                
-            data.append({
-                "username": u.username,
-                "avatar_url": avatar_url,
-                "bio": u.profile.bio[:40] + "..." if hasattr(u, 'profile') and u.profile.bio else ""
-            })
+    if len(query) < 2:
+        return JsonResponse({"results": []})
+    
+    user_id = str(request.user.id)
 
-    return JsonResponse({"results": data})
+    rate_key = f"search_rate:{user_id}"
+    cache.add(rate_key, 0, timeout=60)
+    requests = cache.get(rate_key, 0)
+
+    if requests >= 10:
+        return JsonResponse(
+            {"error": "Too many search requests. Please slow down."},
+            status=429,
+        )
+
+    cache.incr(rate_key)
+    
+
+    search_key = f"search:user:{user_id}:{query}"
+    cached_data = cache.get(search_key)
+
+    if cached_data is not None:
+        return JsonResponse({"results": cached_data})
+
+    users = (
+        User.objects
+        .filter(username__icontains=query)
+        .exclude(id=request.user.id)
+        .only("id", "username", "avatar", "bio")[:20]
+    )
+    
+
+    results = [
+        {
+            "id": str(u.id),
+            "username": u.username,
+            "avatar_url": u.avatar.url if u.avatar else "",
+            "bio": (u.bio[:40] + "...") if u.bio else "",
+        }
+        for u in users
+    ]
+
+    cache.set(search_key, results, timeout=120)
+
+    return JsonResponse({"results": results})
+
+
+class InboxViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
+    permission_classes = [IsAuthenticated]
+    serializer_class = InboxSerializer
+
+    def get_queryset(self):
+        user = self.request.user
+
+        # Subquery: Find last message
+        last_msg_qs = Message.objects.filter(
+            Q(sender=OuterRef('pk'), receiver=user) | 
+            Q(sender=user, receiver=OuterRef('pk'))
+        ).order_by('-timestamp')
+
+        # Main Query: Find Users involved in ANY message with me
+        return User.objects.annotate(
+            last_message=Subquery(last_msg_qs.values('encrypted_content')[:1]),
+            last_message_time=Subquery(last_msg_qs.values('timestamp')[:1]),
+            unread_count=Count(
+                'sent_messages', 
+                filter=Q(
+                    sent_messages__receiver=user, 
+                    sent_messages__status__in=['sent', 'delivered'] 
+                )
+            )
+        ).filter(last_message_time__isnull=False
+        ).order_by('-last_message_time')
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.get_queryset()
+        
+        # We still need to check cache for 'is_online'
+        # To keep this O(1) or O(N) without DB hits, we use cache.get_many
+        user_ids = [str(u.id) for u in queryset]
+        online_statuses = cache.get_many([f"user_online_{uid}" for uid in user_ids])
+
+        # Serialize
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True, context={
+                'online_statuses': online_statuses,
+                'request': request
+            })
+            return self.get_paginated_response(serializer.data)
+
+        serializer = self.get_serializer(queryset, many=True, context={
+            'online_statuses': online_statuses,
+            'request': request
+        })
+        return Response(serializer.data)
+    
+
+
+@api_view(['GET'])
+def sync_messages(request):
+    user = request.user
+    last_sync_str = request.GET.get('last_sync')
+    
+    # 1. Base Query (Uses Index: receiver_id + timestamp)
+    pending_messages = Message.objects.filter(receiver=user)
+
+    if last_sync_str and last_sync_str != 'null':
+        last_sync = parse_datetime(last_sync_str)
+        if last_sync:
+            pending_messages = pending_messages.filter(timestamp__gt=last_sync)
+
+
+    pending_messages = pending_messages.order_by('timestamp')[:60] 
+
+    # 3. Optimized Serialization (Values List is faster than Model Instantiation)
+    data = list(pending_messages.values(
+        'id', 'client_id', 'sender__username', 'encrypted_content', 'timestamp'
+    ))
+
+    # Rename keys to match frontend expectation if needed
+    formatted_data = [
+        {
+            "id": msg['id'],
+            "client_id": str(msg['client_id']),
+            "sender": msg['sender__username'], # accessing joined field
+            "ciphertext": msg['encrypted_content'],
+            "timestamp": msg['timestamp'].isoformat()
+        } 
+        for msg in data
+    ]
+
+    return Response({"messages": formatted_data, "count": len(formatted_data)})
+
+
+
+@api_view(['POST'])
+def clear_chat_history(request, username):
+    """
+    Deletes all messages between the authenticated user and the target 'username'.
+    This clears the 'Server Queue' so messages don't re-sync.
+    """
+    try:
+        target_user = User.objects.get(username=username)
+        
+        # Delete messages where:
+        # 1. I sent it to them (sender=me, receiver=them)
+        # 2. They sent it to me (sender=them, receiver=me)
+        deleted_count, _ = Message.objects.filter(
+            Q(sender=request.user, receiver=target_user) | 
+            Q(sender=target_user, receiver=request.user)
+        ).delete()
+        
+        return Response({"status": "success", "deleted": deleted_count})
+        
+    except User.DoesNotExist:
+        return Response({"error": "User not found"}, status=404)
+    except Exception as e:
+        return Response({"error": str(e)}, status=500)
+    
+
+
+@api_view(['GET'])
+def chat_history(request, username):
+    """
+    WEB VIEW: Fetches full chat history with a specific user.
+    """
+    try:
+        target_user = User.objects.get(username=username)
+        
+        # Get all messages between Me and Target (Both directions)
+        messages = Message.objects.filter(
+            Q(sender=request.user, receiver=target_user) | 
+            Q(sender=target_user, receiver=request.user)
+        ).order_by('timestamp')
+        
+        data = []
+        for msg in messages:
+            data.append({
+                "id": msg.id,
+                "client_id": str(msg.client_id),
+                "sender": msg.sender.username,
+                "conversation_id": username, 
+                "content": msg.encrypted_content, 
+                "encrypted_content": msg.encrypted_content, 
+                "status": msg.status,
+                "timestamp": msg.timestamp.isoformat(),
+                "is_own": msg.sender == request.user
+            })
+            
+        return Response(data)
+        
+    except User.DoesNotExist:
+        return Response([], status=404)

@@ -64,7 +64,7 @@
         const formData = new FormData(form);
 
         try {
-            const res = await fetch('/auth/profile/me/', {
+            const res = await fetch('/auth/api/profileme/', {
                 method: 'PATCH',
                 body: formData,
                 headers: {

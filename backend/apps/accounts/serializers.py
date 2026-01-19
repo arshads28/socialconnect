@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 # from .models import Connection
 
 User = get_user_model()
@@ -9,18 +10,20 @@ class ProfileSerializer(serializers.ModelSerializer):
     avatar_url = serializers.SerializerMethodField()
     is_own_profile = serializers.SerializerMethodField()
     connection_status = serializers.SerializerMethodField()
-    # followers_count = serializers.SerializerMethodField()
-    # following_count = serializers.SerializerMethodField()
+    is_online = serializers.SerializerMethodField()
+
 
     class Meta:
         model = User
         fields = (
-            'username', 'email', 'bio', 'interests',
+            'id', 'username', 'email', 'bio', 'interests',
             'avatar', 'avatar_url',
             'is_own_profile',
             'connection_status',
+            'is_online',
+            'last_seen'
         )
-        read_only_fields = ('username', 'email')
+        read_only_fields = ('id', 'username', 'email')
 
     def get_avatar_url(self, obj):
         request = self.context['request']
@@ -29,15 +32,6 @@ class ProfileSerializer(serializers.ModelSerializer):
     def get_is_own_profile(self, obj):
         return self.context['request'].user == obj
     
-    def validate_avatar(self, value):
-        if value.size > 1 * 1024 * 1024:
-            raise serializers.ValidationError("Avatar must be under 1MB")
-
-        if not value.content_type.startswith("image/"):
-            raise serializers.ValidationError("Invalid image type")
-
-        return value
-
 
     def get_connection_status(self, obj):
         request = self.context.get('request')
@@ -47,17 +41,26 @@ class ProfileSerializer(serializers.ModelSerializer):
         if request.user == obj:
             return 'SELF'
 
-        # Check if the logged-in user has this profile in their 'blocking' list
-        if request.user.blocking.filter(pk=obj.pk).exists():
+        # We read the attribute annotated in get_queryset
+        is_blocked = getattr(obj, 'is_blocked_by_me', False)
+        
+        if is_blocked:
             return 'BLOCKED'
 
         return 'NONE'
+    
+    def get_is_online(self,obj):
+        is_online = (f"user_online_{obj.id}")
+        return True if is_online else False
 
     def validate_avatar(self, value):
         if value.size > 1 * 1024 * 1024:
             raise serializers.ValidationError("Avatar must be under 1MB")
-        return value
 
+        if not value.content_type.startswith("image/"):
+            raise serializers.ValidationError("Invalid image type")
+
+        return value
 
 
     #     conn = Connection.objects.filter(sender=request.user,receiver=obj).first()

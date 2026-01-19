@@ -16,3 +16,6 @@ gunicorn
 whitenoise
 dj-database-url
 pillow-heif
+django-redis
+djangorestframework-simplejwt
+exponent-server-sdk

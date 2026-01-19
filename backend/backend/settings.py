@@ -15,6 +15,7 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 import dj_database_url
+from datetime import timedelta
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -86,7 +87,6 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
-                'apps.chat.context_processors.global_inbox_list',
             ],
         },
     },
@@ -97,25 +97,66 @@ WSGI_APPLICATION = 'backend.wsgi.application'
 ASGI_APPLICATION = "backend.asgi.application"
 
 
+
+CORS_ALLOW_ALL_ORIGINS = False # True is dangerous, keep it False
+
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    r"^https://\w+\.onrender\.com$",  # Matches your Render URL
+    r"^http://localhost:[0-9]+$",     # Matches localhost on ANY port
+    r"^http://127\.0\.0\.1:[0-9]+$",  # Matches 127.0.0.1 on ANY port
+    r"^http://10\.0\.2\.2:[0-9]+$",   # Matches Android Emulator
+    r"^http://192\.168\.\d{1,3}\.\d{1,3}:[0-9]+$", # Matches ANY local WiFi IP
+    r"^http://10\.33\.\d{1,3}\.\d{1,3}:[0-9]+$", # Matches your 10.33.x.x range
+    r"^http://localhost:[0-9]+$",
+    r"^http://127\.0\.0\.1:[0-9]+$",
+]
+
+CORS_ALLOW_CREDENTIALS = True
+
+
+REDIS_URL = os.environ.get("REDIS_URL", "redis://127.0.0.1:6379")
+
+
+CACHES = {
+    "default": {
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": REDIS_URL,
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+            "SOCKET_CONNECT_TIMEOUT": 5,
+            "SOCKET_TIMEOUT": 5,
+        },
+    }
+}
+
+
 CHANNEL_LAYERS = {
     "default": {
-        "BACKEND": "channels.layers.InMemoryChannelLayer",
-    }
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "CONFIG": {
+            "hosts": [REDIS_URL],
+            "capacity": 1000,
+            "expiry": 60,
+        },
+    },
 }
 
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
 # DATABASES = {
-#     'default': {
-#         'ENGINE': 'django.db.backends.postgresql',
-#         'NAME': os.getenv('DB_NAME','connectdb'),
-#         'USER': os.getenv('DB_USER','connect'),
-#         'PASSWORD': os.getenv('DB_PASSWORD','connect'),
-#         'HOST': os.getenv('DB_HOST', 'localhost'),
-#         'PORT': os.getenv('DB_PORT', '5432'),
+#     "default": {
+#         "ENGINE": "django.db.backends.postgresql",
+#         "NAME": os.getenv("DB_NAME", "connectdb"),
+#         "USER": os.getenv("DB_USER", "connect"),
+#         "PASSWORD": os.getenv("DB_PASSWORD", "connect"),
+#         "HOST": os.getenv("DB_HOST", "localhost"),
+#         "PORT": os.getenv("DB_PORT", "5432"),
+#         "CONN_MAX_AGE": 600,
+#         "CONN_HEALTH_CHECKS": True,
 #     }
 # }
+
 
 LOCAL_DB_URL = f"postgres://{os.getenv('DB_USER','connect')}:{os.getenv('DB_PASSWORD','connect')}@{os.getenv('DB_HOST', 'localhost')}:{os.getenv('DB_PORT', '5432')}/{os.getenv('DB_NAME','connectdb')}"
 
@@ -153,12 +194,37 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 
+
+
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+    ],
+    "DEFAULT_PERMISSION_CLASSES": [
+        "rest_framework.permissions.IsAuthenticated",
+    ],
+    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
+    "PAGE_SIZE": 12,
+}
+
+
+SIMPLE_JWT = {
+    "AUTH_HEADER_TYPES": ("Bearer",),
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=15),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=90),
+    'ROTATE_REFRESH_TOKENS': True, 
+    'BLACKLIST_AFTER_ROTATION': True,
+    'UPDATE_LAST_LOGIN': True,
+}
+
+
+
 # Internationalization
 # https://docs.djangoproject.com/en/6.0/topics/i18n/
 
 LANGUAGE_CODE = 'en-us'
 
-TIME_ZONE = 'Asia/Kolkata'
+TIME_ZONE = 'UTC'
 
 USE_L10N = True
 
@@ -234,6 +300,8 @@ LOGOUT_REDIRECT_URL = "/auth/login/"
 
 
 
+
+
 LOGGING_DIR = os.path.join(BASE_DIR, 'logs')
 if not os.path.exists(LOGGING_DIR):
     os.makedirs(LOGGING_DIR)
@@ -280,3 +348,8 @@ if not os.path.exists(LOGGING_DIR):
 #         }
 #     },
 # }
+
+
+
+
+

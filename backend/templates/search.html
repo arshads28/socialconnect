@@ -142,13 +142,14 @@
 <script>
     // 1. OPEN SEARCH
     function toggleSearch(e) {
-        if(e && e.preventDefault) e.preventDefault();
-        
+        if (e && e.preventDefault) e.preventDefault();
+
         const el = document.getElementById('search-overlay');
         const input = document.getElementById('live-search-input');
-        
+
         if (el.style.display !== 'flex') {
             el.style.display = 'flex';
+            input.value = "";
             input.focus();
             history.pushState({ modal: 'search' }, null, "");
         }
@@ -160,71 +161,107 @@
     }
 
     // 3. BACK BUTTON HANDLER
-    window.addEventListener('popstate', function(event) {
+    window.addEventListener('popstate', function () {
         const searchOverlay = document.getElementById('search-overlay');
         if (searchOverlay && searchOverlay.style.display === 'flex') {
             searchOverlay.style.display = 'none';
         }
     });
 
-    // 4. LIVE FETCH LOGIC
+    // 4. LIVE SEARCH LOGIC
     const sInput = document.getElementById('live-search-input');
     const sList = document.getElementById('search-results-list');
-    let sTimeout = null;
+
+    let debounceTimer = null;
+    let abortController = null;
 
     if (sInput) {
-        sInput.addEventListener('input', function() {
+        sInput.addEventListener('input', function () {
             const query = this.value.trim();
-            clearTimeout(sTimeout);
+            clearTimeout(debounceTimer);
 
-            if(query.length === 0) {
-                sList.innerHTML = '<div style="text-align: center; color: #999; margin-top: 40px;">Type to find friends...</div>';
+            // Reset UI
+            if (query.length < 2) {
+                if (abortController) abortController.abort();
+                sList.innerHTML = `
+                    <div style="text-align:center; color:#999; margin-top:40px;">
+                        Type at least 2 characters…
+                    </div>`;
                 return;
             }
 
-            sTimeout = setTimeout(() => {
-                // Show Loader
-                sList.innerHTML = `<div class="s-loader-container"><div class="s-spinner"></div></div>`;
+            debounceTimer = setTimeout(() => {
+                // Cancel previous request
+                if (abortController) abortController.abort();
+                abortController = new AbortController();
 
-                fetch(`/chat/search/?q=${query}`)
-                    .then(res => res.json())
-                    .then(data => {
-                        let html = '';
-                        if(data.results.length === 0) {
-                            html = '<div style="text-align:center; padding:20px; color:#999">No users found.</div>';
-                        } else {
-                            data.results.forEach(user => {
-                                let imgHtml = user.avatar_url 
-                                    ? `<img src="${user.avatar_url}" class="s-avatar-img">`
-                                    : `<div class="s-avatar-placeholder">👤</div>`;
-                                
-                                // Assuming URL structure is /auth/profile/username or /profile/username
-                                // Adjust the HREF below to match your urls.py for profile view
-                                //const profileUrl = `/auth/profile/${user.username}/`; 
+                // Loader
+                sList.innerHTML = `
+                    <div class="s-loader-container">
+                        <div class="s-spinner"></div>
+                    </div>`;
 
-                                html += `
+                fetch(`/chat/search/?q=${encodeURIComponent(query)}`, {
+                    signal: abortController.signal
+                })
+                .then(res => {
+                    if (res.status === 429) {
+                        throw new Error("RATE_LIMIT");
+                    }
+                    return res.json();
+                })
+                .then(data => {
+                    let html = "";
+
+                    if (!data.results || data.results.length === 0) {
+                        html = `
+                            <div style="text-align:center; padding:20px; color:#999">
+                                No users found.
+                            </div>`;
+                    } else {
+                        data.results.forEach(user => {
+                            const avatar = user.avatar_url
+                                ? `<img src="${user.avatar_url}" class="s-avatar-img">`
+                                : `<div class="s-avatar-placeholder">👤</div>`;
+
+                            html += `
                                 <div class="s-user-row">
-                                    <div onclick="openProfile('${user.username}')" class="s-profile-link" style="cursor:pointer;">
-                                        ${imgHtml}
+                                    <div class="s-profile-link" onclick="openProfile('${user.username}')">
+                                        ${avatar}
                                         <div>
                                             <div class="s-username">${user.username}</div>
-                                            <div class="s-bio">${user.bio || 'Connect User'}</div>
+                                            <div class="s-bio">${user.bio || "Connect User"}</div>
                                         </div>
                                     </div>
-                                                            
-                                    <button class="s-msg-btn" onclick="openChatPopup('${user.username}', '${user.avatar_url}')">
+
+                                    <button class="s-msg-btn"
+                                        onclick="openChatPopup('${user.username}', '${user.avatar_url || ""}')">
                                         Chat
                                     </button>
                                 </div>`;
-                            });
-                        }
-                        sList.innerHTML = html;
-                    })
-                    .catch(err => {
-                        console.error(err);
-                        sList.innerHTML = '<div style="text-align:center; color:red;">Error loading.</div>';
-                    });
-            }, 500);
+                        });
+                    }
+
+                    sList.innerHTML = html;
+                })
+                .catch(err => {
+                    if (err.name === "AbortError") return;
+
+                    if (err.message === "RATE_LIMIT") {
+                        sList.innerHTML = `
+                            <div style="text-align:center; color:#e74c3c; padding:20px;">
+                                You're searching too fast. Please wait a moment.
+                            </div>`;
+                        return;
+                    }
+
+                    console.error(err);
+                    sList.innerHTML = `
+                        <div style="text-align:center; color:red;">
+                            Error loading results.
+                        </div>`;
+                });
+            }, 400); // debounce delay
         });
     }
 </script>

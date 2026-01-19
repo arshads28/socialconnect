@@ -104,8 +104,8 @@
 
         try {
             // 2. Fetch Data (Make sure URL matches your urls.py)
-            // Note: Update '/auth/profile/' if needed based on your urls.py
-            const res = await fetch(`/auth/profile/${username}/`);
+            // Note: Update '/auth/api/profile' if needed based on your urls.py
+            const res = await fetch(`/auth/api/profile${username}/`);
             if(!res.ok) throw new Error("User not found");
             
             const data = await res.json();
@@ -213,9 +213,9 @@
         confirmBtn.disabled = true;
 
         try {
-            // URL Structure: /auth/profile/{username}/block/  OR  /unblock/
+            // URL Structure: /auth/api/profile{username}/block/  OR  /unblock/
             // NOTE: Ensure these match your router URLs exactly!
-            const endpoint = `/auth/profile/${currentProfileUser.username}/${actionType}/`;
+            const endpoint = `/auth/api/profile${currentProfileUser.username}/${actionType}/`;
 
             const res = await fetch(endpoint, {
                 method: 'POST',
