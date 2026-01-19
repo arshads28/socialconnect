@@ -11,7 +11,10 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import NetInfo from '@react-native-community/netinfo';
 import { registerBackgroundFetchAsync } from '../utils/backgroundTasks';
 import { processOfflineQueue } from '../utils/offlineQueue';
-import { syncPendingMessages } from '../utils/sync'; // Import this
+import { syncPendingMessages } from '../utils/sync';
+import { WebRTCProvider } from '../contexts/WebRTCContext';
+import { CallOverlay } from '../contexts/CallComponent';
+import Toast from 'react-native-toast-message';
 
 function RootLayoutNav() {
   const colorScheme = useColorScheme();
@@ -82,6 +85,8 @@ function RootLayoutNav() {
         <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
       </Stack>
       <StatusBar style="auto" />
+      <CallOverlay /> 
+      <Toast />
     </ThemeProvider>
   );
 }
@@ -90,7 +95,9 @@ export default function RootLayout() {
   return (
     <AuthProvider>
       <WebSocketProvider>
-        <RootLayoutNav />
+         <WebRTCProvider>
+            <RootLayoutNav />
+         </WebRTCProvider>
       </WebSocketProvider>
     </AuthProvider>
   );

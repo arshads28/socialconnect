@@ -18,6 +18,8 @@ import { useAuth } from '../../context/AuthContext';
 import { syncChatMessages } from '../../utils/sync';
 import NetInfo from '@react-native-community/netinfo';
 
+import { CallHeaderButton } from '../../contexts/CallComponent';
+
 export default function ChatScreen() {
   const { username } = useLocalSearchParams<{ username: string }>();
   const router = useRouter();
@@ -270,7 +272,12 @@ export default function ChatScreen() {
             <TouchableOpacity onPress={handleClearChat}>
                  <Ionicons name="trash-outline" size={22} color="#ff3b30" />
             </TouchableOpacity>
-            <Ionicons name="call-outline" size={24} color="#0095f6" />
+            {targetProfile?.id && (
+              <>
+                <CallHeaderButton targetId={targetProfile.id} isVideo={false} />
+                <CallHeaderButton targetId={targetProfile.id} isVideo={true} />
+              </>
+            )}
         </View>
       </View>
 
