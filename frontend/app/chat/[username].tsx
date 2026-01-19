@@ -105,7 +105,7 @@ export default function ChatScreen() {
 
   const fetchTargetProfile = async () => {
     try {
-      const res = await api.get(`/auth/profile/${username}/`);
+      const res = await api.get(`/auth/api/profile/${username}/`);
       setTargetProfile(res.data);
       // setIsOnline(res.data.is_online);
     } catch (e) {

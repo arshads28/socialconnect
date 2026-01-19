@@ -372,10 +372,14 @@ class UnifiedConsumer(AsyncWebsocketConsumer):
             
             # Run the synchronous push function in a thread
             await database_sync_to_async(send_push_notification)(
-                receiver, # <--- Pass the User object, not 'tokens'
+                receiver,
                 f"New message from {self.user.username}",
-                "You have a new encrypted message",
-                {"type": "chat", "sender": self.user.username}
+                "Tap to reply",                            
+                {
+                    "type": "chat", 
+                    "sender": self.user.username,
+                    "url": f"/chat/{self.user.username}"
+                }
             )
         except Exception as e:
             print(f"Push Notification Logic Error: {e}")
