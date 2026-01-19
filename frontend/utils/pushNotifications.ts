@@ -21,8 +21,6 @@ let isRegistering = false;
 
 // 2. REGISTER
 export async function registerForPushNotificationsAsync() {
-  if (Platform.OS === 'web') return;
-
   if (isRegistering) {
       console.log("⚠️ Push registration already in progress. Skipping.");
       return;
@@ -58,7 +56,10 @@ export async function registerForPushNotificationsAsync() {
       }
 
       try {
-        const projectId = Constants.expoConfig?.extra?.eas?.projectId ?? Constants.manifest?.extra?.eas?.projectId;
+        const projectId = 
+          Constants.expoConfig?.extra?.eas?.projectId || 
+          // @ts-ignore: Fallback for older SDKs
+          Constants.manifest?.extra?.eas?.projectId;
         
         const tokenData = await Notifications.getExpoPushTokenAsync({
           projectId: projectId, 

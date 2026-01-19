@@ -51,7 +51,10 @@
         "android.permission.SYSTEM_ALERT_WINDOW",
         "android.permission.BLUETOOTH",
         "android.permission.BIND_TELECOM_CONNECTION_SERVICE",
-        "android.permission.CALL_PHONE"
+        "android.permission.CALL_PHONE",
+        "android.permission.FOREGROUND_SERVICE_CAMERA",
+        "android.permission.FOREGROUND_SERVICE_MICROPHONE", 
+        "android.permission.FOREGROUND_SERVICE_PHONE_CALL"
       ]
     },
     "extra": {

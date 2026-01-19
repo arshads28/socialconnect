@@ -1,8 +1,10 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Modal } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Modal, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useWebRTC, CallState } from './WebRTCContext';
-import { RTCView } from 'react-native-webrtc';
+import { useWebRTC } from './WebRTCContext'; 
+// ✅ Import directly from library again
+import { RTCView } from 'react-native-webrtc'; 
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 export const CallHeaderButton = ({ targetId, isVideo = false }: { targetId: string, isVideo?: boolean }) => {
   const { startCall } = useWebRTC();
@@ -33,8 +35,15 @@ export const CallOverlay = () => {
   if ((callState as string) === 'idle') return null;
 
   return (
-    <Modal visible={callState !== 'idle'} animationType="slide" transparent={false}>
-      <View style={styles.container}>
+    <Modal 
+      visible={(callState as string) !== 'idle'}
+      animationType="slide" 
+      transparent={false}
+      onRequestClose={() => {
+        // Handle Android hardware back button if needed
+      }}
+    >
+      <SafeAreaView style={styles.container}>
         
         {/* 1. VIDEO STREAMS */}
         {isVideoEnabled && (
@@ -54,14 +63,14 @@ export const CallOverlay = () => {
                   streamURL={localStream.toURL()}
                   style={styles.localVideo}
                   objectFit="cover"
-                  zOrder={1} 
+                  zOrder={1} // Important for Android overlay
                 />
               </View>
             )}
           </View>
         )}
 
-        {/* 2. CALL INFO (If Audio Only) */}
+        {/* 2. CALL INFO (Audio Only) */}
         {!isVideoEnabled && (
           <View style={styles.infoContainer}>
             <View style={styles.avatarPlaceholder}>
@@ -115,7 +124,7 @@ export const CallOverlay = () => {
             </View>
           )}
         </View>
-      </View>
+      </SafeAreaView>
     </Modal>
   );
 };
@@ -125,7 +134,7 @@ const styles = StyleSheet.create({
   videoContainer: { flex: 1, position: 'relative' },
   remoteVideo: { flex: 1, backgroundColor: '#000' },
   localVideoWrapper: {
-    position: 'absolute', top: 50, right: 20,
+    position: 'absolute', top: 20, right: 20, 
     width: 100, height: 150,
     borderRadius: 10, overflow: 'hidden',
     borderWidth: 2, borderColor: '#fff', elevation: 5
@@ -135,7 +144,7 @@ const styles = StyleSheet.create({
   avatarPlaceholder: { width: 100, height: 100, borderRadius: 50, backgroundColor: '#555', justifyContent: 'center', alignItems: 'center', marginBottom: 20 },
   callerName: { fontSize: 24, fontWeight: 'bold', color: '#fff', marginBottom: 10 },
   callStatus: { fontSize: 16, color: '#aaa' },
-  controlsContainer: { paddingBottom: 50, paddingTop: 20, alignItems: 'center' },
+  controlsContainer: { paddingBottom: 30, paddingTop: 20, alignItems: 'center' },
   incomingControls: { flexDirection: 'row', width: '80%', justifyContent: 'space-between' },
   activeControls: { flexDirection: 'row', gap: 20, alignItems: 'center' },
   btn: { alignItems: 'center', justifyContent: 'center' },

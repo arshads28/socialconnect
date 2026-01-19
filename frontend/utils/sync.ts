@@ -1,13 +1,21 @@
 import api from './api';
 import { 
-  getQueue, addToQueue, getMessagesForChat, updateMessageStatus, getLocalInbox, saveMessage
+  getQueue, addToQueue, getMessagesForChat, updateMessageStatus, getLocalInbox, saveMessage, Message
 } from './db';
 import { decryptMessage } from './crypto';
-import { DeviceEventEmitter, Platform } from 'react-native';
+import { DeviceEventEmitter } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getSecure } from './storage';
 
 const LAST_SYNC_TS_KEY = 'connect_last_sync_ts_v1';
+
+// Type definition for Inbox items
+interface InboxChat {
+  conversation_id: string;
+  sender: string;
+  last_message?: string;
+  unread_count?: number;
+}
 
 // 1. GLOBAL SYNC (Background "Postman" fetch)
 
@@ -26,14 +34,9 @@ export const syncPendingMessages = async () => {
     const token = await getSecure('accessToken');
     if (!token) return;
 
-    // console.log("📥 Checking for pending messages..."); // Optional log to reduce noise
+    // console.log("📥 Checking for pending messages..."); 
 
-    let lastSyncTime = null;
-    if (Platform.OS === 'web') {
-        lastSyncTime = localStorage.getItem(LAST_SYNC_TS_KEY);
-    } else {
-        lastSyncTime = await AsyncStorage.getItem(LAST_SYNC_TS_KEY);
-    }
+    const lastSyncTime = await AsyncStorage.getItem(LAST_SYNC_TS_KEY);
 
     const url = lastSyncTime 
         ? `/chat/sync/?last_sync=${encodeURIComponent(lastSyncTime)}` 
@@ -52,7 +55,14 @@ export const syncPendingMessages = async () => {
     let newestTimestamp = lastSyncTime; 
 
     for (const msg of messages) {
-      const plainText = decryptMessage(msg.ciphertext);
+      // Safety: Handle decryption errors gracefully
+      let plainText = "";
+      try {
+        plainText = decryptMessage(msg.ciphertext);
+      } catch (e) {
+        console.warn(`Failed to decrypt message ${msg.id}`);
+        plainText = "Encrypted message";
+      }
       
       saveMessage({
         id: msg.id.toString(),
@@ -71,11 +81,7 @@ export const syncPendingMessages = async () => {
     }
 
     if (newestTimestamp) {
-        if (Platform.OS === 'web') {
-            localStorage.setItem(LAST_SYNC_TS_KEY, newestTimestamp);
-        } else {
-            await AsyncStorage.setItem(LAST_SYNC_TS_KEY, newestTimestamp);
-        }
+        await AsyncStorage.setItem(LAST_SYNC_TS_KEY, newestTimestamp);
     }
 
     DeviceEventEmitter.emit('new_message', { count });
@@ -130,7 +136,13 @@ export const syncChatMessages = async (username: string) => {
     if (!Array.isArray(messages)) return;
 
     for (const msg of messages) {
-      const plainText = decryptMessage(msg.encrypted_content);
+      let plainText = "";
+      try {
+        plainText = decryptMessage(msg.encrypted_content);
+      } catch (e) {
+        plainText = "Encrypted message";
+      }
+
       saveMessage({
         id: msg.id.toString(),
         client_id: msg.client_id,
@@ -162,24 +174,27 @@ export const resendStuckMessages = async () => {
         if (!token) return;
 
         // console.log("🧹 Checking for stuck messages...");
-        const inbox = getLocalInbox();
+        
+        // ✅ 1. EXPLICIT CAST to fix 'chat is unknown'
+        const inbox = getLocalInbox() as InboxChat[];
         
         for (const chat of inbox) {
-            const messages = getMessagesForChat(chat.conversation_id);
+            // ✅ 2. EXPLICIT CAST to fix 'msg is unknown'
+            const messages = getMessagesForChat(chat.conversation_id) as Message[];
+            
             const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000).toISOString();
             
-            const stuckMessages = messages.filter(m => 
+            const stuckMessages = messages.filter((m) => 
                 m.status === 'sending' && 
-                m.is_own === 1 && 
+                (m.is_own === 1 || m.is_own === true) && 
                 m.timestamp < twoMinutesAgo
             );
 
             for (const msg of stuckMessages) {
-                // Ensure we don't re-queue if it's already in the queue (simple check)
                 const payload = {
                     conversation_id: chat.conversation_id,
                     recipient_id: msg.recipient_id, 
-                    ciphertext: msg.content,
+                    ciphertext: msg.content, // Assuming content is handled correctly
                     client_id: msg.client_id
                 };
 

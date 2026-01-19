@@ -3,6 +3,14 @@ import api from './api';
 import { getSecure } from './storage';
 import { Platform } from 'react-native';
 
+//Define Type for Queue Task
+interface QueueTask {
+  id: number;
+  action_type: string;
+  payload: string; // JSON string
+  timestamp?: string;
+}
+
 const BATCH_SIZE = 5; 
 let isProcessingQueue = false;
 
@@ -23,7 +31,8 @@ export const processOfflineQueue = async () => {
           return;
       }
 
-      const queue = getQueue();
+      const queue = getQueue() as QueueTask[];
+
       if (queue.length === 0) return;
 
       const batch = queue.slice(0, BATCH_SIZE);
@@ -68,14 +77,8 @@ export const processOfflineQueue = async () => {
       }
 
       // Recursive check (only if we processed successfully)
-      const remaining = getQueue();
+      const remaining = getQueue() as QueueTask[];
       if (remaining.length > 0) {
-          // Release lock briefly so recursion can re-acquire it if needed, 
-          // or just call recursively.
-          // Better: just loop or call self. 
-          // Since we are async, we can just let the lock release and next trigger handle it,
-          // OR recursively call.
-          // Let's release lock and check again via timeout to allow UI updates.
           isProcessingQueue = false; 
           setTimeout(() => processOfflineQueue(), 1000);
       } else {
@@ -83,8 +86,9 @@ export const processOfflineQueue = async () => {
       }
 
   } finally {
-      // 🔓 UNLOCK ALWAYS (Even if crash)
-      if (getQueue().length === 0) {
+      // Check queue length again safely
+      const finalQueue = getQueue() as QueueTask[];
+      if (finalQueue.length === 0) {
           isProcessingQueue = false; 
       }
   }
@@ -137,5 +141,5 @@ const processSendMessage = async (data: any) => {
 export const clearOfflineQueue = () => {
     console.log("🧨 Nuking Offline Queue...");
     clearQueue();
-    isProcessingQueue = false; // Reset lock
+    isProcessingQueue = false;
 };
