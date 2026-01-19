@@ -1,100 +1,103 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
 import api from './api'; 
-import { getDeviceId } from './deviceId'; 
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// 1. CONFIG: Handler Settings
+// 1. CONFIG
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
     shouldPlaySound: true,
     shouldSetBadge: true,
-    shouldShowBanner: true, 
+    shouldShowBanner: true,
     shouldShowList: true,
   }),
 });
 
-// 2. Main Registration Function
+// 🔒 LOCK
+let isRegistering = false;
+
+// 2. REGISTER
 export async function registerForPushNotificationsAsync() {
-  if (Platform.OS === 'web') {
-    return;
-  }
+  if (Platform.OS === 'web') return;
 
-  // A. Android: Create High Priority Channel (Essential for Pop-up)
-  if (Platform.OS === 'android') {
-    await Notifications.setNotificationChannelAsync('default', {
-      name: 'Default',
-      importance: Notifications.AndroidImportance.MAX, 
-      vibrationPattern: [0, 250, 250, 250],
-      lightColor: '#FF231F7C',
-      sound: 'default',
-      enableVibrate: true,
-      enableLights: true,
-      showBadge: true,
-      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
-    });
-  }
-
-  // B. Get Permissions FIRST
-  if (Device.isDevice) {
-    const { status: existingStatus } = await Notifications.getPermissionsAsync();
-    let finalStatus = existingStatus;
-    
-    if (existingStatus !== 'granted') {
-      const { status } = await Notifications.requestPermissionsAsync();
-      finalStatus = status;
-    }
-    
-    if (finalStatus !== 'granted') {
-      console.log('Permission not granted for push notifications!');
+  if (isRegistering) {
+      console.log("⚠️ Push registration already in progress. Skipping.");
       return;
+  }
+  isRegistering = true;
+
+  try {
+    if (Platform.OS === 'android') {
+      await Notifications.setNotificationChannelAsync('social_alerts', {
+        name: 'Social Alerts',
+        importance: Notifications.AndroidImportance.MAX, 
+        vibrationPattern: [0, 250, 250, 250],
+        lightColor: '#FF231F7C',
+        sound: 'default',
+        enableVibrate: true,
+        showBadge: true,
+        lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+      });
     }
 
-    // C. Get Expo Push Token
-    try {
-      // Define projectId HERE, before using it
-      const projectId = Constants.expoConfig?.extra?.eas?.projectId ?? Constants.manifest?.extra?.eas?.projectId;
+    if (Device.isDevice) {
+      const { status: existingStatus } = await Notifications.getPermissionsAsync();
+      let finalStatus = existingStatus;
       
-      const tokenData = await Notifications.getExpoPushTokenAsync({
-        projectId: projectId, 
-      });
-      const newToken = tokenData.data;
-      console.log("🔔 Expo Push Token Generated:", newToken);
-
-      // ✅ OPTIMIZATION: Check if token is different from last time
-      // This prevents spamming the backend if the token hasn't changed
-      const storedToken = await AsyncStorage.getItem('lastPushToken');
+      if (existingStatus !== 'granted') {
+        const { status } = await Notifications.requestPermissionsAsync();
+        finalStatus = status;
+      }
       
-      if (newToken !== storedToken) {
-        console.log("🔔 New Push Token detected, syncing to backend...");
-        await sendPushTokenToBackend(newToken);
-        
-        // Save the new token so we don't send it again next time
-        await AsyncStorage.setItem('lastPushToken', newToken);
-      } else {
-        console.log("✅ Push Token unchanged, skipping sync.");
+      if (finalStatus !== 'granted') {
+        console.log('Permission not granted for push notifications!');
+        return;
       }
 
-      return newToken;
+      try {
+        const projectId = Constants.expoConfig?.extra?.eas?.projectId ?? Constants.manifest?.extra?.eas?.projectId;
+        
+        const tokenData = await Notifications.getExpoPushTokenAsync({
+          projectId: projectId, 
+        });
+        const newToken = tokenData.data;
+        
+        const storedToken = await AsyncStorage.getItem('lastPushToken');
+        
+        if (newToken !== storedToken) {
+          console.log("🔔 New Push Token detected, syncing...");
+          await sendPushTokenToBackend(newToken);
+          await AsyncStorage.setItem('lastPushToken', newToken);
+        } else {
+          console.log("✅ Push Token up to date.");
+        }
 
-    } catch (e) {
-      console.error("Error fetching Expo push token:", e);
+        return newToken;
+
+      } catch (e) {
+        console.error("Error fetching Expo push token:", e);
+      }
+    } else {
+      console.log('Must use physical device for Push Notifications');
     }
-  } else {
-    console.log('Must use physical device for Push Notifications');
+  } finally {
+    isRegistering = false;
   }
 }
 
-// 3. API Logic
-async function sendPushTokenToBackend(pushToken: string) {
+// 3. API CALL
+export async function sendPushTokenToBackend(pushToken: string) {
   try {
-    const deviceId = await getDeviceId(); 
+    let deviceId = await AsyncStorage.getItem('device_installation_id');
+    if (!deviceId) {
+        deviceId = Math.random().toString(36).substring(7);
+        await AsyncStorage.setItem('device_installation_id', deviceId);
+    }
 
-    // URL matches your Django 'urls.py'
-    await api.post('auth/api/push/register/', { 
+    await api.post('/auth/api/push/register/', { 
         token: pushToken, 
         platform: Platform.OS,
         device_id: deviceId,

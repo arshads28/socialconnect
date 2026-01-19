@@ -35,14 +35,18 @@ export default function ChatScreen() {
   const typingTimeout = useRef<any>(null);
   const lastTypingSent = useRef<number>(0);
 
-  // 1. INITIAL LOAD & SYNC
+  // 1. DATA LOADING (Profile + Messages)
   useEffect(() => {
     let isMounted = true;
 
     const initChat = async () => {
+      // Load local cache first for speed
       loadLocalMessages();
-      fetchTargetProfile();
+      
+      // Fetch Profile (Critical for getting UUID)
+      await fetchTargetProfile();
 
+      // Sync latest from server
       const synced = await syncChatMessages(username as string);
       
       if (isMounted && synced) {
@@ -55,19 +59,26 @@ export default function ChatScreen() {
 
     initChat();
 
-    if (ws?.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ command: 'join_room', username }));
-    }
+    return () => { isMounted = false; };
+  }, [username]);
+
+  // 2. WEBSOCKET JOINING (Waits for UUID)
+  useEffect(() => {
+    // STOP: Don't join until we have the UUID (targetProfile.id)
+    if (!ws || ws.readyState !== WebSocket.OPEN || !targetProfile?.id) return;
+
+    console.log(`🔌 Joining room with UUID: ${targetProfile.id}`);
+    
+    ws.send(JSON.stringify({ command: 'join_room', recipient_id: targetProfile.id}));
 
     return () => {
-      isMounted = false;
-      if (ws?.readyState === WebSocket.OPEN) {
+      if (ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ command: 'leave_room' }));
       }
     };
-  }, [username, ws]);
+  }, [targetProfile, ws]); // Re-run when profile is loaded
 
-  // 2. LISTENERS
+  // 3. LISTENERS
   useEffect(() => {
     const msgListener = DeviceEventEmitter.addListener('new_message', (event) => {
       if (event.conversation_id === username) {
@@ -90,7 +101,8 @@ export default function ChatScreen() {
     });
 
     const presenceListener = DeviceEventEmitter.addListener('presence_update', (data) => {
-      if (data.username === username) {
+      // Update online status based on ID or Username match
+      if (data.username === username || data.user_id === targetProfile?.id) {
         setIsOnline(data.is_online);
       }
     });
@@ -101,13 +113,13 @@ export default function ChatScreen() {
       typingListener.remove();
       presenceListener.remove();
     };
-  }, [username]);
+  }, [username, targetProfile]);
 
   const fetchTargetProfile = async () => {
     try {
       const res = await api.get(`/auth/api/profile/${username}/`);
       setTargetProfile(res.data);
-      // setIsOnline(res.data.is_online);
+      if (res.data.is_online !== undefined) setIsOnline(res.data.is_online);
     } catch (e) {
       console.log("Error fetching profile", e);
     }
@@ -121,8 +133,9 @@ export default function ChatScreen() {
   const handleTyping = (val: string) => {
     setText(val);
     const now = Date.now();
-    if (val.length > 0 && (now - lastTypingSent.current > 2000)) {
-      sendTypingSignal(username as string);
+    // Only send if we have the profile ID loaded
+    if (val.length > 0 && (now - lastTypingSent.current > 2000) && targetProfile?.id) {
+      sendTypingSignal(targetProfile.id); // Updated to send ID if your context supports it
       lastTypingSent.current = now;
     }
   };
@@ -130,15 +143,23 @@ export default function ChatScreen() {
   const handleSend = async () => {
     if (!text.trim()) return;
 
+    // Safety check: Cannot send if profile not loaded (need UUID)
+    if (!targetProfile?.id) {
+        Alert.alert("Loading...", "Please wait for connection.");
+        return;
+    }
+
     const clientId = generateUUID();
     const ciphertext = encryptMessage(text);
     const timestamp = new Date().toISOString();
+    const recipientId = targetProfile.id; // ✅ Capture UUID
 
-    // 1. Optimistic Save (This creates the "Temporary" row)
+    // 1. Optimistic Save
     saveMessage({
       id: null, 
       client_id: clientId, 
       conversation_id: username,
+      recipient_id: recipientId, // Save UUID for offline sync
       sender: user?.username,
       content: text, 
       status: 'sending',
@@ -146,33 +167,26 @@ export default function ChatScreen() {
       is_own: true
     });
 
-    // 2. Refresh UI immediately
     loadLocalMessages();
     setText('');
     
-    // 3. Network Check & Queue
     const netState = await NetInfo.fetch();
 
     if (!netState.isConnected || ws?.readyState !== WebSocket.OPEN) {
-        // OFFLINE: Attempt to Queue
+        // OFFLINE
         const queued = addToQueue('SEND_MESSAGE', {
             conversation_id: username,
+            recipient_id: recipientId, // UUID for Sync
             ciphertext: ciphertext,
             client_id: clientId
         });
 
         if (!queued) {
-            Alert.alert(
-                "Not Sent", 
-                "Offline queue is full. Message not saved. Connect to internet."
-            );
-            // Optional: Remove the message if queue failed
-            // deleteLocalMessage(clientId); 
-            // loadLocalMessages();
+            Alert.alert("Not Sent", "Queue full.");
         }
     } else {
-        //  ONLINE: Send via Socket
-        sendMessage(username as string, ciphertext, clientId);
+        // ONLINE
+        sendMessage(recipientId, ciphertext, clientId);
     }
   };
 

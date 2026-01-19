@@ -1,68 +1,96 @@
-import { getQueue, removeFromQueue } from './db';
-import api, { BASE_URL } from './api';
+import { getQueue, removeFromQueue, clearQueue } from './db';
+import api from './api';
 import { getSecure } from './storage';
 import { Platform } from 'react-native';
 
-// ✅ CONFIG: Only process 5 items at a time to prevent freezing
 const BATCH_SIZE = 5; 
+let isProcessingQueue = false;
 
 export const processOfflineQueue = async () => {
-  const queue = getQueue();
-  
-  if (queue.length === 0) return;
-
-  // 1. Slice the Queue (Take only the first 5)
-  const batch = queue.slice(0, BATCH_SIZE);
-
-  console.log(`🔄 Processing batch of ${batch.length} (Total Pending: ${queue.length})...`);
-
-  for (const task of batch) {
-    try {
-      const payload = JSON.parse(task.payload);
-      let success = false;
-
-      switch (task.action_type) {
-        case 'CREATE_POST': 
-            success = await processCreatePost(payload); 
-            break;
-        case 'DELETE_POST': 
-            try { await api.delete(`/api/updates/${payload.postId}/`); success = true; } catch(e){ success = false; }
-            break;
-        case 'LIKE_POST': 
-            try { await api.post(`/api/updates/${payload.postId}/like/`); success = true; } catch(e){ success = false; }
-            break;
-        case 'SEND_MESSAGE': 
-            success = await processSendMessage(payload); 
-            break;
-      }
-
-      if (success) {
-        removeFromQueue(task.id);
-        console.log(`✅ Task ${task.id} (${task.action_type}) completed.`);
-      } else {
-        // If it fails (e.g. 500 error), leave it in queue but log it.
-        // It will be retried in the next run.
-        console.warn(`⚠️ Task ${task.id} failed, skipping for now.`);
-      }
-
-    } catch (error) {
-      console.error(`❌ Crashing error on task ${task.id}:`, error);
-    }
+  // 1. LOCK CHECK: If already running, stop.
+  if (isProcessingQueue) {
+      console.log("⚠️ Queue already processing. Skipping duplicate trigger.");
+      return;
   }
 
-  // 2. RECURSIVE CHECK
-  // If we still have items left in the DB, run again after 2 seconds
-  // This prevents UI lag.
-  const remaining = getQueue();
-  if (remaining.length > 0) {
-      console.log(`⏳ Resting for 2s before next batch...`);
-      setTimeout(() => processOfflineQueue(), 2000);
-  } else {
-      console.log("🎉 Offline Queue Cleared!");
+  try {
+      isProcessingQueue = true; // 🔒 LOCK
+
+      // 2. AUTH GUARD
+      const token = await getSecure('accessToken');
+      if (!token) {
+          console.log("🛑 Queue paused: No active session.");
+          return;
+      }
+
+      const queue = getQueue();
+      if (queue.length === 0) return;
+
+      const batch = queue.slice(0, BATCH_SIZE);
+      console.log(`🔄 Processing batch of ${batch.length} (Total Pending: ${queue.length})...`);
+
+      for (const task of batch) {
+        try {
+          const payload = JSON.parse(task.payload);
+          let success = false;
+
+          switch (task.action_type) {
+            case 'CREATE_POST': 
+                success = await processCreatePost(payload); 
+                break;
+            case 'DELETE_POST': 
+                try { await api.delete(`/api/updates/${payload.postId}/`); success = true; } 
+                catch(e: any){ if (e.response?.status === 401) throw e; success = false; }
+                break;
+            case 'LIKE_POST': 
+                try { await api.post(`/api/updates/${payload.postId}/like/`); success = true; } 
+                catch(e: any){ if (e.response?.status === 401) throw e; success = false; }
+                break;
+            case 'SEND_MESSAGE': 
+                success = await processSendMessage(payload); 
+                break;
+          }
+
+          if (success) {
+            removeFromQueue(task.id);
+            console.log(`✅ Task ${task.id} (${task.action_type}) completed.`);
+          } else {
+            console.warn(`⚠️ Task ${task.id} failed, skipping for now.`);
+          }
+
+        } catch (error: any) {
+          console.error(`❌ Error on task ${task.id}:`, error);
+          if (error.response?.status === 401 || error.message === "No refresh token") {
+              console.log("🛑 Auth failed. Pausing.");
+              return; 
+          }
+        }
+      }
+
+      // Recursive check (only if we processed successfully)
+      const remaining = getQueue();
+      if (remaining.length > 0) {
+          // Release lock briefly so recursion can re-acquire it if needed, 
+          // or just call recursively.
+          // Better: just loop or call self. 
+          // Since we are async, we can just let the lock release and next trigger handle it,
+          // OR recursively call.
+          // Let's release lock and check again via timeout to allow UI updates.
+          isProcessingQueue = false; 
+          setTimeout(() => processOfflineQueue(), 1000);
+      } else {
+          console.log("🎉 Offline Queue Cleared!");
+      }
+
+  } finally {
+      // 🔓 UNLOCK ALWAYS (Even if crash)
+      if (getQueue().length === 0) {
+          isProcessingQueue = false; 
+      }
   }
 };
 
-// --- HELPERS (Keep these the same) ---
+// --- HELPERS ---
 
 const processCreatePost = async (data: any) => {
   try {
@@ -82,7 +110,7 @@ const processCreatePost = async (data: any) => {
         } as any);
     }
 
-    const response = await fetch(`${BASE_URL}/api/updates/`, {
+    const response = await fetch(`${api.defaults.baseURL}api/updates/`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` },
         body: formData,
@@ -94,10 +122,20 @@ const processCreatePost = async (data: any) => {
 const processSendMessage = async (data: any) => {
     try {
         await api.post(`/chat/send/`, {
-            recipient: data.conversation_id,
+            recipient_id: data.recipient_id, 
             ciphertext: data.ciphertext, 
             client_id: data.client_id
         });
         return true;
-    } catch (e) { return false; }
+    } catch (e: any) { 
+        if (e.response?.status === 401) throw e;
+        console.error("Msg Sync Error:", e.response?.data || e.message);
+        return false; 
+    }
+};
+
+export const clearOfflineQueue = () => {
+    console.log("🧨 Nuking Offline Queue...");
+    clearQueue();
+    isProcessingQueue = false; // Reset lock
 };

@@ -1,73 +1,73 @@
 from exponent_server_sdk import (
-    PushClient, 
-    PushMessage, 
-    PushServerError, 
+    PushClient,
+    PushMessage,
+    PushServerError,
     DeviceNotRegisteredError
 )
-from requests.exceptions import ConnectionError, HTTPError # ✅ Fix: Import from requests
+from requests.exceptions import ConnectionError, HTTPError
 from .models import PushDevice
 
 def send_push_notification(user, title, body, data=None):
-    print("inside push nofificaiton")
-    # Select active devices for this user
-    devices = PushDevice.objects.filter(user=user, is_active=True)
+    """
+    Sends a push notification to ALL active devices belonging to a specific user.
+    """
+    devices = user.push_devices.filter(is_active=True)
     
-    # Filter out web (Expo Push doesn't support web natively in this flow)
-    valid_devices = [d for d in devices if d.platform != 'web']
+    if not devices.exists():
+        return
+
+    messages = []
     
-    if not valid_devices:
-        print("not valid devices")
+    for device in devices:
+        try:
+            message = PushMessage(
+                to=device.token,
+                title=title,
+                body=body,
+                data=data,
+                sound="default",
+                priority="high",
+                channel_id="social_alerts" 
+            )
+            messages.append(message)
+        except Exception as e:
+            print(f"⚠️ Error creating push message for {device.token}: {e}")
+
+    if messages:
+        send_push_notifications_batch(messages)
+
+
+def send_push_notifications_batch(messages):
+    """
+    Takes a list of PushMessage objects and sends them in a single batch (max 100).
+    """
+    if not messages:
         return
 
     try:
-        messages = []
-        for device in valid_devices:
-            # Basic check to prevent "Invalid Token" errors
-            if not device.token.startswith('ExponentPushToken'):
-                continue
-                
-            messages.append(
-                PushMessage(
-                    to=device.token,
-                    title=title,
-                    body=body,
-                    data=data,
-                    priority='high',
-                    sound='default',
-                    channel_id='default',
-                )
-            )
-        
-        if not messages:
-            return
-
-        # Send Batch
         responses = PushClient().publish_multiple(messages)
         
-        # ✅ FIX: Print 'responses' (plural)
-        print(f"Response from Expo: {responses}")
-
-        # Cleanup: Check for errors like "DeviceNotRegistered"
-        for i, response in enumerate(responses):
+        for response in responses:
             try:
-                # Expo returns status 'error' inside the response object if token is bad
-                if response.status == 'error':
-                    error_code = response.details.get('error')
-                    
-                    if error_code == 'DeviceNotRegistered':
-                        # The app was uninstalled on this specific device
-                        bad_device = valid_devices[i]
-                        print(f"🗑️ Deleting dead token for: {bad_device.device_name}")
-                        bad_device.delete()
-                        
-            except Exception as e:
-                print(f"Error parsing response: {e}")
-
-    except PushServerError as exc:
-        print(f"❌ Expo Server Error: {exc.errors}")
-        
+                response.validate_response()
+            except DeviceNotRegisteredError:
+                PushDevice.objects.filter(token=response.push_message.to).update(is_active=False)
+                print(f"⚠️ Device marked inactive: {response.push_message.to}")
+            except PushServerError as exc:
+                print(f"⚠️ Push Server Error: {exc.errors}")
+                
     except (ConnectionError, HTTPError) as exc:
-        print(f"❌ Network Error sending push: {exc}")
-        
+        print(f"❌ Network Error sending push batch: {exc}")
+
+
+def verify_delivery_receipts(receipt_ids):
+    if not receipt_ids: return
+    try:
+        client = PushClient()
+        receipts = client.get_push_notification_receipts(receipt_ids)
+        for receipt_id, status in receipts.items():
+            if status.get('status') == 'error':
+                 if status.get('details', {}).get('error') == 'DeviceNotRegistered':
+                     PushDevice.objects.filter(id=receipt_id).update(is_active=False)
     except Exception as e:
-        print(f"❌ General Push Error: {e}")
+        print(f"Error verifying receipts: {e}")

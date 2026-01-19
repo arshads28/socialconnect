@@ -16,6 +16,12 @@ from rest_framework.decorators import api_view
 from .serializers import InboxSerializer
 from django.utils.dateparse import parse_datetime
 
+from channels.layers import get_channel_layer
+from asgiref.sync import async_to_sync
+from rest_framework.views import APIView
+from rest_framework import status
+
+
 User = get_user_model()
 
 # @api_view(['GET'])
@@ -405,3 +411,61 @@ def chat_history(request, username):
         
     except User.DoesNotExist:
         return Response([], status=404)
+    
+
+
+
+class SendMessageAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        sender = request.user
+        recipient_id = request.data.get('recipient_id')
+        ciphertext = request.data.get('ciphertext')
+        client_id = request.data.get('client_id')
+
+        if not all([recipient_id, ciphertext, client_id]):
+            return Response({"error": "Missing fields"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # If we already have this message, don't create it again. Just return success.
+        if Message.objects.filter(client_id=client_id).exists():
+            existing_msg = Message.objects.get(client_id=client_id)
+            return Response({
+                "status": existing_msg.status, 
+                "id": existing_msg.id,
+                "message": "Message already sent"
+            }, status=status.HTTP_200_OK)
+
+        try:
+            receiver = User.objects.get(id=recipient_id)
+        except (User.DoesNotExist, ValueError):
+            return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        if receiver.blocking.filter(id=sender.id).exists() or sender.blocking.filter(id=receiver.id).exists():
+             return Response({"error": "You cannot message this user."}, status=status.HTTP_403_FORBIDDEN)
+
+        # 2. SAVE TO DB
+        message = Message.objects.create(
+            sender=sender,
+            receiver=receiver,
+            content=ciphertext,
+            client_id=client_id,
+            status='sent'
+        )
+
+        # 3. PUSH TO WEBSOCKET
+        channel_layer = get_channel_layer()
+        async_to_sync(channel_layer.group_send)(
+            f"user_{receiver.id}", 
+            {
+                "type": "chat_message",
+                "id": str(message.id),
+                "client_id": client_id,
+                "sender": sender.username,
+                "sender_id": str(sender.id),
+                "ciphertext": ciphertext,
+                "timestamp": message.timestamp.isoformat()
+            }
+        )
+
+        return Response({"status": "sent", "id": message.id}, status=status.HTTP_200_OK)
