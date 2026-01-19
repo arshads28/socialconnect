@@ -3,7 +3,7 @@ import { useEffect } from 'react';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { View, ActivityIndicator } from 'react-native';
+import { View, ActivityIndicator, Platform } from 'react-native';
 
 import { AuthProvider, useAuth } from '../context/AuthContext';
 import { WebSocketProvider } from '../contexts/WebSocketContext';
@@ -11,41 +11,59 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import NetInfo from '@react-native-community/netinfo';
 import { registerBackgroundFetchAsync } from '../utils/backgroundTasks';
 import { processOfflineQueue } from '../utils/offlineQueue';
+import { syncPendingMessages } from '../utils/sync'; // Import this
 
 function RootLayoutNav() {
   const colorScheme = useColorScheme();
-  const { isLoading } = useAuth(); 
+  const { isLoading, userToken } = useAuth(); 
   const router = useRouter();
 
-  // When internet comes back, process the queue automatically
+  // 1. NETWORK STATUS LISTENER
   useEffect(() => {
-    // 1. Register Background Fetch (For when app is KILLED)
+    if (!userToken) return;
+
     registerBackgroundFetchAsync();
 
-    // 2. NetInfo Listener (For when app is OPEN)
+    let timeout: NodeJS.Timeout;
+
     const unsubscribe = NetInfo.addEventListener(state => {
       if (state.isConnected && state.isInternetReachable) {
-        console.log(" Internet Restored (Foreground). Syncing...");
-        processOfflineQueue();
+        clearTimeout(timeout);
+        timeout = setTimeout(() => {
+            console.log("🌐 Internet Stable. Triggering Sync...");
+            processOfflineQueue();
+            syncPendingMessages();
+        }, 2000); // Wait 2 seconds for connection to stabilize
       }
     });
 
-    return () => unsubscribe();
-  }, []);
+    return () => {
+        unsubscribe();
+        clearTimeout(timeout);
+    };
+  }, [userToken]);
 
-  // Notification Listener (Deep Linking)
+  // 2. NOTIFICATION LISTENER
   useEffect(() => {
+    if (Platform.OS === 'web') return;
+
+    Notifications.getLastNotificationResponseAsync().then(response => {
+      const data = response?.notification.request.content.data as any;
+      if (data?.url && typeof data.url === 'string') {
+        setTimeout(() => router.push(data.url), 500); 
+      }
+    });
+
     const subscription = Notifications.addNotificationResponseReceivedListener(response => {
       const data = response.notification.request.content.data as any;
-      if (data?.url) {
-        console.log("🔔 Notification Tapped! Navigating to:", data.url);
+      if (data?.url && typeof data.url === 'string') {
         router.push(data.url);
       }
     });
+
     return () => subscription.remove();
   }, []);
 
-  // SHOW LOADING SPINNER UNTIL WE KNOW IF USER IS LOGGED IN
   if (isLoading) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' }}>
@@ -60,7 +78,6 @@ function RootLayoutNav() {
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="login" options={{ headerShown: false }} />
         <Stack.Screen name="signup" options={{ headerShown: false }} />
-        {/* Hide header for chat because the screen has its own custom header */}
         <Stack.Screen name="chat/[username]" options={{ headerShown: false }} /> 
         <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
       </Stack>

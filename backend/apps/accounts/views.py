@@ -248,45 +248,25 @@ class ProfileViewSet(ModelViewSet):
     # -----------------------------
     # BLOCK USER
     # -----------------------------
-    @action(detail=True, methods=["post"])
-    def block(self, request, pk=None): # Note: 'pk' or 'username' depends on your lookup_field
+    @action(detail=True, methods=['post'])
+    def block(self, request, username=None):
         target_user = self.get_object()
-        current_user = request.user
-
-        if target_user == current_user:
-            return Response(
-                {"error": "You cannot block yourself."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        # Check if they have already blocked you
-        # .exists() is much faster than fetching the whole list.
-        if current_user.blocked_by.filter(id=target_user.id).exists():
-            return Response(
-                {"error": f"You cannot block {target_user.username} because they have already blocked you."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        # 3. Perform the Block
-        current_user.blocking.add(target_user)
         
-        return Response(
-            {"status": f"You blocked {target_user.username}"},
-            status=status.HTTP_200_OK
-        )
+        if request.user == target_user:
+            return Response({"error": "Cannot block yourself"}, status=400)
 
-    # -----------------------------
-    # UNBLOCK USER
-    # -----------------------------
-    @action(detail=True, methods=["post"])
+        # Check if they blocked us first (Optional Rule)
+        if request.user.blocked_by.filter(id=target_user.id).exists():
+             return Response({"error": "Cannot block a user who blocked you"}, status=400)
+
+        request.user.blocking.add(target_user)
+        return Response({"status": "blocked", "is_blocked": True})
+
+    @action(detail=True, methods=['post'])
     def unblock(self, request, username=None):
-        user_to_unblock = self.get_object()
-
-        request.user.blocking.remove(user_to_unblock)
-        return Response(
-            {"status": f"You unblocked {user_to_unblock.username}"},
-            status=status.HTTP_200_OK
-        )
+        target_user = self.get_object()
+        request.user.blocking.remove(target_user)
+        return Response({"status": "unblocked", "is_blocked": False})
 
 
 @api_view(['POST'])

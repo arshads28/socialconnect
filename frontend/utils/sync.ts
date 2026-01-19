@@ -1,21 +1,32 @@
-// socialconnect/frontend/utils/sync.ts
 import api from './api';
-import { saveMessage, getQueue } from './db';
+import { 
+  getQueue, addToQueue, getMessagesForChat, updateMessageStatus, getLocalInbox, saveMessage
+} from './db';
 import { decryptMessage } from './crypto';
 import { DeviceEventEmitter, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getSecure } from './storage';
 
 const LAST_SYNC_TS_KEY = 'connect_last_sync_ts_v1';
 
-// ==============================================================================
 // 1. GLOBAL SYNC (Background "Postman" fetch)
-//    - Downloads ALL missed messages from ALL users.
-// ==============================================================================
+
+let isSyncingMessages = false;
+
 export const syncPendingMessages = async () => {
+  // 1. LOCK CHECK
+  if (isSyncingMessages) {
+      console.log("⚠️ Sync already in progress. Skipping.");
+      return;
+  }
+
   try {
-    const queue = getQueue(); 
-     if (!queue || queue.length === 0) return;
-    console.log("📥 Checking for pending messages...");
+    isSyncingMessages = true; // 🔒 LOCK
+
+    const token = await getSecure('accessToken');
+    if (!token) return;
+
+    // console.log("📥 Checking for pending messages..."); // Optional log to reduce noise
 
     let lastSyncTime = null;
     if (Platform.OS === 'web') {
@@ -71,16 +82,13 @@ export const syncPendingMessages = async () => {
     console.log("✅ Sync complete.");
 
   } catch (error) {
-    console.error("❌ Sync Failed:", error);
+    console.error("❌ Sync Failed (Network):", error);
+  } finally {
+      isSyncingMessages = false; // 🔓 UNLOCK
   }
 };
 
 
-// ==============================================================================
-// 2. INBOX SYNC (Read-Only Preview)
-//    - Fetches list, decrypts in RAM, returns to UI.
-//    - ❌ NEVER SAVES TO DB.
-// ==============================================================================
 export const syncServerInbox = async () => {
   try {
     const response = await api.get('/chat/inbox/');
@@ -91,21 +99,19 @@ export const syncServerInbox = async () => {
 
     if (!serverInbox) return [];
 
-    // Map and Decrypt for DISPLAY ONLY
     return serverInbox.map((entry: any) => {
       let plainText = "";
       if (entry.last_message) {
         try {
           plainText = decryptMessage(entry.last_message);
         } catch (e) {
-          console.warn(`Decrypt error for ${entry.username}`);
           plainText = "Encrypted message";
         }
       }
       
       return {
         ...entry,
-        content: plainText, // Pass decrypted text to UI
+        content: plainText,
         timestamp: entry.last_message_time
       };
     });
@@ -116,33 +122,19 @@ export const syncServerInbox = async () => {
   }
 };
 
-// ==============================================================================
-// 3. FULL CHAT HISTORY SYNC (Persistence)
-//    - Stores real messages when chat is opened.
-// ==============================================================================
 export const syncChatMessages = async (username: string) => {
   try {
     console.log(`📥 Syncing history for ${username}...`);
-    
     const response = await api.get(`/chat/history/${username}/`);
     const messages = response.data;
-
     if (!Array.isArray(messages)) return;
 
     for (const msg of messages) {
       const plainText = decryptMessage(msg.encrypted_content);
-      
       saveMessage({
-        // ✅ 1. SERVER ID: Ensure it is a string (e.g., "204")
         id: msg.id.toString(),
-        
-        // ✅ 2. UNIQUE KEY: This matches your local UUID
         client_id: msg.client_id,
-        
-        // ✅ 3. FIX: FORCE conversation_id to be the 'username' we are chatting with.
-        // Even if I sent the message, it belongs to the conversation with "Sam".
         conversation_id: username, 
-        
         sender: msg.sender,
         content: plainText,
         status: msg.status || 'read', 
@@ -156,4 +148,46 @@ export const syncChatMessages = async (username: string) => {
     console.error(`❌ Failed to sync history for ${username}:`, error);
     return false;
   }
+};
+
+// 🔒 MUTEX FOR STUCK MESSAGES
+let isCheckingStuck = false;
+
+export const resendStuckMessages = async () => {
+    if (isCheckingStuck) return; // Prevent overlapping checks
+    
+    try {
+        isCheckingStuck = true;
+        const token = await getSecure('accessToken');
+        if (!token) return;
+
+        // console.log("🧹 Checking for stuck messages...");
+        const inbox = getLocalInbox();
+        
+        for (const chat of inbox) {
+            const messages = getMessagesForChat(chat.conversation_id);
+            const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+            
+            const stuckMessages = messages.filter(m => 
+                m.status === 'sending' && 
+                m.is_own === 1 && 
+                m.timestamp < twoMinutesAgo
+            );
+
+            for (const msg of stuckMessages) {
+                // Ensure we don't re-queue if it's already in the queue (simple check)
+                const payload = {
+                    conversation_id: chat.conversation_id,
+                    recipient_id: msg.recipient_id, 
+                    ciphertext: msg.content,
+                    client_id: msg.client_id
+                };
+
+                const queued = addToQueue('SEND_MESSAGE', payload);
+                if (queued) console.log(`🔄 Re-queued stuck message: ${msg.client_id}`);
+            }
+        }
+    } finally {
+        isCheckingStuck = false;
+    }
 };
