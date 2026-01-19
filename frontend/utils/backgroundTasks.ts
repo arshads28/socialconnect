@@ -39,7 +39,7 @@ export async function registerBackgroundFetchAsync() {
     }
 
     await BackgroundFetch.registerTaskAsync(BACKGROUND_SYNC_TASK, {
-      minimumInterval: 60 * 15, // 15 minutes (Minimum allowed by iOS)
+      minimumInterval: 60 * 20, // 15 minutes (Minimum allowed by iOS)
       stopOnTerminate: false,   // Android: Keep working even if app killed
       startOnBoot: true,        // Android: Restart on phone reboot
     });
