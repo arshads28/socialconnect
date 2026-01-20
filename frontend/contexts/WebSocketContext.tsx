@@ -72,14 +72,14 @@ export const WebSocketProvider = ({ children }: { children: React.ReactNode }) =
              connect(); 
         }
       } 
-      else if (nextAppState.match(/inactive|background/)) {
-        console.log('🔴 App Background: Pausing Socket...');
-        if (wsRef.current) {
-            wsRef.current.close();
-            wsRef.current = null;
-            setIsConnected(false);
-        }
-      }
+      // else if (nextAppState.match(/inactive|background/)) {
+      //   console.log('🔴 App Background: Pausing Socket...');
+      //   if (wsRef.current) {
+      //       wsRef.current.close();
+      //       wsRef.current = null;
+      //       setIsConnected(false);
+      //   }
+      // }
       appState.current = nextAppState;
     });
 

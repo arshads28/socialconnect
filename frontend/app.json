@@ -20,10 +20,10 @@
         "NSCameraUsageDescription": "Connect needs access to your camera for video calls.",
         "NSMicrophoneUsageDescription": "Connect needs access to your microphone to let you make voice and video calls.",
         "UIBackgroundModes": [
-          "voip",
           "audio",
           "fetch",
-          "remote-notification"
+          "remote-notification",
+          "voip"
         ]
       },
       "bitcode": false
@@ -32,26 +32,27 @@
       "package": "com.connect.app",
       "softwareKeyboardLayoutMode": "resize",
       "googleServicesFile": "./google-services.json",
+      
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO",
         "android.permission.MODIFY_AUDIO_SETTINGS",
         "android.permission.INTERNET",
         "android.permission.ACCESS_NETWORK_STATE",
-        "android.permission.READ_EXTERNAL_STORAGE",
-        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.BLUETOOTH",
         "android.permission.BLUETOOTH_CONNECT",
         "android.permission.POST_NOTIFICATIONS",
-        "android.permission.MANAGE_OWN_CALLS",
-        "android.permission.READ_PHONE_STATE",
-        "android.permission.USE_FULL_SCREEN_INTENT",
-        "android.permission.FOREGROUND_SERVICE",
         "android.permission.WAKE_LOCK",
-        "android.permission.RECEIVE_BOOT_COMPLETED",
-        "android.permission.SYSTEM_ALERT_WINDOW",
-        "android.permission.BLUETOOTH",
+        "android.permission.VIBRATE",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_CAMERA",
+        "android.permission.FOREGROUND_SERVICE_MICROPHONE",
+        "android.permission.FOREGROUND_SERVICE_PHONE_CALL",
+        "android.permission.MANAGE_OWN_CALLS",
+        "android.permission.USE_FULL_SCREEN_INTENT",
+        "android.permission.READ_PHONE_STATE",
         "android.permission.BIND_TELECOM_CONNECTION_SERVICE",
-        "android.permission.CALL_PHONE"
+        "android.permission.READ_PHONE_NUMBERS"
       ]
     },
     "extra": {
@@ -64,8 +65,25 @@
       "bundler": "metro"
     },
     "plugins": [
+      "./plugins/withAndroidPermissions", 
       "expo-notifications",
       "expo-sqlite",
+      "expo-secure-store",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "newArchEnabled": true, 
+            "extraProguardRules": "-keep class io.wazo.callkeep.** { *; }",
+            "manifestPlaceholders": {
+               "foregroundServiceType": "camera|microphone|phoneCall"
+            }
+          },
+          "ios": {
+            "newArchEnabled": true
+          }
+        }
+      ],
       [
         "expo-background-fetch",
         {
@@ -94,8 +112,7 @@
             "selfManaged": true
           }
         }
-      ],
-      "expo-secure-store"
+      ]
     ],
     "owner": "arsh2128"
   }
