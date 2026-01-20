@@ -32,6 +32,7 @@
       "package": "com.connect.app",
       "softwareKeyboardLayoutMode": "resize",
       "googleServicesFile": "./google-services.json",
+      
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO",
@@ -49,7 +50,8 @@
         "android.permission.FOREGROUND_SERVICE_PHONE_CALL",
         "android.permission.MANAGE_OWN_CALLS",
         "android.permission.USE_FULL_SCREEN_INTENT",
-        "android.permission.READ_PHONE_STATE"
+        "android.permission.READ_PHONE_STATE",
+        "android.permission.BIND_TELECOM_CONNECTION_SERVICE"
       ]
     },
     "extra": {
@@ -62,6 +64,7 @@
       "bundler": "metro"
     },
     "plugins": [
+      "./plugins/withAndroidPermissions", 
       "expo-notifications",
       "expo-sqlite",
       "expo-secure-store",
@@ -69,11 +72,7 @@
         "expo-build-properties",
         {
           "android": {
-            "newArchEnabled": false,
-            "extraProguardRules": "-keep class io.wazo.callkeep.** { *; }",
-            "manifestPlaceholders": {
-               "foregroundServiceType": "camera|microphone|phoneCall"
-            }
+            "newArchEnabled": false
           },
           "ios": {
             "newArchEnabled": false
@@ -105,13 +104,7 @@
         {
           "android": {
             "imageName": "ic_launcher",
-            "selfManaged": true,
-            "foregroundService": {
-                "channelId": "com.connect.app.call",
-                "channelName": "Ongoing Call",
-                "notificationTitle": "Call in progress",
-                "notificationIcon": "./assets/images/icon.png"
-            }
+            "selfManaged": true
           }
         }
       ]
