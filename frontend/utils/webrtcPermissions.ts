@@ -2,15 +2,19 @@ import { Platform, PermissionsAndroid } from 'react-native';
 
 export const checkCallPermissions = async (isVideo: boolean = false) => {
   if (Platform.OS === 'ios') {
-    return true; // iOS permissions are handled in Info.plist
+    return true; 
   }
 
   if (Platform.OS === 'android') {
     try {
+      // 1. Start with basic permissions
       const permissions = [
         PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
-        PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT, // Required for headsets on Android 12+
       ];
+
+      if (Platform.Version >= 31) {
+        permissions.push(PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT);
+      }
 
       if (isVideo) {
         permissions.push(PermissionsAndroid.PERMISSIONS.CAMERA);
@@ -20,6 +24,10 @@ export const checkCallPermissions = async (isVideo: boolean = false) => {
       if (Platform.Version >= 33) {
         permissions.push(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS);
       }
+      
+      if (Platform.Version >= 34) {
+         permissions.push(PermissionsAndroid.PERMISSIONS.READ_PHONE_NUMBERS);
+      }
 
       const granted = await PermissionsAndroid.requestMultiple(permissions);
 
@@ -28,7 +36,7 @@ export const checkCallPermissions = async (isVideo: boolean = false) => {
       );
 
       if (!allGranted) {
-        console.warn('One or more permissions rejected');
+        console.warn('One or more permissions rejected', granted);
       }
 
       return allGranted;

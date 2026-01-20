@@ -51,7 +51,8 @@
         "android.permission.MANAGE_OWN_CALLS",
         "android.permission.USE_FULL_SCREEN_INTENT",
         "android.permission.READ_PHONE_STATE",
-        "android.permission.BIND_TELECOM_CONNECTION_SERVICE"
+        "android.permission.BIND_TELECOM_CONNECTION_SERVICE",
+        "android.permission.READ_PHONE_NUMBERS"
       ]
     },
     "extra": {
