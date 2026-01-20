@@ -115,7 +115,14 @@ export const WebRTCProvider = ({ children }: { children: React.ReactNode }) => {
           alertDescription: 'This app needs to access your phone accounts',
           cancelButton: 'Cancel',
           okButton: 'ok',
-          additionalPermissions: [PermissionsAndroid.PERMISSIONS.RECORD_AUDIO],
+          
+          // ✅ FIX: Pass an empty array.
+          // 1. Satisfies TypeScript (it expects an array).
+          // 2. Asks for NOTHING (keeps app silent on startup).
+          additionalPermissions: [], 
+
+          selfManaged: true, 
+          
           foregroundService: {
             channelId: 'com.socialconnect.call',
             channelName: 'Social Connect Call',

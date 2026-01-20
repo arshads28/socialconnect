@@ -1,7 +1,16 @@
 diff --git a/node_modules/react-native-callkeep/android/src/main/java/io/wazo/callkeep/RNCallKeepModule.java b/node_modules/react-native-callkeep/android/src/main/java/io/wazo/callkeep/RNCallKeepModule.java
-index 025480a..fa077ec 100644
+index 025480a..f5e7428 100644
 --- a/node_modules/react-native-callkeep/android/src/main/java/io/wazo/callkeep/RNCallKeepModule.java
 +++ b/node_modules/react-native-callkeep/android/src/main/java/io/wazo/callkeep/RNCallKeepModule.java
+@@ -383,7 +383,7 @@ public class RNCallKeepModule extends ReactContextBaseJavaModule implements Life
+         // If we're running in self managed mode we need fewer permissions.
+         if(isSelfManaged()) {
+             Log.d(TAG, "[RNCallKeepModule] setup, adding RECORD_AUDIO in permissions in self managed");
+-            permissions = new String[]{ Manifest.permission.RECORD_AUDIO };
++            permissions = new String[]{ };
+         }
+ 
+         if (isConnectionServiceAvailable()) {
 @@ -434,7 +434,6 @@ public class RNCallKeepModule extends ReactContextBaseJavaModule implements Life
          this.hasListeners = false;
      }
@@ -18,19 +27,3 @@ index 025480a..fa077ec 100644
      public void startCall(String uuid, String number, String callerName) {
          this.startCall(uuid, number, callerName, false, null);
      }
-@@ -521,7 +519,6 @@ public class RNCallKeepModule extends ReactContextBaseJavaModule implements Life
-         telecomManager.placeCall(uri, extras);
-     }
- 
--    @ReactMethod
-     public void endCall(String uuid) {
-         Log.d(TAG, "[RNCallKeepModule] endCall called, uuid: " + uuid);
-         if (!isConnectionServiceAvailable() || !hasPhoneAccount()) {
-@@ -711,7 +708,6 @@ public class RNCallKeepModule extends ReactContextBaseJavaModule implements Life
-         }
-     }
- 
--    @ReactMethod
-     public void reportEndCallWithUUID(String uuid, int reason) {
-         Log.d(TAG, "[RNCallKeepModule] reportEndCallWithUUID, uuid: " + uuid + ", reason: " + reason);
-         if (!isConnectionServiceAvailable() || !hasPhoneAccount()) {

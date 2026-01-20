@@ -4,7 +4,7 @@ import { DeviceEventEmitter } from 'react-native';
 
 // UPDATE YOUR IP HERE
 const PROD_URL = 'https://socialconnect-nhna.onrender.com';
-const LOCAL_URL = 'http://10.33.211.238:8000'; // Make sure this matches your PC IP
+const LOCAL_URL = 'http://10.34.172.238:8000'; // Make sure this matches your PC IP
 const IS_PRODUCTION = false;
 export const BASE_URL = IS_PRODUCTION ? PROD_URL : LOCAL_URL;
 
