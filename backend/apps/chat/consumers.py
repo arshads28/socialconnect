@@ -23,6 +23,11 @@ class UnifiedConsumer(AsyncWebsocketConsumer):
 
         # 1. Personal Group (Notifications)
         self.personal_group = f"user_{self.user.id}"
+
+        print(f"🔌 [CONNECT] User: {self.user.username} (ID: {self.user.id})")
+        print(f"👂 [LISTENING] Listening on Group: {self.personal_group}")
+
+
         await self.channel_layer.group_add(self.personal_group, self.channel_name)
 
         # 2. Status Monitor (Broadcasting MY status)
@@ -233,15 +238,33 @@ class UnifiedConsumer(AsyncWebsocketConsumer):
         await self.send_push_notification(receiver)
 
     async def handle_call_signal(self, data):
-        target_username = data.get("target")
+        target_input = data.get("target") # This might be username or ID depending on frontend
+        
+        print(f"📞 [SIGNAL START] From {self.user.username} -> Target Input: {target_input}")
+
         try:
-            target_user = await self.get_user_optimized(target_username)
+            # Check if frontend sent ID or Username. Logic assumes Username based on get_user_optimized
+            # If your frontend sends UUID/ID, this lookup might fail if it expects username.
+            target_user = await self.get_user_optimized(target_input)
+            
+            target_group = f"user_{target_user.id}"
+            
+            print(f"🎯 [SIGNAL RESOLVED] Target User: {target_user.username} (ID: {target_user.id})")
+            print(f"🚀 [SIGNAL SENDING] Sending to Group: {target_group}")
+
             await self.channel_layer.group_send(
-                f"user_{target_user.id}",
-                {"type": "webrtc_signal_message", "data": data.get("data"), "sender": self.user.username}
+                target_group,
+                {
+                    "type": "webrtc_signal_message", 
+                    "data": data.get("data"), 
+                    "sender": self.user.username
+                }
             )
         except ObjectDoesNotExist:
-            pass
+            print(f"❌ [SIGNAL FAILED] Target user '{target_input}' not found in DB.")
+        except Exception as e:
+            print(f"❌ [SIGNAL ERROR] {e}")
+
 
     async def handle_mark_read(self, data):
         sender_username = data.get('sender') 
@@ -272,7 +295,10 @@ class UnifiedConsumer(AsyncWebsocketConsumer):
         if event["sender"] != self.user.username: await self.send(text_data=json.dumps(event))
     async def user_status_event(self, event): await self.send(text_data=json.dumps(event))
     async def new_message_notification(self, event): await self.send(text_data=json.dumps(event))
-    async def webrtc_signal_message(self, event): await self.send(text_data=json.dumps(event))
+
+    async def webrtc_signal_message(self, event):
+        print(f"✅ [SIGNAL DELIVERED] Reached Consumer for User: {self.user.username}")
+        await self.send(text_data=json.dumps(event))
 
     # ===============================================================
     # 🛠 UTILITIES

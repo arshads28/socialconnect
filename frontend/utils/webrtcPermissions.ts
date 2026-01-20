@@ -1,4 +1,4 @@
-import { Platform, PermissionsAndroid } from 'react-native';
+import { Platform, PermissionsAndroid, Permission } from 'react-native';
 
 export const checkCallPermissions = async (isVideo: boolean = false) => {
   if (Platform.OS === 'ios') {
@@ -7,39 +7,45 @@ export const checkCallPermissions = async (isVideo: boolean = false) => {
 
   if (Platform.OS === 'android') {
     try {
-      // 1. Start with basic permissions
-      const permissions = [
+      // 1. Start with basic audio
+      const permissions: Permission[] = [
         PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
       ];
 
+      // 2. Android 12+ (API 31+) needs Bluetooth
       if (Platform.Version >= 31) {
         permissions.push(PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT);
       }
 
+      // 3. Video Call Check
       if (isVideo) {
         permissions.push(PermissionsAndroid.PERMISSIONS.CAMERA);
       }
 
-      // Android 13+ Notification Permission
+      // 4. Android 13+ Notifications
       if (Platform.Version >= 33) {
         permissions.push(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS);
       }
       
+      // 5. Android 14+ Telecom Logic
       if (Platform.Version >= 34) {
-         permissions.push(PermissionsAndroid.PERMISSIONS.READ_PHONE_NUMBERS);
+         // ✅ FIX: Use raw strings to avoid TypeScript errors
+         permissions.push("android.permission.READ_PHONE_NUMBERS" as Permission);
+         permissions.push("android.permission.READ_PHONE_STATE" as Permission);
+         permissions.push("android.permission.USE_FULL_SCREEN_INTENT" as Permission); 
       }
 
       const granted = await PermissionsAndroid.requestMultiple(permissions);
 
-      const allGranted = Object.values(granted).every(
-        (status) => status === PermissionsAndroid.RESULTS.GRANTED
-      );
-
-      if (!allGranted) {
-        console.warn('One or more permissions rejected', granted);
+      // Check if critical permissions (Audio) are granted. 
+      const audioGranted = granted[PermissionsAndroid.PERMISSIONS.RECORD_AUDIO] === PermissionsAndroid.RESULTS.GRANTED;
+      
+      if (!audioGranted) {
+        console.warn('❌ CRITICAL: Audio permission denied');
+        return false;
       }
 
-      return allGranted;
+      return true;
     } catch (err) {
       console.warn(err);
       return false;
