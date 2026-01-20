@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
-import { Platform, Alert, AppState,PermissionsAndroid } from 'react-native';
+import { Platform, Alert } from 'react-native';
 import {
   RTCPeerConnection,
   RTCIceCandidate,
@@ -14,30 +14,34 @@ import { useAuth } from '../context/AuthContext';
 import { generateUUID } from '../utils/db';
 import { checkCallPermissions } from '../utils/webrtcPermissions';
 
-// 🛠 PRODUCTION CONFIG WITH TURN
+/* ============================================================
+   🛠 CONFIGURATION (Metered.ca + Google)
+============================================================ */
 const PEER_CONNECTION_CONFIG = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     {
       urls: [
-        'turn:openrelay.metered.ca:80?transport=udp', 
-        'turn:openrelay.metered.ca:443?transport=tcp' 
+        'turn:global.relay.metered.ca:80',
+        'turn:global.relay.metered.ca:80?transport=tcp',
+        'turn:global.relay.metered.ca:443',
+        'turns:global.relay.metered.ca:443?transport=tcp',
       ],
-      username: 'openrelayproject',
-      credential: 'openrelayproject'
-    }
+      username: 'a66c44bf00367da9f7fac4cc',
+      credential: 'ti/h+/N6grLizoNJ',
+    },
   ],
   iceCandidatePoolSize: 10,
+  bundlePolicy: 'max-bundle' as const,
 };
 
-// 🚦 STATE MACHINE
 export type CallState = 
   | 'idle' 
-  | 'calling'      // I am calling someone
-  | 'ringing'      // Someone is calling me
-  | 'connecting'   // We accepted, negotiating connection
-  | 'connected'    // Media is flowing
-  | 'ending';      // Cleanup in progress
+  | 'calling' 
+  | 'ringing' 
+  | 'connecting' 
+  | 'connected' 
+  | 'ending';
 
 interface WebRTCContextType {
   callState: CallState;
@@ -81,27 +85,17 @@ export const WebRTCProvider = ({ children }: { children: React.ReactNode }) => {
   const peerConnection = useRef<RTCPeerConnection | null>(null);
   const targetUserId = useRef<string | null>(null);
   const currentCallUUID = useRef<string | null>(null);
-  const iceCandidateQueue = useRef<RTCIceCandidate[]>([]); // 🧊 ICE QUEUE
-  const callTimeoutRef = useRef<NodeJS.Timeout | null>(null); // ⏱ TIMEOUT
+  const iceCandidateQueue = useRef<RTCIceCandidate[]>([]);
+  const callTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // ============================================================
-  // 1️⃣ INITIAL SETUP & RECOVERY
+  // 1️⃣ INITIAL SETUP
   // ============================================================
   useEffect(() => {
     const init = async () => {
       await setupCallKeep();
-      
-      // 🔄 APP KILL RECOVERY
-      // Check if the app was opened by answering a call UI while killed
-      if (Platform.OS !== 'web') {
-        const initialEvents = await RNCallKeep.getInitialEvents();
-        // If an AnswerCall event is found, handle it (requires logic to wait for WS reconnect)
-        // For simple recovery: The Caller usually keeps ringing. 
-        // We wait for the 'offer' to come in via WS again.
-      }
     };
     init();
-
     return () => endCall();
   }, []);
 
@@ -115,14 +109,8 @@ export const WebRTCProvider = ({ children }: { children: React.ReactNode }) => {
           alertDescription: 'This app needs to access your phone accounts',
           cancelButton: 'Cancel',
           okButton: 'ok',
-          
-          // ✅ FIX: Pass an empty array.
-          // 1. Satisfies TypeScript (it expects an array).
-          // 2. Asks for NOTHING (keeps app silent on startup).
-          additionalPermissions: [], 
-
-          selfManaged: true, 
-          
+          additionalPermissions: [],
+          selfManaged: true,
           foregroundService: {
             channelId: 'com.socialconnect.call',
             channelName: 'Social Connect Call',
@@ -137,91 +125,12 @@ export const WebRTCProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   // ============================================================
-  // 2️⃣ SIGNALING (WebSocket)
-  // ============================================================
-  useEffect(() => {
-    if (!ws) return;
-
-    const handleMessage = async (event: WebSocketMessageEvent) => {
-      try {
-        const msg = JSON.parse(event.data);
-        if (msg.type !== 'webrtc_signal_message') return;
-
-        const { data, sender } = msg;
-
-        // A. INCOMING OFFER (Ringing)
-        if (data.type === 'offer') {
-          if (callState !== 'idle') {
-            // BUSY: Send 'busy' signal or ignore
-            return; 
-          }
-          
-          console.log("📞 Incoming Offer from:", sender);
-          targetUserId.current = sender;
-          setCallerId(sender);
-          setCallState('ringing');
-          setIsVideoEnabled(data.isVideo || false); // Check offer intent
-
-          // Start ringing UI
-          const callUUID = generateUUID();
-          currentCallUUID.current = callUUID;
-          RNCallKeep.displayIncomingCall(callUUID, sender, sender, 'generic', data.isVideo);
-          
-          // Prepare PC but wait for answer to process SDP
-          await createPeerConnection();
-          // Store remote description? Or wait until accept?
-          // WebRTC Standard: Set Remote Desc NOW to generate candidates, but wait to answer.
-          if (peerConnection.current) {
-             await peerConnection.current.setRemoteDescription(new RTCSessionDescription(data));
-             processIceQueue(); // Flush any early candidates
-          }
-        } 
-        
-        // B. INCOMING ANSWER (Connected)
-        else if (data.type === 'answer') {
-          console.log("✅ Call Answered");
-          clearCallTimeout(); // Stop the 30s timer
-          setCallState('connected');
-          
-          if (peerConnection.current) {
-            await peerConnection.current.setRemoteDescription(new RTCSessionDescription(data));
-            processIceQueue();
-          }
-        } 
-        
-        // C. ICE CANDIDATE
-        else if (data.type === 'ice') {
-          const candidate = new RTCIceCandidate(data.candidate);
-          if (peerConnection.current && peerConnection.current.remoteDescription) {
-            await peerConnection.current.addIceCandidate(candidate);
-          } else {
-            // 🧊 Queue it if Remote Desc isn't ready
-            iceCandidateQueue.current.push(candidate);
-          }
-        }
-        
-        // D. HANGUP
-        else if (data.type === 'bye') {
-            endCall();
-        }
-
-      } catch (e) {
-        console.error("WebRTC Signal Error", e);
-      }
-    };
-
-    ws.addEventListener('message', handleMessage);
-    return () => ws.removeEventListener('message', handleMessage);
-  }, [ws, callState]);
-
-  // ============================================================
-  // 3️⃣ CORE WEBRTC LOGIC
+  // 2️⃣ CORE WEBRTC LOGIC (addTrack Pattern)
   // ============================================================
   
   const createPeerConnection = async () => {
     if (peerConnection.current) peerConnection.current.close();
 
-    // ⚡️ Fix TypeScript 'any' casting for RNWebRTC compatibility
     const pc = new RTCPeerConnection(PEER_CONNECTION_CONFIG) as any;
     peerConnection.current = pc;
 
@@ -232,20 +141,17 @@ export const WebRTCProvider = ({ children }: { children: React.ReactNode }) => {
     };
 
     pc.ontrack = (event: any) => {
+      console.log("🎥 Remote Track Received:", event.streams[0]?.id);
       if (event.streams && event.streams[0]) {
-          setRemoteStream(event.streams[0]);
+        setRemoteStream(event.streams[0]);
       }
     };
 
-    // 🔄 ICE RESTART HANDLER
     pc.oniceconnectionstatechange = () => {
       console.log("ICE Connection State:", pc.iceConnectionState);
       if (pc.iceConnectionState === 'failed') {
         console.log("⚠️ ICE Failed, attempting restart...");
         pc.restartIce();
-      }
-      if (pc.iceConnectionState === 'disconnected') {
-        // Optional: Show "Reconnecting..." UI
       }
     };
 
@@ -260,6 +166,7 @@ export const WebRTCProvider = ({ children }: { children: React.ReactNode }) => {
     iceCandidateQueue.current = [];
   };
 
+  // 🔥 CORE: Get Stream & Add Tracks directly
   const getLocalStream = async (isVideo: boolean) => {
     const hasPerms = await checkCallPermissions(isVideo);
     if (!hasPerms) {
@@ -281,9 +188,11 @@ export const WebRTCProvider = ({ children }: { children: React.ReactNode }) => {
       setLocalStream(stream);
       setIsVideoEnabled(isVideo);
 
-      if (peerConnection.current) {
+      const pc = peerConnection.current;
+      if (pc) {
+        // 🔥 DIRECT ADD TRACK (The only way on RN-WebRTC)
         stream.getTracks().forEach(track => {
-            peerConnection.current?.addTrack(track, stream);
+            pc.addTrack(track, stream);
         });
       }
       return stream;
@@ -304,6 +213,76 @@ export const WebRTCProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   // ============================================================
+  // 3️⃣ SIGNALING HANDLER
+  // ============================================================
+  useEffect(() => {
+    if (!ws) return;
+
+    const handleMessage = async (event: WebSocketMessageEvent) => {
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg.type !== 'webrtc_signal_message') return;
+
+        const { data, sender } = msg;
+
+        // OFFER (Receiver)
+        if (data.type === 'offer') {
+          console.log("📞 Incoming Offer from:", sender);
+          targetUserId.current = sender;
+          setCallerId(sender);
+          setCallState('ringing');
+          setIsVideoEnabled(data.isVideo || false);
+
+          const callUUID = generateUUID();
+          currentCallUUID.current = callUUID;
+          RNCallKeep.displayIncomingCall(callUUID, sender, sender, 'generic', data.isVideo);
+          
+          // 1. Create PC
+          const pc = await createPeerConnection();
+          if (pc) {
+             // 2. Set Remote (Don't create answer yet)
+             await pc.setRemoteDescription(new RTCSessionDescription(data));
+             processIceQueue();
+          }
+        } 
+        
+        // ANSWER (Caller)
+        else if (data.type === 'answer') {
+          console.log("✅ Call Answered");
+          clearCallTimeout();
+          setCallState('connected');
+          
+          if (peerConnection.current) {
+            await peerConnection.current.setRemoteDescription(new RTCSessionDescription(data));
+            processIceQueue();
+          }
+        } 
+        
+        // ICE
+        else if (data.type === 'ice') {
+          const candidate = new RTCIceCandidate(data.candidate);
+          if (peerConnection.current && peerConnection.current.remoteDescription) {
+            await peerConnection.current.addIceCandidate(candidate);
+          } else {
+            iceCandidateQueue.current.push(candidate);
+          }
+        }
+        
+        // BYE
+        else if (data.type === 'bye') {
+            endCall();
+        }
+
+      } catch (e) {
+        console.error("WebRTC Signal Error", e);
+      }
+    };
+
+    ws.addEventListener('message', handleMessage);
+    return () => ws.removeEventListener('message', handleMessage);
+  }, [ws, callState]);
+
+  // ============================================================
   // 4️⃣ CALL ACTIONS
   // ============================================================
 
@@ -314,18 +293,24 @@ export const WebRTCProvider = ({ children }: { children: React.ReactNode }) => {
     setCallState('calling');
     setCallerId(targetId);
 
-    // ⏱ TIMEOUT: 30 seconds to answer
+    // Timeout: 30s
     callTimeoutRef.current = setTimeout(() => {
         console.log("⏰ Call timed out");
         endCall();
     }, 30000);
 
+    // 1. Create PC
     const pc = await createPeerConnection();
-    await getLocalStream(isVideo);
-    
-    InCallManager.start({ media: isVideo ? 'video' : 'audio' });
-    InCallManager.setKeepScreenOn(true);
 
+    // 2. Get Stream & Add Tracks
+    const stream = await getLocalStream(isVideo); 
+    if (!stream) return;
+
+    // 3. Audio Config
+    InCallManager.start({ media: isVideo ? 'video' : 'audio' });
+    InCallManager.setForceSpeakerphoneOn(isVideo);
+
+    // 4. Create Offer
     const offer = await pc.createOffer({});
     await pc.setLocalDescription(offer);
 
@@ -341,10 +326,18 @@ export const WebRTCProvider = ({ children }: { children: React.ReactNode }) => {
     if (!peerConnection.current) return;
 
     setCallState('connecting');
-    clearCallTimeout(); // Clear any existing timers (safety)
+    clearCallTimeout();
 
-    // Ensure we have media before answering
-    await getLocalStream(isVideoEnabled); // Use format from offer
+    // 🔥 CRITICAL ORDER:
+    // 1. Remote Desc (Already set in offer handler)
+    // 2. Add Tracks
+    // 3. Create Answer
+
+    const stream = await getLocalStream(isVideoEnabled); // Adds tracks to PC
+    if (!stream) {
+        endCall();
+        return;
+    }
 
     const answer = await peerConnection.current.createAnswer();
     await peerConnection.current.setLocalDescription(answer);
@@ -354,7 +347,7 @@ export const WebRTCProvider = ({ children }: { children: React.ReactNode }) => {
     setCallState('connected');
     
     InCallManager.start({ media: isVideoEnabled ? 'video' : 'audio' });
-    InCallManager.stopRingtone();
+    InCallManager.setForceSpeakerphoneOn(isVideoEnabled);
     
     if (activeUUID) {
         RNCallKeep.setCurrentCallActive(activeUUID);
@@ -400,6 +393,7 @@ export const WebRTCProvider = ({ children }: { children: React.ReactNode }) => {
 
   const toggleMute = () => {
     if (localStream) {
+        // 🔥 MUTE VIA TRACK, NOT RENEGOTIATION
         localStream.getAudioTracks().forEach(t => t.enabled = !t.enabled);
         setIsMuted(!isMuted);
     }
@@ -420,27 +414,25 @@ export const WebRTCProvider = ({ children }: { children: React.ReactNode }) => {
     }
   };
 
-  // 📹 VIDEO UPGRADE/DOWNGRADE (Renegotiation)
+  // 📹 VIDEO RENEGOTIATION (SAFE WAY)
   const toggleVideo = async () => {
     const newVideoState = !isVideoEnabled;
-    
+    const pc = peerConnection.current;
+
     if (newVideoState) {
-        // AUDIO -> VIDEO
+        // 1. VIDEO ON: Get new stream (Audio+Video)
         const stream = await getLocalStream(true);
-        if (stream && peerConnection.current) {
-            // Negotiate new offer
-            const offer = await peerConnection.current.createOffer({});
-            await peerConnection.current.setLocalDescription(offer);
+        if (stream && pc) {
+            // 2. Renegotiate
+            const offer = await pc.createOffer({});
+            await pc.setLocalDescription(offer);
             sendSignal({ type: 'offer', sdp: offer.sdp, isVideo: true });
         }
     } else {
-        // VIDEO -> AUDIO
-        // Stop video tracks locally
+        // 1. VIDEO OFF: Stop tracks
         if (localStream) {
             localStream.getVideoTracks().forEach(t => t.stop());
         }
-        // Ideally remove track from PC and renegotiate, 
-        // but stopping track is often enough for simple implementations.
     }
     setIsVideoEnabled(newVideoState);
   };

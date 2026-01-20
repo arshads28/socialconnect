@@ -1,12 +1,13 @@
 import json
 from channels.generic.websocket import AsyncWebsocketConsumer
-from django.core.exceptions import ObjectDoesNotExist
+from django.core.exceptions import ValidationError, ObjectDoesNotExist
 from django.contrib.auth import get_user_model
 from asgiref.sync import sync_to_async
 from channels.db import database_sync_to_async
 from django.utils import timezone
 from django.core.cache import cache
 import asyncio
+import uuid
 
 from .models import Message
 
@@ -238,20 +239,39 @@ class UnifiedConsumer(AsyncWebsocketConsumer):
         await self.send_push_notification(receiver)
 
     async def handle_call_signal(self, data):
-        target_input = data.get("target") # This might be username or ID depending on frontend
-        
+        target_input = data.get("target") 
         print(f"📞 [SIGNAL START] From {self.user.username} -> Target Input: {target_input}")
 
-        try:
-            # Check if frontend sent ID or Username. Logic assumes Username based on get_user_optimized
-            # If your frontend sends UUID/ID, this lookup might fail if it expects username.
-            target_user = await self.get_user_optimized(target_input)
-            
-            target_group = f"user_{target_user.id}"
-            
-            print(f"🎯 [SIGNAL RESOLVED] Target User: {target_user.username} (ID: {target_user.id})")
-            print(f"🚀 [SIGNAL SENDING] Sending to Group: {target_group}")
+        target_user = None
 
+        # 1. CHECK IF INPUT IS A VALID UUID
+        is_uuid = False
+        try:
+            uuid_obj = uuid.UUID(str(target_input))
+            is_uuid = True
+        except ValueError:
+            is_uuid = False
+
+        # 2. IF UUID, TRY ID LOOKUP
+        if is_uuid:
+            try:
+                target_user = await self.get_user_by_id(target_input)
+            except ObjectDoesNotExist:
+                # UUID valid, but user not found. Fallback unlikely but safe.
+                pass
+
+        # 3. IF NOT UUID (OR ID FAILED), TRY USERNAME LOOKUP
+        if not target_user:
+            try:
+                target_user = await self.get_user_optimized(target_input)
+            except ObjectDoesNotExist:
+                pass
+
+        # 4. PROCESS RESULT
+        if target_user:
+            target_group = f"user_{target_user.id}"
+            print(f"🎯 [SIGNAL RESOLVED] Target User: {target_user.username} (ID: {target_user.id})")
+            
             await self.channel_layer.group_send(
                 target_group,
                 {
@@ -260,11 +280,8 @@ class UnifiedConsumer(AsyncWebsocketConsumer):
                     "sender": self.user.username
                 }
             )
-        except ObjectDoesNotExist:
-            print(f"❌ [SIGNAL FAILED] Target user '{target_input}' not found in DB.")
-        except Exception as e:
-            print(f"❌ [SIGNAL ERROR] {e}")
-
+        else:
+            print(f"❌ [SIGNAL FAILED] Target user '{target_input}' not found.")
 
     async def handle_mark_read(self, data):
         sender_username = data.get('sender') 
