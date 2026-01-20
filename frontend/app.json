@@ -72,10 +72,14 @@
         "expo-build-properties",
         {
           "android": {
-            "newArchEnabled": false
+            "newArchEnabled": true, 
+            "extraProguardRules": "-keep class io.wazo.callkeep.** { *; }",
+            "manifestPlaceholders": {
+               "foregroundServiceType": "camera|microphone|phoneCall"
+            }
           },
           "ios": {
-            "newArchEnabled": false
+            "newArchEnabled": true
           }
         }
       ],
