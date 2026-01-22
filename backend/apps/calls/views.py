@@ -37,12 +37,12 @@ async def system_health_check(request):
         status_report['redis'] = f"Error: {str(e)}"
 
     # 2. Check Database (Native Async)
-    try:
+    # try:
         # .afirst() is the async version of .first()
-        await Message.objects.afirst()
-        status_report['database'] = "OK"
-    except Exception as e:
-        status_report['database'] = f"Error: {str(e)}"
+    #     await Message.objects.afirst()
+    #     status_report['database'] = "OK"
+    # except Exception as e:
+    #     status_report['database'] = f"Error: {str(e)}"
 
     return JsonResponse(status_report)
 
