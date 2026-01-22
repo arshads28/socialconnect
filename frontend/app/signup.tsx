@@ -27,7 +27,7 @@ export default function SignupScreen() {
 
     try {
       // 1. Register
-      await api.post('/auth/api/register/', {
+      await api.post('/auth/signup/', {
         username: username.trim(),
         email: email.trim(),
         password: password,

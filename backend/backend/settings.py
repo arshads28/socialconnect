@@ -27,16 +27,19 @@ load_dotenv(BASE_DIR / '.env')
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-_nn=p(&b@4v=yq+l4-t4$dyb)3+qf-x&qywoq1opk@=bm7yb=z'
+xyz = 'django-insecure-_nn=p(&b@4v=yq+l4-t4$dyb)3+qf-x&qywoq1opk@=bm7yb=z'
+
+
+SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY",xyz)
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.environ.get("DEBUG", "False") == "True"
 
-ALLOWED_HOSTS = ['*']
+ALLOWED_HOSTS = ['.onrender.com', 'localhost', '127.0.0.1']
 
-# CSRF_TRUSTED_ORIGINS = [
-#     'https://socialconnect-nhna.onrender.com'
-# ]
+CSRF_TRUSTED_ORIGINS = [
+    'https://socialconnect-nhna.onrender.com', 
+]
 
 # Application definition
 
@@ -101,12 +104,7 @@ ASGI_APPLICATION = "backend.asgi.application"
 CORS_ALLOW_ALL_ORIGINS = False # True is dangerous, keep it False
 
 CORS_ALLOWED_ORIGIN_REGEXES = [
-    r"^https://\w+\.onrender\.com$",  # Matches your Render URL
-    r"^http://localhost:[0-9]+$",     # Matches localhost on ANY port
-    r"^http://127\.0\.0\.1:[0-9]+$",  # Matches 127.0.0.1 on ANY port
-    r"^http://10\.0\.2\.2:[0-9]+$",   # Matches Android Emulator
-    r"^http://192\.168\.\d{1,3}\.\d{1,3}:[0-9]+$", # Matches ANY local WiFi IP
-    r"^http://10\.33\.\d{1,3}\.\d{1,3}:[0-9]+$", # Matches your 10.33.x.x range
+    r"^https://\w+\.onrender\.com$",  # Matches any subdomains on Render
     r"^http://localhost:[0-9]+$",
     r"^http://127\.0\.0\.1:[0-9]+$",
 ]

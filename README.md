@@ -263,7 +263,13 @@ python manage.py createsuperuser
 ```bash
 uvicorn backend.asgi:application --reload
 ```
+for production
 
+gunicorn backend.asgi:application -w 4 -k uvicorn.workers.UvicornWorker -b 0.0.0.0:8000
+
+for frontend use local
+
+npx expo start --dev-client --clear
 ---
 
 ## 🔌 WebSocket & Real-Time Support

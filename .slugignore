@@ -1,0 +1,11 @@
+# Ignore the mobile app code (Save space & build time)
+frontend/
+
+# Ignore local environment files (Security)
+.env
+.venv/
+venv/
+__pycache__/
+*.pyc
+.DS_Store
+.git/
