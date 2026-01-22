@@ -35,11 +35,11 @@ SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY",xyz)
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.environ.get("DEBUG", "False") == "True"
 
-ALLOWED_HOSTS = ['.onrender.com', 'localhost', '127.0.0.1']
+ALLOWED_HOSTS = ['*']
 
-CSRF_TRUSTED_ORIGINS = [
-    'https://socialconnect-nhna.onrender.com', 
-]
+# CSRF_TRUSTED_ORIGINS = [
+#     'https://socialconnect-nhna.onrender.com', 
+# ]
 
 # Application definition
 
