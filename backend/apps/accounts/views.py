@@ -198,6 +198,7 @@ class ProfileViewSet(ModelViewSet):
     queryset = User.objects.all()
     # permission_classes = [IsAuthenticated] by default form now 
     lookup_field = "username"
+    lookup_value_regex = r'[\w.@+-]+'
     http_method_names = ["get", "patch", "post"]
 
     # -----------------------------
@@ -295,6 +296,19 @@ class ProfileViewSet(ModelViewSet):
         target_user = self.get_object()
         request.user.blocking.remove(target_user)
         return Response({"status": "unblocked", "is_blocked": False})
+    
+    @action(detail=False, methods=['get'])
+    def blocked(self, request):
+        blocked_users = request.user.blocking.all()
+
+        serializer = self.get_serializer(blocked_users, many=True)
+
+        return Response(serializer.data)
+
+
+    
+
+
 
 
 @api_view(['POST'])
