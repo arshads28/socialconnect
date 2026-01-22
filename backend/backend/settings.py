@@ -37,9 +37,9 @@ DEBUG = os.environ.get("DEBUG", "False") == "True"
 
 ALLOWED_HOSTS = ['.onrender.com', 'localhost', '127.0.0.1']
 
-CSRF_TRUSTED_ORIGINS = [
-    'https://socialconnect-nhna.onrender.com', 
-]
+# CSRF_TRUSTED_ORIGINS = [
+#     'https://socialconnect-nhna.onrender.com', 
+# ]
 
 # Application definition
 
