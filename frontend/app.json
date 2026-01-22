@@ -39,8 +39,6 @@
         "android.permission.MODIFY_AUDIO_SETTINGS",
         "android.permission.INTERNET",
         "android.permission.ACCESS_NETWORK_STATE",
-        "android.permission.BLUETOOTH",
-        "android.permission.BLUETOOTH_CONNECT",
         "android.permission.POST_NOTIFICATIONS",
         "android.permission.WAKE_LOCK",
         "android.permission.VIBRATE",
