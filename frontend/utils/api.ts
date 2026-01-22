@@ -3,7 +3,7 @@ import { getSecure, saveSecure, removeSecure } from './storage';
 import { DeviceEventEmitter } from 'react-native';
 
 // UPDATE YOUR IP HERE
-const PROD_URL = 'https://socialconnect-nhna.onrender.com';
+const PROD_URL = 'https://connect-68co.onrender.com';
 const LOCAL_URL = 'http://10.119.5.238:8000'; // Make sure this matches your PC IP
 const IS_PRODUCTION = true;
 export const BASE_URL = IS_PRODUCTION ? PROD_URL : LOCAL_URL;
@@ -15,7 +15,7 @@ let failedQueue: any[] = [];
 
 const api = axios.create({
   baseURL: BASE_URL,
-  timeout: 15000, // Increased timeout for slow networks
+  timeout: 25000, // Increased timeout for slow networks
   headers: { 'Content-Type': 'application/json' },
 });
 
