@@ -8,67 +8,83 @@ from .models import Post
 
 
 def process_post_image_background(post_id):
+    # Close old DB connections to prevent "InterfaceError" in worker threads
     close_old_connections()
     print("Image processing start")
 
     try:
-        post = Post.objects.get(pk=post_id)
-    except Post.DoesNotExist:
-        return
+        # Fetch only the fields we need
+        post = Post.objects.only('media').filter(pk=post_id).first()
+        
+        if not post or not post.media:
+            return
 
-    if not post.media:
-        return
+        old_path = post.media.name
+        
+        # Open file safely
+        with post.media.open('rb') as f:
+            image_data = f.read()
 
-    old_path = post.media.name  # original (heic/png/etc)
+        # 1 Open Image (Supports PNG, JPG, HEIC automatically now)
+        img = Image.open(BytesIO(image_data))
 
-    try:
-        img = Image.open(post.media)
+        # 2Fix Rotation (iPhone/Samsung photos are often rotated)
         img = ImageOps.exif_transpose(img)
 
+        # 3Convert to RGB (Drop Alpha channel for JPEG)
         if img.mode != "RGB":
             img = img.convert("RGB")
 
+        # 4 Resize (Optimization: Use BICUBIC for speed)
         max_width = 1080
         if img.width > max_width:
             ratio = max_width / img.width
-            img = img.resize(
-                (max_width, int(img.height * ratio)),
-                Image.Resampling.LANCZOS,
-            )
+            new_height = int(img.height * ratio)
+            img = img.resize((max_width, new_height), Image.Resampling.BICUBIC)
 
+        # 5. Compress
         buffer = BytesIO()
         img.save(
             buffer,
             format="JPEG",
             quality=80,
             optimize=True,
-            progressive=True,
+            progressive=True  # True =Loads faster on slow networks
         )
-
+        
         buffer.seek(0)
+        
+        # 6. Save new file
+        # Rename .heic/.png -> .jpg
+        filename_base = os.path.splitext(os.path.basename(old_path))[0]
+        new_filename = f"{filename_base}.jpg"
+        
+        # Ensure we save in the same directory (S3/Local)
+        dir_name = os.path.dirname(old_path)
+        new_path = os.path.join(dir_name, new_filename)
 
-        new_path = os.path.splitext(old_path)[0] + ".jpg"
-
-        # SAVE JPG FIRST
         saved_path = default_storage.save(
             new_path,
-            ContentFile(buffer.read()),
+            ContentFile(buffer.read())
         )
 
-        # ONLY NOW update DB
+        # 7. Update DB
         Post.objects.filter(pk=post.pk).update(
             media=saved_path,
             media_type=Post.MediaType.IMAGE,
             processing=False,
         )
 
-        # DELETE original file AFTER success
-        if default_storage.exists(old_path) and old_path != saved_path:
+        # 8. Cleanup Original (Delete the massive HEIC/PNG)
+        if old_path != saved_path and default_storage.exists(old_path):
             default_storage.delete(old_path)
+            
+        print(f" Success: converted to JPG")
 
     except Exception as e:
-        print(f"Image processing failed for post {post_id}: {e}")
-        Post.objects.filter(pk=post.pk).update(processing=False)
+        print(f"❌ Failed processing {post_id}: {e}")
+        # Always unflag processing so the user isn't stuck loading forever
+        Post.objects.filter(pk=post_id).update(processing=False)
 
     finally:
         close_old_connections()
