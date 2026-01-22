@@ -139,6 +139,11 @@ CHANNEL_LAYERS = {
     },
 }
 
+
+
+# Read the secret from to schedule corn job, maek server alive
+CRON_SECRET = os.environ.get("CRON_SECRET")
+
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
