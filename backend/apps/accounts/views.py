@@ -10,7 +10,8 @@ from rest_framework.viewsets import ModelViewSet
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
-from .serializers import ProfileSerializer, ProfileUpdateSerializer
+from .serializers import ProfileSerializer, ProfileUpdateSerializer, LoginSerializer, UserRegistrationSerializer
+from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework import status
 from django import forms
 from .models import PushDevice
@@ -43,34 +44,61 @@ class CustomUserCreationForm(UserCreationForm):
 #     )
 
 
+def get_tokens_for_user(user):
+    refresh = RefreshToken.for_user(user)
+    return {
+        'refresh': str(refresh),
+        'access': str(refresh.access_token),
+    }
+
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def signup_view(request):
-    if request.method == "POST":
-        form = CustomUserCreationForm(request.POST)
-        if form.is_valid():
-            user = form.save()
-            login(request, user)
-            return redirect("home")
-    else:
-        form = CustomUserCreationForm()
-
-    return render(request, "auth/signup.html", {"form": form})
+    """
+    API View for User Registration.
+    Accepts JSON: {"username": "arsh", "password": "...", "email": "..."}
+    """
+    # 1. Pass 'request.data' (JSON), NOT 'request.POST'
+    serializer = UserRegistrationSerializer(data=request.data)
+    
+    if serializer.is_valid():
+        user = serializer.save()
+        
+        # 2. Generate Tokens immediately so user is logged in
+        tokens = get_tokens_for_user(user)
+        
+        return Response({
+            "message": "User created successfully",
+            "user_id": user.id,
+            "tokens": tokens
+        }, status=status.HTTP_201_CREATED)
+    
+    # 3. Return Error JSON if validation fails
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def login_view(request):
-    if request.method == "POST":
-        form = AuthenticationForm(request, data=request.POST)
-        if form.is_valid():
-            user = form.get_user()
-            login(request, user)
-            return redirect("home")
-    else:
-        form = AuthenticationForm()
-
-    return render(request, "auth/login.html", {"form": form})
+    """
+    API View for Login.
+    Accepts JSON: {"username": "arsh", "password": "..."}
+    Returns: Access & Refresh Tokens
+    """
+    serializer = LoginSerializer(data=request.data)
+    
+    if serializer.is_valid():
+        user = serializer.validated_data
+        tokens = get_tokens_for_user(user)
+        
+        return Response({
+            "message": "Login successful",
+            "tokens": tokens,
+            "user_id": user.id,
+            "username": user.username
+        }, status=status.HTTP_200_OK)
+        
+    return Response(serializer.errors, status=status.HTTP_401_UNAUTHORIZED)
 
 
 
