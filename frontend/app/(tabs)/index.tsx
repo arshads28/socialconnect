@@ -425,7 +425,7 @@ export default function HomeScreen() {
           data={posts}
           renderItem={renderPostItem}
           keyExtractor={(item) => item.id.toString()}
-          ListHeaderComponent={renderCreatePostCard} 
+          ListHeaderComponent={renderCreatePostCard()} 
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchFeed(); }} />}
           onEndReached={fetchMore}
           onEndReachedThreshold={0.5}
