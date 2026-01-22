@@ -37,9 +37,9 @@ DEBUG = os.environ.get("DEBUG", "False") == "True"
 
 ALLOWED_HOSTS = ['.onrender.com', 'localhost', '127.0.0.1']
 
-# CSRF_TRUSTED_ORIGINS = [
-#     'https://socialconnect-nhna.onrender.com', 
-# ]
+CSRF_TRUSTED_ORIGINS = [
+    'https://connect-68co.onrender.com', 
+]
 
 # Application definition
 
@@ -272,7 +272,7 @@ if os.getenv('AWS_ACCESS_KEY_ID'):
             "BACKEND": "storages.backends.s3boto3.S3Boto3Storage",
         },
         "staticfiles": {
-            "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+            "BACKEND": "whitenoise.storage.CompressedStaticFilesStorage",
         },
     }
 
@@ -286,15 +286,15 @@ else:
             "BACKEND": "django.core.files.storage.FileSystemStorage",
         },
         "staticfiles": {
-            "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+            "BACKEND": "whitenoise.storage.CompressedStaticFilesStorage",
         },
     }
 
 
 
-LOGIN_URL = "/auth/login/"
-LOGIN_REDIRECT_URL = "/"
-LOGOUT_REDIRECT_URL = "/auth/login/"
+# LOGIN_URL = "/auth/login/"
+# LOGIN_REDIRECT_URL = "/"
+# LOGOUT_REDIRECT_URL = "/auth/login/"
 
 
 
