@@ -1,24 +1,25 @@
 import { View, Text, StyleSheet, TouchableOpacity, Image, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { useAuth } from '../../context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
-import { useState, useEffect } from 'react';
+import { useState, useCallback } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import api from '../../utils/api';
 
 export default function ProfileScreen() {
-  const { signOut } = useAuth();
   const router = useRouter();
   const [profile, setProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetchProfile();
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      fetchProfile();
+    }, [])
+  );
 
   const fetchProfile = async () => {
     try {
-      const response = await api.get('/auth/api/profile/me');
+      const response = await api.get('/auth/api/profile/me/');
       setProfile(response.data);
     } catch (error) {
       console.error('Error fetching profile:', error);
@@ -29,9 +30,7 @@ export default function ProfileScreen() {
 
   if (loading) {
     return (
-      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
-        <ActivityIndicator size="large" color="#0095f6" />
-      </View>
+      <View style={styles.center}><ActivityIndicator size="large" color="#0095f6" /></View>
     );
   }
 
@@ -39,37 +38,39 @@ export default function ProfileScreen() {
     <SafeAreaView style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>My Profile</Text>
+        <Text style={styles.headerTitle}>@{profile?.username}</Text>
+        
+        {/* Menu / More Option */}
+        <TouchableOpacity onPress={() => router.push('/settings/menu')}>
+            <Ionicons name="menu" size={28} color="#000" />
+        </TouchableOpacity>
       </View>
 
       <View style={styles.content}>
-        {/* Avatar */}
-        {profile?.avatar_url ? (
-          <Image source={{ uri: profile.avatar_url }} style={styles.avatar} />
-        ) : (
-          <View style={styles.avatarPlaceholder}>
-            <Ionicons name="person" size={50} color="#666" />
-          </View>
-        )}
+        {/* Centered Avatar */}
+        <View style={styles.avatarContainer}>
+          <Image 
+            source={{ uri: profile?.avatar_url || 'https://via.placeholder.com/150' }} 
+            style={styles.avatar} 
+          />
+        </View>
         
         {/* User Info */}
-        <Text style={styles.name}>@{profile?.username}</Text>
+        <Text style={styles.name}>{profile?.full_name || profile?.username}</Text>
         <Text style={styles.email}>{profile?.email}</Text>
-        {profile?.bio && <Text style={styles.bio}>{profile.bio}</Text>}
         
-        {/* --- ⚙️ SETTINGS BUTTON (New) --- */}
+        {profile?.bio && (
+          <Text style={styles.bio}>{profile.bio}</Text>
+        )}
+
+        {/* --- EDIT PROFILE BUTTON --- */}
         <TouchableOpacity 
-          style={styles.settingsBtn} 
-          onPress={() => router.push('/settings/call')}
+          style={styles.editBtn} 
+          onPress={() => router.push('/profile/edit')}
         >
-          <Ionicons name="settings-outline" size={20} color="#000" />
-          <Text style={styles.settingsText}>Call & Video Settings</Text>
+          <Text style={styles.editBtnText}>Edit Profile</Text>
         </TouchableOpacity>
 
-        {/* Logout */}
-        <TouchableOpacity style={styles.logoutBtn} onPress={signOut}>
-          <Text style={styles.logoutText}>Log Out</Text>
-        </TouchableOpacity>
       </View>
     </SafeAreaView>
   );
@@ -77,50 +78,61 @@ export default function ProfileScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff' },
-  header: { padding: 16, borderBottomWidth: 1, borderColor: '#eee', alignItems: 'center' },
-  headerTitle: { fontSize: 18, fontWeight: 'bold' },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   
-  content: { flex: 1, alignItems: 'center', paddingTop: 40, paddingHorizontal: 20 },
-  
-  avatar: { width: 100, height: 100, borderRadius: 50, marginBottom: 16, backgroundColor: '#f0f0f0' },
-  avatarPlaceholder: { width: 100, height: 100, borderRadius: 50, backgroundColor: '#f0f0f0', justifyContent: 'center', alignItems: 'center', marginBottom: 16 },
-  
-  name: { fontSize: 22, fontWeight: 'bold', marginBottom: 4 },
-  email: { fontSize: 14, color: '#666', marginBottom: 16 },
-  bio: { fontSize: 14, color: '#333', textAlign: 'center', marginBottom: 30 },
+  // Header
+  header: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    justifyContent: 'space-between', 
+    paddingHorizontal: 20, 
+    paddingVertical: 15,
+    borderBottomWidth: 1, 
+    borderColor: '#f0f0f0' 
+  },
+  headerTitle: { fontSize: 20, fontWeight: 'bold' },
 
-  // Settings Button Style
-  settingsBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#f8f9fa',
+  // Content (Centered Layout)
+  content: { 
+    flex: 1, 
+    alignItems: 'center', 
+    paddingTop: 40, 
+    paddingHorizontal: 30 
+  },
+  
+  avatarContainer: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 5,
+    elevation: 3,
+    marginBottom: 20,
+  },
+  avatar: { 
+    width: 120, 
+    height: 120, 
+    borderRadius: 60, 
+    backgroundColor: '#f0f0f0' 
+  },
+  
+  name: { fontSize: 24, fontWeight: 'bold', marginBottom: 5, textAlign: 'center' },
+  email: { fontSize: 14, color: '#666', marginBottom: 15 },
+  bio: { fontSize: 15, color: '#333', textAlign: 'center', marginBottom: 30, lineHeight: 22 },
+
+  // Edit Button Style (Clean & Professional)
+  editBtn: {
+    backgroundColor: '#f0f0f0',
     paddingVertical: 12,
-    paddingHorizontal: 24,
+    paddingHorizontal: 40,
     borderRadius: 8,
     width: '100%',
-    marginBottom: 12,
+    alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#e0e0e0',
+    borderColor: '#dbdbdb',
   },
-  settingsText: {
+  editBtnText: {
     color: '#000',
     fontWeight: '600',
     fontSize: 16,
-    marginLeft: 10,
   },
-
-  // Logout Button Style
-  logoutBtn: {
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#ff3b30',
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 8,
-    width: '100%',
-    alignItems: 'center',
-    marginTop: 10,
-  },
-  logoutText: { color: '#ff3b30', fontWeight: 'bold', fontSize: 16 },
 });

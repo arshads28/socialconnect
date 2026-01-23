@@ -5,8 +5,6 @@ import { useEffect, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../utils/api';
 
-// Complete logic for app/profile/[username].tsx
-
 export default function ProfileScreen() {
   const { username } = useLocalSearchParams();
   const router = useRouter();
@@ -20,7 +18,6 @@ export default function ProfileScreen() {
 
   const fetchProfile = async () => {
     try {
-      // Backend URL is /auth/api/profile{username}/
       const response = await api.get(`/auth/api/profile/${username}/`);
       setProfile(response.data);
     } catch (error) {
@@ -31,18 +28,27 @@ export default function ProfileScreen() {
     }
   };
 
+  const isBlocked = profile?.connection_status === 'BLOCKED';
+
   const toggleBlock = async () => {
     if (isProcessing) return;
     setIsProcessing(true);
     
-    // Determine action based on whether they are currently blocked
-    const action = profile.is_blocked ? 'unblock' : 'block';
+    const action = isBlocked ? 'unblock' : 'block';
     
     try {
       await api.post(`/auth/api/profile/${username}/${action}/`);
+      
+      // Optimistic Update (Update UI immediately before refetching)
+      setProfile((prev: any) => ({
+        ...prev,
+        connection_status: action === 'block' ? 'BLOCKED' : 'NONE'
+      }));
+
       Alert.alert('Success', `User ${action}ed`);
-      fetchProfile(); // Refresh profile data to update UI
+      
     } catch (error) {
+      console.log(error);
       Alert.alert('Error', `Could not ${action} user`);
     } finally {
       setIsProcessing(false);
@@ -64,14 +70,15 @@ export default function ProfileScreen() {
 
       <View style={styles.profileContent}>
         <Image 
-          source={{ uri: profile.avatar || 'https://via.placeholder.com/150' }} 
+          source={{ uri: profile.avatar_url || 'https://via.placeholder.com/150' }} 
           style={styles.avatar} 
         />
         <Text style={styles.username}>{profile.full_name || profile.username}</Text>
         <Text style={styles.bio}>{profile.bio || "No bio available"}</Text>
 
         <View style={styles.actions}>
-          {/* ✅ MESSAGE BUTTON */}
+          
+          {/* Message Button */}
           <TouchableOpacity 
             style={styles.btnMessage}
             onPress={() => router.push(`/chat/${username}`)}
@@ -80,16 +87,16 @@ export default function ProfileScreen() {
             <Text style={styles.btnMessageText}>Message</Text>
           </TouchableOpacity>
 
-          {/* ✅ BLOCK/UNBLOCK BUTTON */}
           <TouchableOpacity 
-            style={[styles.btnBlock, profile.is_blocked && { backgroundColor: '#eee' }]}
+            style={[styles.btnBlock, isBlocked && { backgroundColor: '#eee', borderColor: '#ccc' }]}
             onPress={toggleBlock}
             disabled={isProcessing}
           >
-            <Text style={[styles.btnBlockText, profile.is_blocked && { color: '#666' }]}>
-              {profile.is_blocked ? 'Unblock' : 'Block'}
+            <Text style={[styles.btnBlockText, isBlocked && { color: '#ff3b30' }]}>
+              {isBlocked ? 'Unblock' : 'Block'}
             </Text>
           </TouchableOpacity>
+
         </View>
       </View>
     </SafeAreaView>
@@ -103,13 +110,10 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 18, fontWeight: 'bold' },
   profileContent: { alignItems: 'center', padding: 32 },
   avatar: { width: 100, height: 100, borderRadius: 50, marginBottom: 16 },
-  avatarPlaceholder: { width: 100, height: 100, borderRadius: 50, backgroundColor: '#eee', justifyContent: 'center', alignItems: 'center', marginBottom: 16 },
   username: { fontSize: 24, fontWeight: 'bold', marginBottom: 4 },
-  email: { fontSize: 14, color: '#666', marginBottom: 16 },
   bio: { fontSize: 15, textAlign: 'center', marginBottom: 12, paddingHorizontal: 20 },
-  interests: { fontSize: 14, color: '#0095f6', marginBottom: 24 },
   actions: { flexDirection: 'row', gap: 12, marginTop: 16 },
-  btnMessage: { backgroundColor: '#0095f6', paddingHorizontal: 32, paddingVertical: 12, borderRadius: 8 },
+  btnMessage: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#0095f6', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 8 },
   btnMessageText: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
   btnBlock: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#dbdbdb', paddingHorizontal: 32, paddingVertical: 12, borderRadius: 8 },
   btnBlockText: { color: '#000', fontWeight: 'bold', fontSize: 16 },

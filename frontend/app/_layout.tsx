@@ -3,11 +3,10 @@ import { useEffect } from 'react';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { View, ActivityIndicator, Platform } from 'react-native';
+import { useColorScheme, View, ActivityIndicator, Platform } from 'react-native';
 
-import { AuthProvider, useAuth } from '../context/AuthContext';
+import { AuthProvider, useAuth ,} from '../context/AuthContext';
 import { WebSocketProvider } from '../contexts/WebSocketContext';
-import { useColorScheme } from '@/hooks/use-color-scheme';
 import NetInfo from '@react-native-community/netinfo';
 import { registerBackgroundFetchAsync } from '../utils/backgroundTasks';
 import { processOfflineQueue } from '../utils/offlineQueue';
@@ -20,6 +19,7 @@ function RootLayoutNav() {
   const colorScheme = useColorScheme();
   const { isLoading, userToken } = useAuth(); 
   const router = useRouter();
+  const isDark = colorScheme === 'dark';
 
   // 1. NETWORK STATUS LISTENER
   useEffect(() => {
@@ -69,12 +69,11 @@ function RootLayoutNav() {
 
   if (isLoading) {
     return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' }}>
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: isDark ? '#000' : '#fff' }}>
         <ActivityIndicator size="large" color="#0095f6" />
       </View>
     );
   }
-
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
       <Stack>
@@ -82,6 +81,10 @@ function RootLayoutNav() {
         <Stack.Screen name="login" options={{ headerShown: false }} />
         <Stack.Screen name="signup" options={{ headerShown: false }} />
         <Stack.Screen name="chat/[username]" options={{ headerShown: false }} /> 
+        {/* <Stack.Screen 
+          name="comments/[id]" 
+          options={{ headerShown: false, presentation: 'card', animation: 'slide_from_right' }} 
+        /> */}
         <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
       </Stack>
       <StatusBar style="auto" />
