@@ -135,9 +135,8 @@ export default function ChatScreen() {
   const handleTyping = (val: string) => {
     setText(val);
     const now = Date.now();
-    // Only send if we have the profile ID loaded
     if (val.length > 0 && (now - lastTypingSent.current > 2000) && targetProfile?.id) {
-      sendTypingSignal(targetProfile.id); // Updated to send ID if your context supports it
+      sendTypingSignal(targetProfile.id);
       lastTypingSent.current = now;
     }
   };
@@ -145,7 +144,6 @@ export default function ChatScreen() {
   const handleSend = async () => {
     if (!text.trim()) return;
 
-    // Safety check: Cannot send if profile not loaded (need UUID)
     if (!targetProfile?.id) {
         Alert.alert("Loading...", "Please wait for connection.");
         return;
@@ -154,14 +152,13 @@ export default function ChatScreen() {
     const clientId = generateUUID();
     const ciphertext = encryptMessage(text);
     const timestamp = new Date().toISOString();
-    const recipientId = targetProfile.id; // ✅ Capture UUID
+    const recipientId = targetProfile.id; 
 
-    // 1. Optimistic Save
     saveMessage({
       id: null, 
       client_id: clientId, 
       conversation_id: username,
-      recipient_id: recipientId, // Save UUID for offline sync
+      recipient_id: recipientId, 
       sender: user?.username,
       content: text, 
       status: 'sending',
@@ -175,10 +172,10 @@ export default function ChatScreen() {
     const netState = await NetInfo.fetch();
 
     if (!netState.isConnected || ws?.readyState !== WebSocket.OPEN) {
-        // OFFLINE
+ 
         const queued = addToQueue('SEND_MESSAGE', {
             conversation_id: username,
-            recipient_id: recipientId, // UUID for Sync
+            recipient_id: recipientId,
             ciphertext: ciphertext,
             client_id: clientId
         });
@@ -187,7 +184,7 @@ export default function ChatScreen() {
             Alert.alert("Not Sent", "Queue full.");
         }
     } else {
-        // ONLINE
+        
         sendMessage(recipientId, ciphertext, clientId);
     }
   };
@@ -284,7 +281,7 @@ export default function ChatScreen() {
       <KeyboardAvoidingView 
         style={{ flex: 1 }} 
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 100 : 0}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
       >
         <FlatList
           ref={flatListRef}

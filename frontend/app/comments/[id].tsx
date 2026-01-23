@@ -4,7 +4,8 @@ import {
   View, Text, TextInput, TouchableOpacity, FlatList, 
   StyleSheet, ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Modal
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useHeaderHeight } from '@react-navigation/elements';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../utils/api';
 
@@ -19,6 +20,8 @@ export default function CommentsScreen() {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [postAuthorId, setPostAuthorId] = useState<string | null>(null);
   const [menuVisible, setMenuVisible] = useState<number | null>(null);
+  const headerHeight = useHeaderHeight();
+  const insets = useSafeAreaInsets();
 
   useEffect(() => {
     if (id) {
@@ -69,7 +72,6 @@ export default function CommentsScreen() {
     setSending(true);
 
     try {
-      // ✅ FIX 2: Post to /api/comments/ and send post_id in the BODY
       const response = await api.post(`/api/comments/`, { 
         post_id: id, 
         content: text 
@@ -152,7 +154,12 @@ export default function CommentsScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+  <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 45}
+    >
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()}>
           <Ionicons name="arrow-back" size={24} color="black" />
@@ -173,29 +180,24 @@ export default function CommentsScreen() {
         />
       )}
 
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 100 : 0}
-      >
-        <View style={styles.inputContainer}>
-          <TextInput
-            style={styles.input}
-            placeholder="Add a comment..."
-            value={text}
-            onChangeText={setText}
-            multiline
-          />
-          <TouchableOpacity onPress={handlePostComment} disabled={!text.trim() || sending}>
-            {sending ? (
-              <ActivityIndicator size="small" color="#0095f6" />
-            ) : (
-              <Text style={[styles.postText, !text.trim() && { opacity: 0.5 }]}>Post</Text>
-            )}
-          </TouchableOpacity>
-        </View>
-      </KeyboardAvoidingView>
+      <View style={[styles.inputContainer, { paddingBottom: Math.max(insets.bottom, 12) }]}>
+        <TextInput
+          style={styles.input}
+          placeholder="Add a comment..."
+          value={text}
+          onChangeText={setText}
+          multiline
+        />
+        <TouchableOpacity onPress={handlePostComment} disabled={!text.trim() || sending}>
+          {sending ? (
+            <ActivityIndicator size="small" color="#0095f6" />
+          ) : (
+            <Text style={[styles.postText, !text.trim() && { opacity: 0.5 }]}>Post</Text>
+          )}
+        </TouchableOpacity>
+      </View>
+    </KeyboardAvoidingView>
 
-      {/* Delete Menu Modal */}
       {menuVisible !== null && (
         <Modal
           visible={true}

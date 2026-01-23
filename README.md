@@ -261,7 +261,7 @@ python manage.py createsuperuser
 ### 7️⃣ Start Development Server
 
 ```bash
-uvicorn backend.asgi:application --reload
+uvicorn backend.asgi:application --reload --host 0.0.0.0 --port 8000
 ```
 for production
 
