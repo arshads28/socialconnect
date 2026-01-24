@@ -270,6 +270,20 @@ gunicorn backend.asgi:application -w 4 -k uvicorn.workers.UvicornWorker -b 0.0.0
 for frontend use local
 
 npx expo start --dev-client --clear
+
+to built app for apk
+for configuration run this : npx expo prebuild
+
+eas build -p android --profile preview 
+eas build -p ios --profile preview
+
+    or
+    
+eas build -p ios --profile development
+
+eas build -p android --profile development
+npx expo start --dev-client --clear
+
 ---
 
 ## 🔌 WebSocket & Real-Time Support

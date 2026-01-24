@@ -23,11 +23,17 @@ import { useAuth } from '../../context/AuthContext';
 import { getSecure } from '../../utils/storage';
 import NetInfo from '@react-native-community/netinfo';
 import { addToQueue } from '../../utils/db';
+import { useTheme } from '../../context/ThemeContext';
+import { Colors } from '../../constants/Colors';
 
 export default function HomeScreen() {
   const router = useRouter();
   const { signOut, userToken, isLoading: authLoading } = useAuth();
   
+  // Theme Setup
+  const { isDark } = useTheme();
+  const colors = isDark ? Colors.dark : Colors.light;
+
   // Feed State
   const [posts, setPosts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -46,9 +52,7 @@ export default function HomeScreen() {
     fetchFeed();
   }, [authLoading, userToken]);
 
-  // ------------------------------------------------------------------
-  // 1. CREATE POST LOGIC (Offline-First)
-  // ------------------------------------------------------------------
+  // 1. CREATE POST LOGIC (Unchanged)
   const pickImage = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
@@ -71,29 +75,22 @@ export default function HomeScreen() {
     if (!newPostContent.trim() && !newPostImage) return;
 
     setIsPosting(true);
-    const netState = await NetInfo.fetch(); // Check internet
+    const netState = await NetInfo.fetch(); 
 
-    // 1. OFFLINE MODE
     if (!netState.isConnected) {
-        
-        // Try to add to queue
         const queued = addToQueue('CREATE_POST', { 
             content: newPostContent, 
             imageUri: newPostImage 
         });
 
         if (!queued) {
-            Alert.alert(
-                "Queue Full", 
-                "You have too many pending actions. Connect to internet to sync."
-            );
+            Alert.alert("Queue Full", "You have too many pending actions. Connect to internet to sync.");
             setIsPosting(false);
             return;
         }
 
-        // Optimistic UI Update
         const optimisticPost = {
-            id: Date.now(), // Temp ID
+            id: Date.now(), 
             content: newPostContent,
             media: newPostImage,
             created_at: new Date().toISOString(),
@@ -101,7 +98,7 @@ export default function HomeScreen() {
             is_liked: false,
             likes_count: 0,
             comments_count: 0,
-            is_local: true // Flag
+            is_local: true 
         };
 
         setPosts(prev => [optimisticPost, ...prev]);
@@ -113,7 +110,6 @@ export default function HomeScreen() {
         return;
     }
 
-    // 2. ONLINE MODE
     try {
       const token = await getSecure('accessToken');
       if (!token) {
@@ -173,9 +169,7 @@ export default function HomeScreen() {
     }
   };
 
-  // ------------------------------------------------------------------
-  // 2. FEED LOGIC
-  // ------------------------------------------------------------------
+  // 2. FEED LOGIC (Unchanged)
   const fetchFeed = async () => {
     try {
       const response = await api.get('/api/updates/');
@@ -211,7 +205,6 @@ export default function HomeScreen() {
   };
 
   const handleLike = async (postId: string, index: number) => {
-    // Optimistic Like
     const newPosts = [...posts];
     const post = newPosts[index];
     const wasLiked = post.is_liked;
@@ -220,12 +213,9 @@ export default function HomeScreen() {
     post.likes_count = wasLiked ? post.likes_count - 1 : post.likes_count + 1;
     setPosts(newPosts);
 
-    // If offline, just queue it (implement in future if needed)
-    // For now, only online likes are sent, or simple fail silently
     try {
       await api.post(`/api/updates/${postId}/like/`);
     } catch (error) {
-      // Revert if failed
       post.is_liked = wasLiked; 
       post.likes_count = wasLiked ? post.likes_count + 1 : post.likes_count - 1; 
       setPosts([...posts]);
@@ -235,27 +225,21 @@ export default function HomeScreen() {
   const handleDeletePost = async (postId: string) => {
     const netState = await NetInfo.fetch();
 
-    // 1. Optimistic UI Update (Always remove from screen first)
     setPosts(posts.filter(p => p.id !== postId));
 
-    // 2. Offline: Queue it
     if (!netState.isConnected) {
         const queued = addToQueue('DELETE_POST', { postId });
         if (!queued) {
             Alert.alert("Sync Error", "Could not queue deletion. Connect to internet.");
-             // Ideally revert the UI deletion here, but for deletion it's rare to revert
         }
         return;
     }
 
-    // 3. Online: Send request
     if (Platform.OS === 'web') {
       if (window.confirm('Are you sure you want to delete this update?')) {
         try {
           await api.delete(`/api/updates/${postId}/`);
-          console.log('Post deleted successfully');
         } catch (error) {
-          console.error('Delete error:', error);
           alert('Could not Delete Update');
         }
       }
@@ -271,9 +255,7 @@ export default function HomeScreen() {
             onPress: async () => {
               try {
                 await api.delete(`/api/updates/${postId}/`);
-                console.log('Post deleted successfully');
               } catch (error) {
-                console.error('Delete error:', error);
                 Alert.alert('Error', 'Could not Delete Update');
               }
             },
@@ -283,17 +265,14 @@ export default function HomeScreen() {
     }
   };
 
-  // ------------------------------------------------------------------
   // 3. COMPONENTS
-  // ------------------------------------------------------------------
-  
   const renderCreatePostCard = () => (
-    <View style={styles.createCard}>
+    <View style={[styles.createCard, { backgroundColor: colors.card, shadowColor: isDark ? 'transparent' : '#000' }]}>
       <View style={styles.createInputRow}>
         <TextInput
-          style={styles.createInput}
+          style={[styles.createInput, { color: colors.text }]}
           placeholder="What's happening?"
-          placeholderTextColor="#666"
+          placeholderTextColor={colors.subText}
           multiline
           value={newPostContent}
           onChangeText={setNewPostContent}
@@ -307,17 +286,21 @@ export default function HomeScreen() {
           </TouchableOpacity>
         </View>
       )}
-      <View style={styles.createActions}>
+      <View style={[styles.createActions, { borderTopColor: colors.border }]}>
         <TouchableOpacity style={styles.mediaBtn} onPress={pickImage}>
-          <Ionicons name="images-outline" size={22} color="#0095f6" />
-          <Text style={styles.mediaText}>Media</Text>
+          <Ionicons name="images-outline" size={22} color={colors.tint} />
+          <Text style={[styles.mediaText, { color: colors.tint }]}>Media</Text>
         </TouchableOpacity>
         <TouchableOpacity 
-          style={[styles.postBtn, (!newPostContent && !newPostImage) && styles.postBtnDisabled]}
+          style={[
+            styles.postBtn, 
+            { backgroundColor: colors.text },
+            (!newPostContent && !newPostImage) && { backgroundColor: isDark ? '#444' : '#ccc' }
+          ]}
           onPress={handleCreatePost}
           disabled={(!newPostContent && !newPostImage) || isPosting}
         >
-          {isPosting ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.postBtnText}>Post</Text>}
+          {isPosting ? <ActivityIndicator size="small" color={colors.background} /> : <Text style={[styles.postBtnText, { color: colors.background }]}>Post</Text>}
         </TouchableOpacity>
       </View>
     </View>
@@ -325,16 +308,16 @@ export default function HomeScreen() {
 
   const renderPostItem = ({ item, index }: { item: any, index: number }) => {
     return (
-      <View style={[styles.card, item.is_local && { opacity: 0.7 }]}>
+      <View style={[styles.card, { backgroundColor: colors.background, borderColor: colors.border }, item.is_local && { opacity: 0.7 }]}>
         <View style={styles.cardHeader}>
           <TouchableOpacity 
             style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}
             onPress={() => router.push(`/profile/${item.author.username}`)}
           >
-            <Image source={{ uri: item.author.avatar || 'https://via.placeholder.com/50' }} style={styles.avatar} />
+            <Image source={{ uri: item.author.avatar || 'https://via.placeholder.com/50' }} style={[styles.avatar, { borderColor: colors.border, borderWidth: 1 }]} />
             <View>
-              <Text style={styles.username}>@{item.author.username}</Text>
-              <Text style={styles.date}>
+              <Text style={[styles.username, { color: colors.text }]}>@{item.author.username}</Text>
+              <Text style={[styles.date, { color: colors.subText }]}>
                 {new Date(item.created_at).toLocaleDateString()}
                 {item.is_local ? ' • Pending' : ''}
               </Text>
@@ -343,26 +326,26 @@ export default function HomeScreen() {
 
           {item.is_author && (
             <TouchableOpacity onPress={() => setMenuVisible(item.id)} style={styles.menuBtn}>
-              <Ionicons name="ellipsis-horizontal" size={20} color="#666" />
+              <Ionicons name="ellipsis-horizontal" size={20} color={colors.subText} />
             </TouchableOpacity>
           )}
         </View>
-        {item.content ? <Text style={styles.content}>{item.content}</Text> : null}
+        {item.content ? <Text style={[styles.content, { color: colors.text }]}>{item.content}</Text> : null}
         {item.media && (
           item.media_type === 'video' ? (
-             <View style={styles.videoPlaceholder}><Ionicons name="play-circle-outline" size={64} color="white" /></View>
+             <View style={[styles.videoPlaceholder, { backgroundColor: colors.card }]}><Ionicons name="play-circle-outline" size={64} color={colors.subText} /></View>
           ) : (
-             <Image source={{ uri: item.media }} style={styles.postImage} resizeMode="cover"/>
+             <Image source={{ uri: item.media }} style={[styles.postImage, { backgroundColor: colors.card }]} resizeMode="cover"/>
           )
         )}
         <View style={styles.footer}>
           <TouchableOpacity onPress={() => handleLike(item.id, index)} style={styles.actionButton}>
-            <Ionicons name={item.is_liked ? "heart" : "heart-outline"} size={26} color={item.is_liked ? "#ff3040" : "#333"} />
-            <Text style={[styles.actionText, item.is_liked && {color: '#ff3040'}]}>{item.likes_count}</Text>
+            <Ionicons name={item.is_liked ? "heart" : "heart-outline"} size={26} color={item.is_liked ? colors.danger : colors.icon} />
+            <Text style={[styles.actionText, { color: colors.icon }, item.is_liked && {color: colors.danger}]}>{item.likes_count}</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.actionButton} onPress={() => router.push(`/comments/${item.id}`)}>
-            <Ionicons name="chatbubble-outline" size={24} color="#333" />
-            <Text style={styles.actionText}>{item.comments_count || 0}</Text>
+            <Ionicons name="chatbubble-outline" size={24} color={colors.icon} />
+            <Text style={[styles.actionText, { color: colors.icon }]}>{item.comments_count || 0}</Text>
           </TouchableOpacity>
         </View>
 
@@ -380,7 +363,7 @@ export default function HomeScreen() {
               onPress={() => setMenuVisible(null)}
             >
               <TouchableOpacity 
-                style={styles.menuModalPost}
+                style={[styles.menuModalPost, { backgroundColor: colors.card }]}
                 activeOpacity={1}
                 onPress={(e) => e.stopPropagation()}
               >
@@ -391,8 +374,8 @@ export default function HomeScreen() {
                     setTimeout(() => handleDeletePost(item.id), 100);
                   }}
                 >
-                  <Ionicons name="trash-outline" size={20} color="#ff3b30" />
-                  <Text style={styles.menuOptionTextDelete}>Delete Update</Text>
+                  <Ionicons name="trash-outline" size={20} color={colors.danger} />
+                  <Text style={[styles.menuOptionTextDelete, { color: colors.danger }]}>Delete Update</Text>
                 </TouchableOpacity>
               </TouchableOpacity>
             </TouchableOpacity>
@@ -403,35 +386,34 @@ export default function HomeScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top']}>
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: isDark ? '#000' : '#f2f2f2' }]} edges={['top']}>
       
-      {/* ----------------- TOP BAR ----------------- */}
-      <View style={styles.topBar}>
-         <Text style={styles.logo}>Connect</Text>
+      <View style={[styles.topBar, { backgroundColor: colors.background, borderColor: colors.border }]}>
+         <Text style={[styles.logo, { color: colors.text }]}>Connect</Text>
          <View style={{ flexDirection: 'row', gap: 15, alignItems: 'center' }}>
              <TouchableOpacity onPress={() => router.push('/(tabs)/explore')}>
-                <Ionicons name="search-outline" size={26} color="#000" />
+                <Ionicons name="search-outline" size={26} color={colors.icon} />
              </TouchableOpacity>
              <TouchableOpacity onPress={() => router.push('/create')}>
-                <Ionicons name="camera-outline" size={30} color="#000" />
+                <Ionicons name="camera-outline" size={30} color={colors.icon} />
              </TouchableOpacity>
          </View>
       </View>
 
       {loading ? (
-        <ActivityIndicator size="large" color="#0095f6" style={{ marginTop: 20 }} />
+        <ActivityIndicator size="large" color={colors.tint} style={{ marginTop: 20 }} />
       ) : (
         <FlatList
           data={posts}
           renderItem={renderPostItem}
           keyExtractor={(item) => item.id.toString()}
           ListHeaderComponent={renderCreatePostCard()} 
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchFeed(); }} />}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchFeed(); }} tintColor={colors.tint} />}
           onEndReached={fetchMore}
           onEndReachedThreshold={0.5}
-          ListFooterComponent={loadingMore ? <ActivityIndicator size="small" color="#0095f6" style={{ margin: 20 }} /> : null}
+          ListFooterComponent={loadingMore ? <ActivityIndicator size="small" color={colors.tint} style={{ margin: 20 }} /> : null}
           contentContainerStyle={{ paddingBottom: 20 }}
-          ListEmptyComponent={<Text style={styles.emptyText}>No posts yet.</Text>}
+          ListEmptyComponent={<Text style={[styles.emptyText, { color: colors.subText }]}>No posts yet.</Text>}
         />
       )}
     </SafeAreaView>
@@ -439,42 +421,41 @@ export default function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: '#f2f2f2' },
-  topBar: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 10, backgroundColor:'#fff', borderBottomWidth: 1, borderColor: '#e0e0e0' },
-  logo: { fontSize: 24, fontWeight: '800', fontStyle: 'italic', color: '#000' },
+  safeArea: { flex: 1 },
+  topBar: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 10, borderBottomWidth: 1 },
+  logo: { fontSize: 24, fontWeight: '800', fontStyle: 'italic' },
   
   createCard: {
-    backgroundColor: '#fff', borderRadius: 12, margin: 16, padding: 16,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2, elevation: 2,
+    borderRadius: 12, margin: 16, padding: 16,
+    shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2, elevation: 2,
   },
   createInputRow: { marginBottom: 10 },
-  createInput: { fontSize: 16, color: '#333', minHeight: 40 },
-  createActions: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTopWidth: 1, borderTopColor: '#f0f0f0', paddingTop: 12, marginTop: 5 },
+  createInput: { fontSize: 16, minHeight: 40 },
+  createActions: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTopWidth: 1, paddingTop: 12, marginTop: 5 },
   mediaBtn: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  mediaText: { color: '#0095f6', fontWeight: '600', fontSize: 14 },
-  postBtn: { backgroundColor: '#111', paddingVertical: 6, paddingHorizontal: 18, borderRadius: 20 },
-  postBtnDisabled: { backgroundColor: '#ccc' },
-  postBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+  mediaText: { fontWeight: '600', fontSize: 14 },
+  postBtn: { paddingVertical: 6, paddingHorizontal: 18, borderRadius: 20 },
+  postBtnText: { fontWeight: '700', fontSize: 14 },
   previewContainer: { position: 'relative', marginBottom: 10, borderRadius: 8, overflow: 'hidden' },
-  previewImage: { width: '100%', height: 200, borderRadius: 8, backgroundColor: '#f0f0f0' },
+  previewImage: { width: '100%', height: 200, borderRadius: 8 },
   removeBtn: { position: 'absolute', top: 8, right: 8, backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 12, width: 24, height: 24, justifyContent: 'center', alignItems: 'center' },
 
-  card: { backgroundColor: '#fff', marginBottom: 10, borderTopWidth: 1, borderBottomWidth: 1, borderColor: '#eee' },
+  card: { marginBottom: 10, borderTopWidth: 1, borderBottomWidth: 1 },
   cardHeader: { flexDirection: 'row', alignItems: 'center', padding: 12 },
-  avatar: { width: 40, height: 40, borderRadius: 20, marginRight: 10, backgroundColor: '#eee' },
-  username: { fontWeight: '700', fontSize: 15, color: '#000' },
-  date: { color: '#888', fontSize: 12 },
-  content: { fontSize: 15, paddingHorizontal: 12, marginBottom: 12, lineHeight: 22, color: '#333' },
-  postImage: { width: '100%', height: 350, backgroundColor: '#eee' },
-  videoPlaceholder: { width: '100%', height: 350, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center' },
+  avatar: { width: 40, height: 40, borderRadius: 20, marginRight: 10 },
+  username: { fontWeight: '700', fontSize: 15 },
+  date: { fontSize: 12 },
+  content: { fontSize: 15, paddingHorizontal: 12, marginBottom: 12, lineHeight: 22 },
+  postImage: { width: '100%', height: 350 },
+  videoPlaceholder: { width: '100%', height: 350, justifyContent: 'center', alignItems: 'center' },
   footer: { flexDirection: 'row', paddingTop: 12, paddingBottom: 12, paddingHorizontal: 12 },
   actionButton: { flexDirection: 'row', alignItems: 'center', marginRight: 24 },
-  actionText: { marginLeft: 6, fontSize: 14, fontWeight: '600', color: '#555' },
+  actionText: { marginLeft: 6, fontSize: 14, fontWeight: '600' },
   menuBtn: { padding: 8 },
-  emptyText: { textAlign: 'center', marginTop: 50, color: '#888' },
+  emptyText: { textAlign: 'center', marginTop: 50 },
 
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.3)' },
-  menuModalPost: { backgroundColor: '#fff', borderRadius: 8, width: 180, position: 'absolute', top: 100, right: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 4, elevation: 5 },
+  menuModalPost: { borderRadius: 8, width: 180, position: 'absolute', top: 100, right: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 4, elevation: 5 },
   menuOption: { flexDirection: 'row', alignItems: 'center', padding: 16, gap: 12 },
-  menuOptionTextDelete: { fontSize: 16, color: '#ff3b30', fontWeight: '500' },
+  menuOptionTextDelete: { fontSize: 16, fontWeight: '500' },
 });

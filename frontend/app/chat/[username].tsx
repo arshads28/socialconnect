@@ -18,14 +18,21 @@ import {
 import { useAuth } from '../../context/AuthContext';
 import { syncChatMessages } from '../../utils/sync';
 import NetInfo from '@react-native-community/netinfo';
-
 import { CallHeaderButton } from '../../contexts/CallComponent';
+
+// Theme imports
+import { useTheme } from '../../context/ThemeContext';
+import { Colors } from '../../constants/Colors';
 
 export default function ChatScreen() {
   const { username } = useLocalSearchParams<{ username: string }>();
   const router = useRouter();
   const { user } = useAuth();
   
+  // Theme Setup
+  const { isDark } = useTheme();
+  const colors = isDark ? Colors.dark : Colors.light;
+
   const { sendMessage, sendReadSignal, sendTypingSignal, ws } = useWebSocket();
   
   const [messages, setMessages] = useState<any[]>([]);
@@ -34,56 +41,41 @@ export default function ChatScreen() {
   const [isTyping, setIsTyping] = useState(false);
   const [isUserOnline, setIsUserOnline] = useState(false);
   
-  // FIX 1: Default isConnected to false (safest assumption)
   const [isConnected, setIsConnected] = useState(false);
-  // FIX 2: Add a flag to know if we have finished the initial check
   const [isNetworkChecked, setIsNetworkChecked] = useState(false);
   
   const flatListRef = useRef<FlatList>(null);
   const typingTimeout = useRef<any>(null);
   const lastTypingSent = useRef<number>(0);
 
-  // 1. INIT CHAT & NETWORK MONITOR
+  // 1. INIT CHAT & NETWORK MONITOR (Unchanged)
   useEffect(() => {
     let isMounted = true;
-    
-    // Cleanup previous chat immediately to prevent "flash" of old messages
     setMessages([]); 
-    setIsNetworkChecked(false); // Reset on new chat load
+    setIsNetworkChecked(false); 
 
     const initChat = async () => {
-      // 1. Load messages immediately
       loadLocalMessages();
-      
-      // 2. Load Profile from Cache (Offline Support)
       const cachedUser = getUser(username as string);
       if (cachedUser) {
         setTargetProfile(cachedUser);
       }
-      
-      // 3. Fetch Fresh Profile (and update cache)
       await fetchTargetProfile();
-      
-      // 4. Check Network
       const net = await NetInfo.fetch();
       if (isMounted) {
           setIsConnected(net.isConnected ?? false);
           setIsNetworkChecked(true); 
       }
-
-      // 5. Sync if online
       if (net.isConnected) {
         const synced = await syncChatMessages(username as string);
         if (isMounted && synced) loadLocalMessages();
       }
-      
       markChatAsRead(username as string);
       sendReadSignal(username as string);
     };
 
     initChat();
 
-    // Subscribe to Network Changes
     const unsubscribeNet = NetInfo.addEventListener(state => {
       if (isMounted) {
           setIsConnected(state.isConnected ?? false);
@@ -97,11 +89,9 @@ export default function ChatScreen() {
     };
   }, [username]);
 
-  // 2. WEBSOCKET ROOM JOINING
+  // 2. WEBSOCKET ROOM JOINING (Unchanged)
   useEffect(() => {
     if (!ws || ws.readyState !== WebSocket.OPEN || !targetProfile?.id) return;
-    
-    // Only try to join if we are actually connected
     if (isConnected) {
         ws.send(JSON.stringify({ command: 'join_room', recipient_id: targetProfile.id}));
     }
@@ -113,7 +103,7 @@ export default function ChatScreen() {
     };
   }, [targetProfile, ws, isConnected]); 
 
-  // 3. EVENT LISTENERS
+  // 3. EVENT LISTENERS (Unchanged)
   useEffect(() => {
     const msgListener = DeviceEventEmitter.addListener('new_message', (event) => {
       if (event.conversation_id === username) {
@@ -152,11 +142,8 @@ export default function ChatScreen() {
   const fetchTargetProfile = async () => {
     try {
       const res = await api.get(`/auth/api/profile/${username}/`);
-      
-      // Update State AND Cache
       setTargetProfile(res.data);
       saveUser(res.data); 
-
       if (res.data.is_online !== undefined) setIsUserOnline(res.data.is_online);
     } catch (e) {
       console.log("Error fetching profile", e);
@@ -173,7 +160,6 @@ export default function ChatScreen() {
   const handleTyping = (val: string) => {
     setText(val);
     const now = Date.now();
-    // Only send typing signal if we are actually online
     if (isConnected && val.length > 0 && (now - lastTypingSent.current > 2000) && targetProfile?.id) {
       sendTypingSignal(targetProfile.id);
       lastTypingSent.current = now;
@@ -193,7 +179,6 @@ export default function ChatScreen() {
     const timestamp = new Date().toISOString();
     const recipientId = targetProfile.id; 
 
-    // 1. SAVE LOCAL (Optimistic UI)
     saveMessage({
       id: null, 
       client_id: clientId, 
@@ -209,14 +194,10 @@ export default function ChatScreen() {
     loadLocalMessages();
     setText('');
     
-    // 2. NETWORK CHECK
     const netState = await NetInfo.fetch();
     const isNetworkUp = netState.isConnected && netState.isInternetReachable;
 
-    // If Offline OR WebSocket is dead -> Queue it
     if (!isNetworkUp || ws?.readyState !== WebSocket.OPEN) {
-        console.log("⚠️ Offline/WS Closed. Adding to Queue.");
-        
         const queued = addToQueue('SEND_MESSAGE', {
             conversation_id: username,
             recipient_id: recipientId,
@@ -226,7 +207,6 @@ export default function ChatScreen() {
 
         if (!queued) Alert.alert("Not Sent", "Offline queue is full.");
     } else {
-        // Online -> Send via WebSocket
         sendMessage(recipientId, ciphertext, clientId);
     }
   };
@@ -243,7 +223,6 @@ export default function ChatScreen() {
             onPress: async () => {
               deleteLocalChat(username as string);
               setMessages([]); 
-              // Fire and forget server delete
               api.post(`/chat/clear/${username}/`).catch(() => {}); 
             } 
           }
@@ -259,16 +238,16 @@ export default function ChatScreen() {
       if (item.status === 'sending') return <Ionicons name="time-outline" size={14} color="#ddd" />; 
       if (item.status === 'sent') return <Ionicons name="checkmark" size={16} color="#ddd" />; 
       if (item.status === 'delivered') return <Ionicons name="checkmark-done" size={16} color="#ddd" />; 
-      if (item.status === 'read') return <Ionicons name="checkmark-done" size={16} color="#4dabf7" />; 
+      if (item.status === 'read') return <Ionicons name="checkmark-done" size={16} color={isDark ? '#4dabf7' : '#0095f6'} />; 
       return null;
     };
 
     return (
       <View style={[styles.messageRow, isMe ? styles.messageRowRight : styles.messageRowLeft]}>
-        <View style={[styles.bubble, isMe ? styles.bubbleMe : styles.bubbleOther]}>
-          <Text style={[styles.messageText, isMe && { color: '#fff' }]}>{item.content}</Text>
+        <View style={[styles.bubble, isMe ? { backgroundColor: colors.tint } : { backgroundColor: isDark ? '#2c2c2e' : '#efefef' }]}>
+          <Text style={[styles.messageText, { color: isMe ? '#fff' : colors.text }]}>{item.content}</Text>
           <View style={styles.metaRow}>
-            <Text style={[styles.timestamp, isMe && { color: 'rgba(255,255,255,0.7)' }]}>
+            <Text style={[styles.timestamp, { color: isMe ? 'rgba(255,255,255,0.7)' : colors.subText }]}>
               {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
             </Text>
             {isMe && <View style={{marginLeft: 4}}>{renderTicks()}</View>}
@@ -279,11 +258,11 @@ export default function ChatScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={[styles.header, { borderColor: colors.border }]}>
         <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
           <TouchableOpacity onPress={() => router.back()} style={{ marginRight: 10 }}>
-            <Ionicons name="arrow-back" size={24} color="#000" />
+            <Ionicons name="arrow-back" size={24} color={colors.icon} />
           </TouchableOpacity>
           
           <TouchableOpacity 
@@ -293,16 +272,19 @@ export default function ChatScreen() {
             {targetProfile?.avatar ? (
               <Image source={{ uri: targetProfile.avatar }} style={styles.avatar} />
             ) : (
-              <View style={styles.avatarPlaceholder}><Ionicons name="person" size={20} color="#666" /></View>
+              <View style={[styles.avatarPlaceholder, { backgroundColor: colors.border }]}>
+                 <Ionicons name="person" size={20} color={colors.subText} />
+              </View>
             )}
             <View>
-              <Text style={styles.headerTitle}>{username}</Text>
+              <Text style={[styles.headerTitle, { color: colors.text }]}>{username}</Text>
               
               {isTyping ? (
-                <Text style={styles.headerStatusTyping}>typing...</Text>
+                <Text style={[styles.headerStatusTyping, { color: colors.tint }]}>typing...</Text>
               ) : (
                 <Text style={[
                     styles.headerStatus, 
+                    { color: colors.subText },
                     (isNetworkChecked && isConnected && isUserOnline) && { color: '#4caf50', fontWeight: 'bold' }
                 ]}>
                   {!isNetworkChecked 
@@ -318,7 +300,7 @@ export default function ChatScreen() {
         
         <View style={{ flexDirection: 'row', gap: 15, alignItems: 'center' }}>
             <TouchableOpacity onPress={handleClearChat}>
-                 <Ionicons name="trash-outline" size={22} color="#ff3b30" />
+                 <Ionicons name="trash-outline" size={22} color={colors.danger} />
             </TouchableOpacity>
             {targetProfile?.id && (
               <>
@@ -334,6 +316,7 @@ export default function ChatScreen() {
         keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
       >
         <FlatList
+          style={{ flex: 1 }}
           ref={flatListRef}
           data={messages}
           renderItem={renderMessage}
@@ -341,19 +324,20 @@ export default function ChatScreen() {
           contentContainerStyle={styles.messagesList}
           onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
           onLayout={() => flatListRef.current?.scrollToEnd({ animated: false })}
-          ListFooterComponent={<View style={{ height: 10 }} />}
+          ListFooterComponent={<View style={{ height: 30 }} />}
         />
 
-        <View style={styles.inputContainer}>
+        <View style={[styles.inputContainer, { backgroundColor: colors.background, borderColor: colors.border }]}>
           <TextInput
-            style={styles.input}
+            style={[styles.input, { backgroundColor: colors.card, color: colors.text }]}
             placeholder="Message..."
+            placeholderTextColor={colors.subText}
             value={text}
             onChangeText={handleTyping}
             multiline
           />
           <TouchableOpacity onPress={handleSend} disabled={!text.trim()}>
-            <Ionicons name="send" size={24} color={text.trim() ? '#0095f6' : '#ccc'} />
+            <Ionicons name="send" size={24} color={text.trim() ? colors.tint : colors.subText} />
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
@@ -362,23 +346,21 @@ export default function ChatScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fff' },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 10, borderBottomWidth: 1, borderColor: '#eee', height: 60 },
+  container: { flex: 1 },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 10, borderBottomWidth: 1, height: 60 },
   headerTitle: { fontSize: 16, fontWeight: 'bold' },
-  headerStatus: { fontSize: 12, color: '#666' },
-  headerStatusTyping: { fontSize: 12, color: '#0095f6', fontWeight: 'bold' },
+  headerStatus: { fontSize: 12 },
+  headerStatusTyping: { fontSize: 12, fontWeight: 'bold' },
   avatar: { width: 36, height: 36, borderRadius: 18, marginRight: 10 },
-  avatarPlaceholder: { width: 36, height: 36, borderRadius: 18, marginRight: 10, backgroundColor: '#eee', justifyContent: 'center', alignItems: 'center' },
+  avatarPlaceholder: { width: 36, height: 36, borderRadius: 18, marginRight: 10, justifyContent: 'center', alignItems: 'center' },
   messagesList: { padding: 16 },
   messageRow: { marginBottom: 12, maxWidth: '75%' },
   messageRowLeft: { alignSelf: 'flex-start' },
   messageRowRight: { alignSelf: 'flex-end' },
   bubble: { padding: 12, borderRadius: 18 },
-  bubbleMe: { backgroundColor: '#0095f6' },
-  bubbleOther: { backgroundColor: '#efefef' },
   messageText: { fontSize: 15, marginBottom: 4 },
   metaRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', marginTop: 2 },
-  timestamp: { fontSize: 10, color: '#666' },
-  inputContainer: { flexDirection: 'row', alignItems: 'center', padding: 10, borderTopWidth: 1, borderColor: '#eee', backgroundColor: '#fff' },
-  input: { flex: 1, backgroundColor: '#f0f0f0', borderRadius: 20, paddingHorizontal: 16, paddingVertical: 10, marginRight: 10, maxHeight: 100, fontSize: 16 },
+  timestamp: { fontSize: 10 },
+  inputContainer: { flexDirection: 'row', alignItems: 'center', padding: 10, borderTopWidth: 1 },
+  input: { flex: 1, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 10, marginRight: 10, maxHeight: 100, fontSize: 16 },
 });

@@ -5,9 +5,14 @@ import { Ionicons } from '@expo/vector-icons';
 import { useState, useCallback } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import api from '../../utils/api';
+import { useTheme } from '../../context/ThemeContext';
+import { Colors } from '../../constants/Colors';
 
 export default function ProfileScreen() {
   const router = useRouter();
+  const { isDark } = useTheme();
+  const colors = isDark ? Colors.dark : Colors.light;
+
   const [profile, setProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
@@ -30,19 +35,19 @@ export default function ProfileScreen() {
 
   if (loading) {
     return (
-      <View style={styles.center}><ActivityIndicator size="large" color="#0095f6" /></View>
+      <View style={[styles.center, { backgroundColor: colors.background }]}><ActivityIndicator size="large" color={colors.tint} /></View>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>@{profile?.username}</Text>
+      <View style={[styles.header, { borderColor: colors.border }]}>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>@{profile?.username}</Text>
         
         {/* Menu / More Option */}
         <TouchableOpacity onPress={() => router.push('/settings/menu')}>
-            <Ionicons name="menu" size={28} color="#000" />
+            <Ionicons name="menu" size={28} color={colors.icon} />
         </TouchableOpacity>
       </View>
 
@@ -56,19 +61,19 @@ export default function ProfileScreen() {
         </View>
         
         {/* User Info */}
-        <Text style={styles.name}>{profile?.full_name || profile?.username}</Text>
-        <Text style={styles.email}>{profile?.email}</Text>
+        <Text style={[styles.name, { color: colors.text }]}>{profile?.full_name || profile?.username}</Text>
+        <Text style={[styles.email, { color: colors.subText }]}>{profile?.email}</Text>
         
         {profile?.bio && (
-          <Text style={styles.bio}>{profile.bio}</Text>
+          <Text style={[styles.bio, { color: colors.subText }]}>{profile.bio}</Text>
         )}
 
         {/* --- EDIT PROFILE BUTTON --- */}
         <TouchableOpacity 
-          style={styles.editBtn} 
+          style={[styles.editBtn, { backgroundColor: colors.card, borderColor: colors.border }]} 
           onPress={() => router.push('/profile/edit')}
         >
-          <Text style={styles.editBtnText}>Edit Profile</Text>
+          <Text style={[styles.editBtnText, { color: colors.text }]}>Edit Profile</Text>
         </TouchableOpacity>
 
       </View>
@@ -77,10 +82,9 @@ export default function ProfileScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fff' },
+  container: { flex: 1 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   
-  // Header
   header: { 
     flexDirection: 'row', 
     alignItems: 'center', 
@@ -88,11 +92,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20, 
     paddingVertical: 15,
     borderBottomWidth: 1, 
-    borderColor: '#f0f0f0' 
   },
   headerTitle: { fontSize: 20, fontWeight: 'bold' },
 
-  // Content (Centered Layout)
   content: { 
     flex: 1, 
     alignItems: 'center', 
@@ -116,22 +118,18 @@ const styles = StyleSheet.create({
   },
   
   name: { fontSize: 24, fontWeight: 'bold', marginBottom: 5, textAlign: 'center' },
-  email: { fontSize: 14, color: '#666', marginBottom: 15 },
-  bio: { fontSize: 15, color: '#333', textAlign: 'center', marginBottom: 30, lineHeight: 22 },
+  email: { fontSize: 14, marginBottom: 15 },
+  bio: { fontSize: 15, textAlign: 'center', marginBottom: 30, lineHeight: 22 },
 
-  // Edit Button Style (Clean & Professional)
   editBtn: {
-    backgroundColor: '#f0f0f0',
     paddingVertical: 12,
     paddingHorizontal: 40,
     borderRadius: 8,
     width: '100%',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#dbdbdb',
   },
   editBtnText: {
-    color: '#000',
     fontWeight: '600',
     fontSize: 16,
   },

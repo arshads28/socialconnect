@@ -4,6 +4,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { useTheme } from '../../context/ThemeContext';
+import { Colors } from '../../constants/Colors';
 
 const RESOLUTIONS = [
   { label: '360p (Data Saver)', value: '360', width: 480, height: 360, bitrate: 250 },
@@ -21,9 +23,12 @@ const FRAME_RATES = [
 
 export default function CallSettingsScreen() {
   const router = useRouter();
+  const { isDark } = useTheme();
+  const colors = isDark ? Colors.dark : Colors.light;
+
   const [loading, setLoading] = useState(true);
-  const [resolution, setResolution] = useState('360'); // Default
-  const [fps, setFps] = useState(15); // Default
+  const [resolution, setResolution] = useState('360'); 
+  const [fps, setFps] = useState(15); 
 
   useEffect(() => {
     loadSettings();
@@ -53,58 +58,58 @@ export default function CallSettingsScreen() {
     }
   };
 
-  if (loading) return <View style={styles.center}><ActivityIndicator size="large" color="#0095f6" /></View>;
+  if (loading) return <View style={[styles.center, { backgroundColor: colors.background }]}><ActivityIndicator size="large" color="#0095f6" /></View>;
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: isDark ? '#000' : '#f2f2f2' }]}>
       {/* Header */}
-      <View style={styles.header}>
+      <View style={[styles.header, { backgroundColor: colors.background, borderColor: colors.border }]}>
         <TouchableOpacity onPress={() => router.back()}>
-          <Ionicons name="arrow-back" size={24} color="#000" />
+          <Ionicons name="arrow-back" size={24} color={colors.icon} />
         </TouchableOpacity>
-        <Text style={styles.title}>Video & Call Quality</Text>
+        <Text style={[styles.title, { color: colors.text }]}>Video & Call Quality</Text>
         <View style={{ width: 24 }} />
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>
         
         {/* RESOLUTION SECTION */}
-        <Text style={styles.sectionTitle}>Video Resolution</Text>
-        <Text style={styles.sectionSubtitle}>Lower resolution saves data and battery.</Text>
-        <View style={styles.card}>
+        <Text style={[styles.sectionTitle, { color: colors.text }]}>Video Resolution</Text>
+        <Text style={[styles.sectionSubtitle, { color: colors.subText }]}>Lower resolution saves data and battery.</Text>
+        <View style={[styles.card, { backgroundColor: colors.card }]}>
           {RESOLUTIONS.map((res) => (
             <TouchableOpacity 
               key={res.value} 
-              style={styles.optionRow} 
+              style={[styles.optionRow, { borderColor: colors.border }]} 
               onPress={() => saveSetting('call_resolution', res.value)}
             >
-              <Text style={styles.optionText}>{res.label}</Text>
+              <Text style={[styles.optionText, { color: colors.text }]}>{res.label}</Text>
               {resolution === res.value && <Ionicons name="checkmark-circle" size={24} color="#0095f6" />}
-              {resolution !== res.value && <View style={styles.radioCircle} />}
+              {resolution !== res.value && <View style={[styles.radioCircle, { borderColor: colors.border }]} />}
             </TouchableOpacity>
           ))}
         </View>
 
         {/* FPS SECTION */}
-        <Text style={styles.sectionTitle}>Frame Rate (FPS)</Text>
-        <Text style={styles.sectionSubtitle}>Lower FPS helps on slow networks.</Text>
-        <View style={styles.card}>
+        <Text style={[styles.sectionTitle, { color: colors.text }]}>Frame Rate (FPS)</Text>
+        <Text style={[styles.sectionSubtitle, { color: colors.subText }]}>Lower FPS helps on slow networks.</Text>
+        <View style={[styles.card, { backgroundColor: colors.card }]}>
           {FRAME_RATES.map((f) => (
             <TouchableOpacity 
               key={f.value} 
-              style={styles.optionRow} 
+              style={[styles.optionRow, { borderColor: colors.border }]} 
               onPress={() => saveSetting('call_fps', f.value)}
             >
-              <Text style={styles.optionText}>{f.label}</Text>
+              <Text style={[styles.optionText, { color: colors.text }]}>{f.label}</Text>
               {fps === f.value && <Ionicons name="checkmark-circle" size={24} color="#0095f6" />}
-              {fps !== f.value && <View style={styles.radioCircle} />}
+              {fps !== f.value && <View style={[styles.radioCircle, { borderColor: colors.border }]} />}
             </TouchableOpacity>
           ))}
         </View>
 
-        <View style={styles.infoBox}>
-          <Ionicons name="information-circle-outline" size={24} color="#666" />
-          <Text style={styles.infoText}>
+        <View style={[styles.infoBox, { backgroundColor: isDark ? '#1a2b3c' : '#eef' }]}>
+          <Ionicons name="information-circle-outline" size={24} color={colors.subText} />
+          <Text style={[styles.infoText, { color: colors.subText }]}>
             These settings apply to outgoing calls. Incoming video quality depends on the caller's settings.
           </Text>
         </View>
@@ -115,17 +120,17 @@ export default function CallSettingsScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f2f2f2' },
+  container: { flex: 1 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, backgroundColor: '#fff', borderBottomWidth: 1, borderColor: '#eee' },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1 },
   title: { fontSize: 18, fontWeight: 'bold' },
   content: { padding: 16 },
-  sectionTitle: { fontSize: 16, fontWeight: 'bold', marginTop: 10, marginBottom: 4, color: '#333' },
-  sectionSubtitle: { fontSize: 13, color: '#666', marginBottom: 10 },
-  card: { backgroundColor: '#fff', borderRadius: 10, overflow: 'hidden', marginBottom: 20 },
-  optionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderColor: '#f0f0f0' },
+  sectionTitle: { fontSize: 16, fontWeight: 'bold', marginTop: 10, marginBottom: 4 },
+  sectionSubtitle: { fontSize: 13, marginBottom: 10 },
+  card: { borderRadius: 10, overflow: 'hidden', marginBottom: 20 },
+  optionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1 },
   optionText: { fontSize: 16 },
-  radioCircle: { width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderColor: '#ddd' },
-  infoBox: { flexDirection: 'row', backgroundColor: '#eef', padding: 15, borderRadius: 8, gap: 10, alignItems: 'center', marginTop: 10 },
-  infoText: { flex: 1, color: '#555', fontSize: 13, lineHeight: 18 },
+  radioCircle: { width: 24, height: 24, borderRadius: 12, borderWidth: 2 },
+  infoBox: { flexDirection: 'row', padding: 15, borderRadius: 8, gap: 10, alignItems: 'center', marginTop: 10 },
+  infoText: { flex: 1, fontSize: 13, lineHeight: 18 },
 });

@@ -5,9 +5,14 @@ import { useState, useCallback } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../utils/api';
+import { useTheme } from '../../context/ThemeContext';
+import { Colors } from '../../constants/Colors';
 
 export default function BlockedUsersScreen() {
   const router = useRouter();
+  const { isDark } = useTheme();
+  const colors = isDark ? Colors.dark : Colors.light;
+
   const [blockedUsers, setBlockedUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -31,30 +36,30 @@ export default function BlockedUsersScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={[styles.header, { borderColor: colors.border }]}>
         <TouchableOpacity onPress={() => router.back()}>
-            <Ionicons name="arrow-back" size={24} color="black" />
+            <Ionicons name="arrow-back" size={24} color={colors.icon} />
         </TouchableOpacity>
-        <Text style={styles.title}>Blocked Accounts</Text>
+        <Text style={[styles.title, { color: colors.text }]}>Blocked Accounts</Text>
         <View style={{ width: 24 }} />
       </View>
 
       {loading ? (
-        <ActivityIndicator size="large" color="#0095f6" style={{ marginTop: 20 }} />
+        <ActivityIndicator size="large" color={colors.tint} style={{ marginTop: 20 }} />
       ) : (
         <FlatList
             data={blockedUsers}
             keyExtractor={(item) => item.username}
             ListEmptyComponent={
               <View style={styles.emptyContainer}>
-                <Ionicons name="shield-checkmark-outline" size={48} color="#ccc" />
-                <Text style={styles.emptyText}>No blocked accounts.</Text>
+                <Ionicons name="shield-checkmark-outline" size={48} color={colors.subText} />
+                <Text style={[styles.emptyText, { color: colors.subText }]}>No blocked accounts.</Text>
               </View>
             }
             renderItem={({ item }) => (
                 <TouchableOpacity 
-                  style={styles.row}
+                  style={[styles.row, { borderColor: colors.border }]}
                   // 2. Navigate to Profile on click
                   onPress={() => router.push(`/profile/${item.username}`)}
                 >
@@ -64,16 +69,16 @@ export default function BlockedUsersScreen() {
                           style={styles.avatar} 
                         />
                         <View>
-                            <Text style={styles.username}>{item.username}</Text>
-                            <Text style={styles.fullname} numberOfLines={1}>
+                            <Text style={[styles.username, { color: colors.text }]}>{item.username}</Text>
+                            <Text style={[styles.fullname, { color: colors.subText }]} numberOfLines={1}>
                                 {item.full_name || "Instagram User"}
                             </Text>
                         </View>
                     </View>
 
                     {/* Unblock Button (Visual indicator) */}
-                    <View style={styles.unblockBtn}>
-                        <Text style={styles.unblockText}>Unblock</Text>
+                    <View style={[styles.unblockBtn, { borderColor: colors.border }]}>
+                        <Text style={[styles.unblockText, { color: colors.text }]}>Unblock</Text>
                     </View>
                 </TouchableOpacity>
             )}
@@ -84,8 +89,8 @@ export default function BlockedUsersScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fff' },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderColor: '#eee' },
+  container: { flex: 1 },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1 },
   title: { fontSize: 16, fontWeight: 'bold' },
   
   row: { 
@@ -94,22 +99,20 @@ const styles = StyleSheet.create({
     alignItems: 'center', 
     padding: 16, 
     borderBottomWidth: 1, 
-    borderColor: '#f0f0f0' 
   },
   userInfo: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   avatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#eee' },
   username: { fontSize: 14, fontWeight: 'bold' },
-  fullname: { fontSize: 12, color: '#666' },
+  fullname: { fontSize: 12 },
 
   unblockBtn: { 
     borderWidth: 1, 
-    borderColor: '#dbdbdb', 
     paddingHorizontal: 14, 
     paddingVertical: 6, 
     borderRadius: 4 
   },
-  unblockText: { fontSize: 12, fontWeight: '600', color: '#000' },
+  unblockText: { fontSize: 12, fontWeight: '600' },
 
   emptyContainer: { alignItems: 'center', marginTop: 60, gap: 10 },
-  emptyText: { color: '#666', fontSize: 16 },
+  emptyText: { fontSize: 16 },
 });

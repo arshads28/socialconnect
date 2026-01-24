@@ -7,14 +7,19 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, Link } from 'expo-router';
 import api, { setClientToken } from '../utils/api'; 
 import { useAuth } from '../context/AuthContext';
+import { useTheme } from '../context/ThemeContext';
+import { Colors } from '../constants/Colors';
 
 export default function SignupScreen() {
   const { signIn } = useAuth();
+  const { isDark } = useTheme();
+  const colors = isDark ? Colors.dark : Colors.light;
   
   // Form State
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState(''); // NEW STATE
   const [loading, setLoading] = useState(false);
 
   // Error State (Instagram style inline errors)
@@ -22,12 +27,13 @@ export default function SignupScreen() {
     username: '',
     email: '',
     password: '',
+    confirmPassword: '', // NEW ERROR STATE
     general: ''
   });
 
   const validate = () => {
     let valid = true;
-    let newErrors = { username: '', email: '', password: '', general: '' };
+    let newErrors = { username: '', email: '', password: '', confirmPassword: '', general: '' };
 
     // Username Validation
     if (!username) {
@@ -59,13 +65,22 @@ export default function SignupScreen() {
       valid = false;
     }
 
+    // Confirm Password Validation (NEW)
+    if (!confirmPassword) {
+      newErrors.confirmPassword = 'Please confirm your password.';
+      valid = false;
+    } else if (password !== confirmPassword) {
+      newErrors.confirmPassword = 'Passwords do not match.';
+      valid = false;
+    }
+
     setErrors(newErrors);
     return valid;
   };
 
   const handleSignup = async () => {
     Keyboard.dismiss();
-    if (!validate()) return;
+    if (!validate()) return; // Stop here if passwords don't match or other validations fail
 
     setLoading(true);
     setErrors(prev => ({ ...prev, general: '' })); // Clear global errors
@@ -73,7 +88,7 @@ export default function SignupScreen() {
     try {
       // 1. Register User
       const response = await api.post('/auth/signup/', {
-        username: username.toLowerCase().trim(), // Instagram standardizes to lowercase
+        username: username.toLowerCase().trim(),
         email: email.trim(),
         password: password,
       });
@@ -93,7 +108,7 @@ export default function SignupScreen() {
     } catch (error: any) {
       console.log("Signup Error:", error.response?.data);
       
-      let newErrors = { username: '', email: '', password: '', general: '' };
+      let newErrors = { username: '', email: '', password: '', confirmPassword: '', general: '' };
       
       if (error.response?.data) {
         const data = error.response.data;
@@ -118,7 +133,7 @@ export default function SignupScreen() {
 
   return (
     <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-      <SafeAreaView style={styles.safeArea}>
+      <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
         <KeyboardAvoidingView 
           behavior={Platform.OS === "ios" ? "padding" : "height"} 
           style={styles.container}
@@ -126,12 +141,12 @@ export default function SignupScreen() {
           <View style={styles.formContainer}>
             
             {/* Header */}
-            <Text style={styles.title}>SocialConnect</Text>
-            <Text style={styles.subtitle}>Sign up to see photos and videos from your friends.</Text>
+            <Text style={[styles.title, { color: colors.text }]}>Connect</Text>
+            <Text style={[styles.subtitle, { color: colors.subText }]}>Sign up to see photos and videos from your friends.</Text>
 
             {/* General Error Banner */}
             {errors.general ? (
-              <View style={styles.errorBanner}>
+              <View style={[styles.errorBanner, { backgroundColor: isDark ? '#3b0a0a' : '#ffebee' }]}>
                 <Text style={styles.errorBannerText}>{errors.general}</Text>
               </View>
             ) : null}
@@ -139,9 +154,9 @@ export default function SignupScreen() {
             {/* Username Input */}
             <View style={styles.inputWrapper}>
               <TextInput 
-                style={[styles.input, errors.username ? styles.inputError : null]} 
+                style={[styles.input, { backgroundColor: colors.card, borderColor: errors.username ? colors.danger : colors.border, color: colors.text }]} 
                 placeholder="Username" 
-                placeholderTextColor="#999"
+                placeholderTextColor={colors.subText}
                 value={username} 
                 onChangeText={(text) => {
                   setUsername(text);
@@ -150,15 +165,15 @@ export default function SignupScreen() {
                 autoCapitalize="none" 
                 autoCorrect={false}
               />
-              {errors.username ? <Text style={styles.errorText}>{errors.username}</Text> : null}
+              {errors.username ? <Text style={[styles.errorText, { color: colors.danger }]}>{errors.username}</Text> : null}
             </View>
 
             {/* Email Input */}
             <View style={styles.inputWrapper}>
               <TextInput 
-                style={[styles.input, errors.email ? styles.inputError : null]} 
+                style={[styles.input, { backgroundColor: colors.card, borderColor: errors.email ? colors.danger : colors.border, color: colors.text }]} 
                 placeholder="Email" 
-                placeholderTextColor="#999"
+                placeholderTextColor={colors.subText}
                 value={email} 
                 onChangeText={(text) => {
                   setEmail(text);
@@ -167,15 +182,15 @@ export default function SignupScreen() {
                 autoCapitalize="none" 
                 keyboardType="email-address"
               />
-              {errors.email ? <Text style={styles.errorText}>{errors.email}</Text> : null}
+              {errors.email ? <Text style={[styles.errorText, { color: colors.danger }]}>{errors.email}</Text> : null}
             </View>
             
             {/* Password Input */}
             <View style={styles.inputWrapper}>
               <TextInput 
-                style={[styles.input, errors.password ? styles.inputError : null]} 
+                style={[styles.input, { backgroundColor: colors.card, borderColor: errors.password ? colors.danger : colors.border, color: colors.text }]} 
                 placeholder="Password" 
-                placeholderTextColor="#999"
+                placeholderTextColor={colors.subText}
                 value={password} 
                 onChangeText={(text) => {
                   setPassword(text);
@@ -183,14 +198,34 @@ export default function SignupScreen() {
                 }} 
                 secureTextEntry 
               />
-              {errors.password ? <Text style={styles.errorText}>{errors.password}</Text> : null}
+              {errors.password ? <Text style={[styles.errorText, { color: colors.danger }]}>{errors.password}</Text> : null}
+            </View>
+
+            {/* Confirm Password Input (NEW) */}
+            <View style={styles.inputWrapper}>
+              <TextInput 
+                style={[styles.input, { backgroundColor: colors.card, borderColor: errors.confirmPassword ? colors.danger : colors.border, color: colors.text }]} 
+                placeholder="Confirm Password" 
+                placeholderTextColor={colors.subText}
+                value={confirmPassword} 
+                onChangeText={(text) => {
+                  setConfirmPassword(text);
+                  if (errors.confirmPassword) setErrors(prev => ({...prev, confirmPassword: ''}));
+                }} 
+                secureTextEntry 
+              />
+              {errors.confirmPassword ? <Text style={[styles.errorText, { color: colors.danger }]}>{errors.confirmPassword}</Text> : null}
             </View>
 
             {/* Submit Button */}
             <TouchableOpacity 
-              style={[styles.button, (!username || !email || !password) && styles.buttonDisabled]} 
+              style={[
+                styles.button, 
+                { backgroundColor: colors.tint },
+                (!username || !email || !password || !confirmPassword) && { opacity: 0.5 } // Faded when disabled
+              ]} 
               onPress={handleSignup} 
-              disabled={loading || !username || !email || !password}
+              disabled={loading || !username || !email || !password || !confirmPassword}
             >
               {loading ? (
                 <ActivityIndicator color="#fff" />
@@ -199,17 +234,17 @@ export default function SignupScreen() {
               )}
             </TouchableOpacity>
 
-            {/* Terms (Optional Aesthetic) */}
-            <Text style={styles.termsText}>
+            {/* Terms */}
+            <Text style={[styles.termsText, { color: colors.subText }]}>
               By signing up, you agree to our Terms, Privacy Policy and Cookies Policy.
             </Text>
 
             {/* Footer */}
-            <View style={styles.footer}>
-              <Text style={styles.footerText}>Have an account? </Text>
+            <View style={[styles.footer, { borderTopColor: colors.border }]}>
+              <Text style={[styles.footerText, { color: colors.text }]}>Have an account? </Text>
               <Link href="/login" asChild>
                   <TouchableOpacity>
-                    <Text style={styles.linkText}>Log in</Text>
+                    <Text style={[styles.linkText, { color: colors.tint }]}>Log in</Text>
                   </TouchableOpacity>
               </Link>
             </View>
@@ -221,113 +256,37 @@ export default function SignupScreen() {
 }
 
 const styles = StyleSheet.create({
-  safeArea: { 
-    flex: 1, 
-    backgroundColor: '#fff' 
-  },
-  container: { 
-    flex: 1, 
-    justifyContent: 'center', 
-    paddingHorizontal: 30 
-  },
-  formContainer: { 
-    width: '100%', 
-    alignSelf: 'center',
-    maxWidth: 400 
-  },
+  safeArea: { flex: 1 },
+  container: { flex: 1, justifyContent: 'center', paddingHorizontal: 30 },
+  formContainer: { width: '100%', alignSelf: 'center', maxWidth: 400 },
   title: { 
-    fontFamily: Platform.OS === 'ios' ? 'Avenir-Heavy' : 'Roboto', // Professional Font match
-    fontSize: 36, 
-    textAlign: 'center', 
-    color: '#000', 
-    marginBottom: 10 
+    fontFamily: Platform.OS === 'ios' ? 'Avenir-Heavy' : 'Roboto', 
+    fontSize: 36, textAlign: 'center', marginBottom: 10 
   },
-  subtitle: { 
-    fontSize: 15, 
-    color: '#666', 
-    textAlign: 'center', 
-    marginBottom: 30, 
-    lineHeight: 20
-  },
+  subtitle: { fontSize: 15, textAlign: 'center', marginBottom: 30, lineHeight: 20 },
   
   // Input Styles
-  inputWrapper: {
-    marginBottom: 12,
-  },
+  inputWrapper: { marginBottom: 12 },
   input: { 
-    backgroundColor: '#fafafa', 
     borderWidth: 1, 
-    borderColor: '#dbdbdb', 
     borderRadius: 5, 
     paddingHorizontal: 15, 
-    paddingVertical: 12, // slightly taller for easier touch
-    fontSize: 14, 
-    color: '#262626'
-  },
-  inputError: {
-    borderColor: '#ed4956', // Instagram Red
-  },
-  errorText: {
-    color: '#ed4956',
-    fontSize: 12,
-    marginTop: 5,
-    marginLeft: 2,
-  },
-  errorBanner: {
-    backgroundColor: '#ffebee',
-    padding: 10,
-    borderRadius: 5,
-    marginBottom: 15,
-    borderWidth: 1,
-    borderColor: '#ed4956'
-  },
-  errorBannerText: {
-    color: '#ed4956',
-    textAlign: 'center',
-    fontSize: 13
-  },
-
-  // Button Styles
-  button: { 
-    backgroundColor: '#0095f6', 
-    paddingVertical: 14, 
-    borderRadius: 5, 
-    alignItems: 'center', 
-    marginTop: 10 
-  },
-  buttonDisabled: {
-    backgroundColor: '#b2dffc', // Faded blue when disabled
-  },
-  buttonText: { 
-    color: '#fff', 
-    fontWeight: '600', 
+    paddingVertical: 12, 
     fontSize: 14 
   },
+  errorText: { fontSize: 12, marginTop: 5, marginLeft: 2 },
+  errorBanner: {
+    padding: 10, borderRadius: 5, marginBottom: 15, borderWidth: 1, borderColor: '#ed4956'
+  },
+  errorBannerText: { color: '#ed4956', textAlign: 'center', fontSize: 13 },
+
+  // Button Styles
+  button: { paddingVertical: 14, borderRadius: 5, alignItems: 'center', marginTop: 10 },
+  buttonText: { color: '#fff', fontWeight: '600', fontSize: 14 },
 
   // Footer & Terms
-  termsText: {
-    fontSize: 12,
-    color: '#8e8e8e',
-    textAlign: 'center',
-    marginTop: 20,
-    marginBottom: 20,
-    lineHeight: 16
-  },
-  footer: { 
-    flexDirection: 'row', 
-    justifyContent: 'center', 
-    borderTopWidth: 1,
-    borderTopColor: '#dbdbdb',
-    paddingTop: 20,
-    marginTop: 10
-  },
-  footerText: { 
-    color: '#262626',
-    fontSize: 14
-  },
-  linkText: { 
-    color: '#0095f6', 
-    fontWeight: '600',
-    fontSize: 14
-  }
+  termsText: { fontSize: 12, textAlign: 'center', marginTop: 20, marginBottom: 20, lineHeight: 16 },
+  footer: { flexDirection: 'row', justifyContent: 'center', borderTopWidth: 1, paddingTop: 20, marginTop: 10 },
+  footerText: { fontSize: 14 },
+  linkText: { fontWeight: '600', fontSize: 14 }
 });

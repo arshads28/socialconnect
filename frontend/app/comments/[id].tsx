@@ -9,10 +9,18 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../utils/api';
 
+// Theme Imports
+import { useTheme } from '../../context/ThemeContext';
+import { Colors } from '../../constants/Colors';
+
 export default function CommentsScreen() {
-  const { id } = useLocalSearchParams(); // This is the Post ID
+  const { id } = useLocalSearchParams(); 
   const router = useRouter();
   
+  // Theme Setup
+  const { isDark } = useTheme();
+  const colors = isDark ? Colors.dark : Colors.light;
+
   const [comments, setComments] = useState<any[]>([]); 
   const [text, setText] = useState('');
   const [loading, setLoading] = useState(true);
@@ -33,10 +41,7 @@ export default function CommentsScreen() {
   const fetchCurrentUser = async () => {
     try {
       const response = await api.get('/auth/api/profile/me');
-      console.log('Current user data:', response.data);
-      // The response might have 'id' or 'pk' field
       const userId = response.data.id || response.data.pk;
-      console.log('Setting current user ID:', userId);
       setCurrentUserId(userId);
     } catch (error) {
       console.log('Error fetching user:', error);
@@ -77,7 +82,6 @@ export default function CommentsScreen() {
         content: text 
       });
 
-      // Update UI instantly
       setComments((prev) => {
         const currentList = Array.isArray(prev) ? prev : [];
         return [response.data, ...currentList];
@@ -93,16 +97,12 @@ export default function CommentsScreen() {
   };
 
   const handleDeleteComment = async (commentId: number) => {
-    console.log('Delete comment clicked:', commentId);
     if (Platform.OS === 'web') {
       if (window.confirm('Are you sure you want to delete this comment?')) {
-        console.log('Deleting comment:', commentId);
         try {
           await api.delete(`/api/comments/${commentId}/`);
           setComments(comments.filter(c => c.id !== commentId));
-          console.log('Comment deleted successfully');
         } catch (error) {
-          console.error('Delete error:', error);
           alert('Could not delete comment');
         }
       }
@@ -116,13 +116,10 @@ export default function CommentsScreen() {
             text: 'Delete',
             style: 'destructive',
             onPress: async () => {
-              console.log('Deleting comment:', commentId);
               try {
                 await api.delete(`/api/comments/${commentId}/`);
                 setComments(comments.filter(c => c.id !== commentId));
-                console.log('Comment deleted successfully');
               } catch (error) {
-                console.error('Delete error:', error);
                 Alert.alert('Error', 'Could not delete comment');
               }
             },
@@ -138,15 +135,15 @@ export default function CommentsScreen() {
     return (
       <View style={styles.commentItem}>
         <View style={{ flex: 1 }}>
-          <Text style={styles.username}>@{item.author?.username || 'User'}</Text>
-          <Text style={styles.commentText}>{item.content}</Text>
+          <Text style={[styles.username, { color: colors.text }]}>@{item.author?.username || 'User'}</Text>
+          <Text style={[styles.commentText, { color: colors.text }]}>{item.content}</Text>
         </View>
         {canDelete && (
           <TouchableOpacity 
             onPress={() => setMenuVisible(item.id)} 
             style={styles.menuBtn}
           >
-            <Ionicons name="ellipsis-horizontal" size={20} color="#666" />
+            <Ionicons name="ellipsis-horizontal" size={20} color={colors.subText} />
           </TouchableOpacity>
         )}
       </View>
@@ -154,45 +151,46 @@ export default function CommentsScreen() {
   };
 
   return (
-  <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+  <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top', 'left', 'right']}>
     <KeyboardAvoidingView
       style={{ flex: 1 }}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 45}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 69}
     >
-      <View style={styles.header}>
+      <View style={[styles.header, { borderColor: colors.border }]}>
         <TouchableOpacity onPress={() => router.back()}>
-          <Ionicons name="arrow-back" size={24} color="black" />
+          <Ionicons name="arrow-back" size={24} color={colors.icon} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Comments</Text>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>Comments</Text>
         <View style={{ width: 24 }} />
       </View>
 
       {loading ? (
-        <ActivityIndicator style={{ marginTop: 20 }} color="#0095f6" />
+        <ActivityIndicator style={{ marginTop: 20 }} color={colors.tint} />
       ) : (
         <FlatList
           data={comments}
           renderItem={renderItem}
           keyExtractor={(item) => item.id.toString()}
           contentContainerStyle={{ padding: 16 }}
-          ListEmptyComponent={<Text style={styles.emptyText}>No comments yet.</Text>}
+          ListEmptyComponent={<Text style={[styles.emptyText, { color: colors.subText }]}>No comments yet.</Text>}
         />
       )}
 
-      <View style={[styles.inputContainer, { paddingBottom: Math.max(insets.bottom, 12) }]}>
+      <View style={[styles.inputContainer, { borderColor: colors.border, paddingBottom: Math.max(insets.bottom, 12) }]}>
         <TextInput
-          style={styles.input}
+          style={[styles.input, { backgroundColor: colors.card, color: colors.text }]}
           placeholder="Add a comment..."
+          placeholderTextColor={colors.subText}
           value={text}
           onChangeText={setText}
           multiline
         />
         <TouchableOpacity onPress={handlePostComment} disabled={!text.trim() || sending}>
           {sending ? (
-            <ActivityIndicator size="small" color="#0095f6" />
+            <ActivityIndicator size="small" color={colors.tint} />
           ) : (
-            <Text style={[styles.postText, !text.trim() && { opacity: 0.5 }]}>Post</Text>
+            <Text style={[styles.postText, { color: colors.tint }, !text.trim() && { opacity: 0.5 }]}>Post</Text>
           )}
         </TouchableOpacity>
       </View>
@@ -211,21 +209,20 @@ export default function CommentsScreen() {
             onPress={() => setMenuVisible(null)}
           >
             <TouchableOpacity 
-              style={styles.menuModalComment}
+              style={[styles.menuModalComment, { backgroundColor: colors.card }]}
               activeOpacity={1}
               onPress={(e) => e.stopPropagation()}
             >
               <TouchableOpacity 
                 style={styles.menuOption} 
                 onPress={() => {
-                  console.log('Delete button pressed for comment:', menuVisible);
                   const commentId = menuVisible;
                   setMenuVisible(null);
                   if (commentId) setTimeout(() => handleDeleteComment(commentId), 100);
                 }}
               >
-                <Ionicons name="trash-outline" size={18} color="#ff3b30" />
-                <Text style={styles.menuOptionTextDelete}>Delete</Text>
+                <Ionicons name="trash-outline" size={18} color={colors.danger} />
+                <Text style={[styles.menuOptionTextDelete, { color: colors.danger }]}>Delete</Text>
               </TouchableOpacity>
             </TouchableOpacity>
           </TouchableOpacity>
@@ -236,20 +233,20 @@ export default function CommentsScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fff' },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderColor: '#eee' },
+  container: { flex: 1 },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1 },
   headerTitle: { fontSize: 18, fontWeight: 'bold' },
   commentItem: { marginBottom: 16, flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', paddingRight: 8 },
   username: { fontWeight: 'bold', marginBottom: 4, fontSize: 14 },
-  commentText: { color: '#333', fontSize: 14, lineHeight: 20 },
+  commentText: { fontSize: 14, lineHeight: 20 },
   menuBtn: { padding: 8, marginLeft: 8 },
-  emptyText: { textAlign: 'center', color: '#888', marginTop: 20 },
-  inputContainer: { flexDirection: 'row', alignItems: 'center', padding: 12, borderTopWidth: 1, borderColor: '#eee' },
-  input: { flex: 1, padding: 10, borderRadius: 20, backgroundColor: '#f0f0f0', marginRight: 10, maxHeight: 100 },
-  postText: { color: '#0095f6', fontWeight: 'bold' },
+  emptyText: { textAlign: 'center', marginTop: 20 },
+  inputContainer: { flexDirection: 'row', alignItems: 'center', padding: 12, borderTopWidth: 1 },
+  input: { flex: 1, padding: 10, borderRadius: 20, marginRight: 10, maxHeight: 100 },
+  postText: { fontWeight: 'bold' },
 
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.3)' },
-  menuModalComment: { backgroundColor: '#fff', borderRadius: 8, width: 150, position: 'absolute', top: 100, right: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 4, elevation: 5 },
+  menuModalComment: { borderRadius: 8, width: 150, position: 'absolute', top: 100, right: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 4, elevation: 5 },
   menuOption: { flexDirection: 'row', alignItems: 'center', padding: 16, gap: 12 },
-  menuOptionTextDelete: { fontSize: 16, color: '#ff3b30', fontWeight: '500' },
+  menuOptionTextDelete: { fontSize: 16, fontWeight: '500' },
 });

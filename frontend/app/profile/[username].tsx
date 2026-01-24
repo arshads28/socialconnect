@@ -4,10 +4,15 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../utils/api';
+import { useTheme } from '../../context/ThemeContext';
+import { Colors } from '../../constants/Colors';
 
 export default function ProfileScreen() {
   const { username } = useLocalSearchParams();
   const router = useRouter();
+  const { isDark } = useTheme();
+  const colors = isDark ? Colors.dark : Colors.light;
+
   const [profile, setProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -55,16 +60,16 @@ export default function ProfileScreen() {
     }
   };
 
-  if (loading) return <ActivityIndicator size="large" style={{flex: 1}} />;
-  if (!profile) return <View style={styles.centerContainer}><Text>User not found</Text></View>;
+  if (loading) return <ActivityIndicator size="large" color={colors.tint} style={{flex: 1, backgroundColor: colors.background}} />;
+  if (!profile) return <View style={[styles.centerContainer, { backgroundColor: colors.background }]}><Text style={{ color: colors.text }}>User not found</Text></View>;
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={[styles.header, { borderColor: colors.border }]}>
         <TouchableOpacity onPress={() => router.back()}>
-          <Ionicons name="arrow-back" size={24} color="#000" />
+          <Ionicons name="arrow-back" size={24} color={colors.icon} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>@{profile.username}</Text>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>@{profile.username}</Text>
         <View style={{ width: 24 }} />
       </View>
 
@@ -73,14 +78,14 @@ export default function ProfileScreen() {
           source={{ uri: profile.avatar_url || 'https://via.placeholder.com/150' }} 
           style={styles.avatar} 
         />
-        <Text style={styles.username}>{profile.full_name || profile.username}</Text>
-        <Text style={styles.bio}>{profile.bio || "No bio available"}</Text>
+        <Text style={[styles.username, { color: colors.text }]}>{profile.full_name || profile.username}</Text>
+        <Text style={[styles.bio, { color: colors.subText }]}>{profile.bio || "No bio available"}</Text>
 
         <View style={styles.actions}>
           
           {/* Message Button */}
           <TouchableOpacity 
-            style={styles.btnMessage}
+            style={[styles.btnMessage, { backgroundColor: colors.tint }]}
             onPress={() => router.push(`/chat/${username}`)}
           >
             <Ionicons name="chatbubble-outline" size={20} color="#fff" />
@@ -88,11 +93,15 @@ export default function ProfileScreen() {
           </TouchableOpacity>
 
           <TouchableOpacity 
-            style={[styles.btnBlock, isBlocked && { backgroundColor: '#eee', borderColor: '#ccc' }]}
+            style={[
+              styles.btnBlock, 
+              { backgroundColor: colors.background, borderColor: colors.border },
+              isBlocked && { backgroundColor: isDark ? '#333' : '#eee', borderColor: isDark ? '#444' : '#ccc' }
+            ]}
             onPress={toggleBlock}
             disabled={isProcessing}
           >
-            <Text style={[styles.btnBlockText, isBlocked && { color: '#ff3b30' }]}>
+            <Text style={[styles.btnBlockText, { color: colors.text }, isBlocked && { color: colors.danger }]}>
               {isBlocked ? 'Unblock' : 'Block'}
             </Text>
           </TouchableOpacity>
@@ -104,17 +113,17 @@ export default function ProfileScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fff' },
+  container: { flex: 1 },
   centerContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderColor: '#eee' },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1 },
   headerTitle: { fontSize: 18, fontWeight: 'bold' },
   profileContent: { alignItems: 'center', padding: 32 },
   avatar: { width: 100, height: 100, borderRadius: 50, marginBottom: 16 },
   username: { fontSize: 24, fontWeight: 'bold', marginBottom: 4 },
   bio: { fontSize: 15, textAlign: 'center', marginBottom: 12, paddingHorizontal: 20 },
   actions: { flexDirection: 'row', gap: 12, marginTop: 16 },
-  btnMessage: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#0095f6', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 8 },
+  btnMessage: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 8 },
   btnMessageText: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
-  btnBlock: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#dbdbdb', paddingHorizontal: 32, paddingVertical: 12, borderRadius: 8 },
-  btnBlockText: { color: '#000', fontWeight: 'bold', fontSize: 16 },
+  btnBlock: { borderWidth: 1, paddingHorizontal: 32, paddingVertical: 12, borderRadius: 8 },
+  btnBlockText: { fontWeight: 'bold', fontSize: 16 },
 });

@@ -1,11 +1,13 @@
 import * as Notifications from 'expo-notifications';
 import { useEffect } from 'react';
-import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
+import { DarkTheme, DefaultTheme, ThemeProvider as NavThemeProvider } from '@react-navigation/native';
 import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useColorScheme, View, ActivityIndicator, Platform } from 'react-native';
+import { View, ActivityIndicator, Platform } from 'react-native';
 
 import { AuthProvider, useAuth } from '../context/AuthContext';
+import { ThemeProvider, useTheme } from '../context/ThemeContext';
+import { Colors } from '../constants/Colors'; 
 import { WebSocketProvider } from '../contexts/WebSocketContext';
 import NetInfo from '@react-native-community/netinfo';
 import { registerBackgroundFetchAsync } from '../utils/backgroundTasks';
@@ -16,10 +18,11 @@ import { CallOverlay } from '../contexts/CallComponent';
 import Toast from 'react-native-toast-message';
 
 function RootLayoutNav() {
-  const colorScheme = useColorScheme();
+  const { isDark } = useTheme();
   const { isLoading, userToken } = useAuth(); 
   const router = useRouter();
-  const isDark = colorScheme === 'dark';
+
+  const themeColors = isDark ? Colors.dark : Colors.light;
 
   // 1. NETWORK STATUS LISTENER
   useEffect(() => {
@@ -36,7 +39,7 @@ function RootLayoutNav() {
             console.log("🌐 Internet Stable. Triggering Sync...");
             processOfflineQueue();
             syncPendingMessages();
-        }, 2000); // Wait 2 seconds for connection to stabilize
+        }, 2000); 
       }
     });
 
@@ -69,39 +72,37 @@ function RootLayoutNav() {
 
   if (isLoading) {
     return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: isDark ? '#000' : '#fff' }}>
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: themeColors.background }}>
         <ActivityIndicator size="large" color="#0095f6" />
       </View>
     );
   }
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+    <NavThemeProvider value={isDark ? DarkTheme : DefaultTheme}>
       <Stack>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="login" options={{ headerShown: false }} />
         <Stack.Screen name="signup" options={{ headerShown: false }} />
         <Stack.Screen name="chat/[username]" options={{ headerShown: false }} /> 
-        {/* <Stack.Screen 
-          name="comments/[id]" 
-          options={{ headerShown: false, presentation: 'card', animation: 'slide_from_right' }} 
-        /> */}
         <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
       </Stack>
-      <StatusBar style="auto" />
+      <StatusBar style={isDark ? "light" : "dark"} />
       <CallOverlay /> 
       <Toast />
-    </ThemeProvider>
+    </NavThemeProvider>
   );
 }
 
 export default function RootLayout() {
   return (
     <AuthProvider>
-      <WebSocketProvider>
-         <WebRTCProvider>
-            <RootLayoutNav />
-         </WebRTCProvider>
-      </WebSocketProvider>
+      <ThemeProvider> 
+        <WebSocketProvider>
+           <WebRTCProvider>
+              <RootLayoutNav />
+           </WebRTCProvider>
+        </WebSocketProvider>
+      </ThemeProvider>
     </AuthProvider>
   );
 }

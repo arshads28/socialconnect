@@ -5,6 +5,8 @@ import { useState, useCallback } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { getLocalInbox } from '../../utils/db';
 import { syncServerInbox } from '../../utils/sync';
+import { useTheme } from '../../context/ThemeContext';
+import { Colors } from '../../constants/Colors';
 
 interface InboxItem {
   conversation_id: string;
@@ -17,6 +19,9 @@ interface InboxItem {
 
 export default function MessagesScreen() {
   const router = useRouter();
+  const { isDark } = useTheme();
+  const colors = isDark ? Colors.dark : Colors.light;
+
   const [conversations, setConversations] = useState<InboxItem[]>([]);
 
   const refreshInbox = useCallback(async () => {
@@ -51,32 +56,32 @@ export default function MessagesScreen() {
 
   const renderUser = ({ item }: { item: InboxItem }) => (
     <TouchableOpacity 
-      style={styles.userRow}
+      style={[styles.userRow, { borderColor: colors.border }]}
       onPress={() => router.push(`/chat/${item.conversation_id}`)}
     >
       <View style={styles.avatarContainer}>
         {item.avatar ? (
           <Image source={{ uri: item.avatar }} style={styles.avatar} />
         ) : (
-          <View style={styles.avatarPlaceholder}>
-            <Ionicons name="person" size={24} color="#666" />
+          <View style={[styles.avatarPlaceholder, { backgroundColor: colors.border }]}>
+            <Ionicons name="person" size={24} color={colors.subText} />
           </View>
         )}
       </View>
       
       <View style={styles.userInfo}>
-        <Text style={styles.username}>{item.conversation_id}</Text>
-        <Text style={styles.status} numberOfLines={1}>
+        <Text style={[styles.username, { color: colors.text }]}>{item.conversation_id}</Text>
+        <Text style={[styles.status, { color: colors.subText }]} numberOfLines={1}>
           {item.content}
         </Text>
       </View>
 
       <View style={{ alignItems: 'flex-end' }}>
-        <Text style={styles.time}>
+        <Text style={[styles.time, { color: colors.subText }]}>
           {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
         </Text>
         {item.unread_count > 0 && (
-          <View style={styles.badge}>
+          <View style={[styles.badge, { backgroundColor: colors.tint }]}>
             <Text style={styles.badgeText}>{item.unread_count}</Text>
           </View>
         )}
@@ -85,9 +90,9 @@ export default function MessagesScreen() {
   );
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Messages</Text>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={[styles.header, { borderColor: colors.border }]}>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>Messages</Text>
       </View>
 
       <FlatList
@@ -95,7 +100,7 @@ export default function MessagesScreen() {
         renderItem={renderUser}
         keyExtractor={(item) => item.conversation_id}
         ListEmptyComponent={
-          <Text style={styles.emptyText}>No messages yet</Text>
+          <Text style={[styles.emptyText, { color: colors.subText }]}>No messages yet</Text>
         }
       />
     </SafeAreaView>
@@ -103,18 +108,18 @@ export default function MessagesScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fff' },
-  header: { padding: 16, borderBottomWidth: 1, borderColor: '#eee' },
+  container: { flex: 1 },
+  header: { padding: 16, borderBottomWidth: 1 },
   headerTitle: { fontSize: 24, fontWeight: 'bold' },
-  userRow: { flexDirection: 'row', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderColor: '#f0f0f0' },
+  userRow: { flexDirection: 'row', alignItems: 'center', padding: 16, borderBottomWidth: 1 },
   avatarContainer: { marginRight: 12 },
   avatar: { width: 50, height: 50, borderRadius: 25, backgroundColor: '#eee' },
-  avatarPlaceholder: { width: 50, height: 50, borderRadius: 25, backgroundColor: '#eee', justifyContent: 'center', alignItems: 'center' },
+  avatarPlaceholder: { width: 50, height: 50, borderRadius: 25, justifyContent: 'center', alignItems: 'center' },
   userInfo: { flex: 1 },
   username: { fontSize: 16, fontWeight: '600', marginBottom: 4 },
-  status: { fontSize: 14, color: '#666' },
-  time: { fontSize: 12, color: '#999', marginBottom: 4 },
-  badge: { backgroundColor: '#0095f6', borderRadius: 12, minWidth: 24, height: 24, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 8 },
+  status: { fontSize: 14 },
+  time: { fontSize: 12, marginBottom: 4 },
+  badge: { borderRadius: 12, minWidth: 24, height: 24, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 8 },
   badgeText: { color: '#fff', fontSize: 12, fontWeight: 'bold' },
-  emptyText: { textAlign: 'center', color: '#888', marginTop: 50 },
+  emptyText: { textAlign: 'center', marginTop: 50 },
 });
