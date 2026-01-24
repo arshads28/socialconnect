@@ -2,8 +2,7 @@ import * as Notifications from 'expo-notifications';
 import { useEffect } from 'react';
 import { DarkTheme, DefaultTheme, ThemeProvider as NavThemeProvider } from '@react-navigation/native';
 import { Stack, useRouter } from 'expo-router';
-import { StatusBar } from 'expo-status-bar'; // <-- We update this below
-import { View, ActivityIndicator, Platform } from 'react-native';
+import { View, ActivityIndicator, Platform, StatusBar } from 'react-native';
 
 import { AuthProvider, useAuth } from '../context/AuthContext';
 import { ThemeProvider, useTheme } from '../context/ThemeContext'; 
@@ -70,9 +69,8 @@ function RootLayoutNav() {
         <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
       </Stack>
       
-      {/* THE FIX: translucent={false} reactivates Android's resize mode! */}
       <StatusBar 
-        style={isDark ? "light" : "dark"} 
+        barStyle={isDark ? "light-content" : "dark-content"} 
         translucent={false} 
         backgroundColor={themeColors.background} 
       />

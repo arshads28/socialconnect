@@ -2,10 +2,11 @@ import React, { ReactNode } from 'react';
 import { 
   KeyboardAvoidingView, 
   Platform, 
-  StyleSheet,
-  View
+  StyleSheet, 
+  View 
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useKeyboardHeight } from '../hooks/useKeyboardHeight';
 
 interface KeyboardWrapperProps {
   children: ReactNode;
@@ -14,16 +15,22 @@ interface KeyboardWrapperProps {
 
 export default function KeyboardWrapper({ children, headerHeight = 0 }: KeyboardWrapperProps) {
   const insets = useSafeAreaInsets();
+  const keyboardHeight = useKeyboardHeight();
 
-  //  ANDROID FIX: 
-  // Android natively resizes the screen perfectly because of app.json. 
-  // If we use KeyboardAvoidingView here, it causes the "1cm float" bug.
+  // 🔹 ANDROID FIX
+  // We use the FULL keyboard height for the spacer.
+  // We do NOT subtract insets.bottom anymore, because on some devices (with nav bars),
+  // this causes the spacer to be too small, hiding the text.
   if (Platform.OS === 'android') {
-    return <View style={styles.container}>{children}</View>;
+    return (
+      <View style={styles.container}>
+        {children}
+        <View style={{ height: keyboardHeight + 20 }} />
+      </View>
+    );
   }
 
-  //  iOS FIX:
-  // iOS needs KeyboardAvoidingView to push the content up.
+  // 🔹 iOS FIX
   return (
     <KeyboardAvoidingView 
       style={styles.container} 

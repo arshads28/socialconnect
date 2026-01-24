@@ -1,6 +1,7 @@
+// socialconnect/frontend/app/chat/[username].tsx
 import { 
   View, Text, FlatList, TextInput, TouchableOpacity, StyleSheet, 
-  Platform, DeviceEventEmitter, Image, Alert , Keyboard
+  Platform, DeviceEventEmitter, Image, Alert
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -19,7 +20,7 @@ import { useAuth } from '../../context/AuthContext';
 import { syncChatMessages } from '../../utils/sync';
 import NetInfo from '@react-native-community/netinfo';
 import { CallHeaderButton } from '../../contexts/CallComponent';
-import KeyboardWrapper from '../../components/KeyboardWrapper'; // <-- IMPORT NEW COMPONENT
+import KeyboardWrapper from '../../components/KeyboardWrapper'; 
 
 // Theme imports
 import { useTheme } from '../../context/ThemeContext';
@@ -29,17 +30,8 @@ export default function ChatScreen() {
   const { username } = useLocalSearchParams<{ username: string }>();
   const router = useRouter();
   const { user } = useAuth();
-  const insets = useSafeAreaInsets(); // <-- Get safe area for bottom padding
+  const insets = useSafeAreaInsets(); // Used for bottom padding
 
-  // Track if keyboard is visible
-  const [isKeyboardVisible, setKeyboardVisible] = useState(false);
-
-  useEffect(() => {
-    const showSub = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow', () => setKeyboardVisible(true));
-    const hideSub = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide', () => setKeyboardVisible(false));
-    return () => { showSub.remove(); hideSub.remove(); };
-  }, []);
-  
   // Theme Setup
   const { isDark } = useTheme();
   const colors = isDark ? Colors.dark : Colors.light;
@@ -196,7 +188,7 @@ export default function ChatScreen() {
     saveMessage({
       id: null, 
       client_id: clientId, 
-      conversation_id: username,
+      conversation_id: username, 
       recipient_id: recipientId, 
       sender: user?.username,
       content: text, 
@@ -272,7 +264,6 @@ export default function ChatScreen() {
   };
 
   return (
-    // 'edges' ensures bottom inset is not doubled by Safe Area and our custom padding
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top', 'left', 'right']}>
       <View style={[styles.header, { borderColor: colors.border, height: HEADER_HEIGHT }]}>
         <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
@@ -322,6 +313,7 @@ export default function ChatScreen() {
             )}
         </View>
       </View>
+      
       <KeyboardWrapper headerHeight={HEADER_HEIGHT}>
         <FlatList
           style={{ flex: 1 }}
@@ -330,16 +322,16 @@ export default function ChatScreen() {
           renderItem={renderMessage}
           keyExtractor={(item) => item.client_id} 
           contentContainerStyle={styles.messagesList}
-          maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
           onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
           onLayout={() => flatListRef.current?.scrollToEnd({ animated: false })}
           ListFooterComponent={<View style={{ height: 10 }} />}
         />
 
+        {/* ✅ FIX: Consistent padding. Insets.bottom handles the closed keyboard state */}
         <View style={[styles.inputContainer, { 
           backgroundColor: colors.background, 
           borderColor: colors.border,
-          paddingBottom: Math.max(insets.bottom, 12)
+          paddingBottom: Math.max(insets.bottom, 12) 
         }]}>
           <TextInput
             style={[styles.input, { backgroundColor: colors.card, color: colors.text }]}

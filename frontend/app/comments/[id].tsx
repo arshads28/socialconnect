@@ -1,8 +1,9 @@
+// socialconnect/frontend/app/comments/[id].tsx
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { 
   View, Text, TextInput, TouchableOpacity, FlatList, 
-  StyleSheet, ActivityIndicator, Alert, Platform, Modal,Keyboard
+  StyleSheet, ActivityIndicator, Alert, Platform, Modal
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -29,15 +30,6 @@ export default function CommentsScreen() {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [postAuthorId, setPostAuthorId] = useState<string | null>(null);
   const [menuVisible, setMenuVisible] = useState<number | null>(null);
-
-  // Track if keyboard is visible
-  const [isKeyboardVisible, setKeyboardVisible] = useState(false);
-
-  useEffect(() => {
-    const showSub = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow', () => setKeyboardVisible(true));
-    const hideSub = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide', () => setKeyboardVisible(false));
-    return () => { showSub.remove(); hideSub.remove(); };
-  }, []);
 
   // Constants
   const HEADER_HEIGHT = 60;
@@ -183,10 +175,11 @@ export default function CommentsScreen() {
           />
         )}
 
+        {/* ✅ FIX: Consistent padding using insets.bottom */}
         <View style={[styles.inputContainer, { 
           backgroundColor: colors.background, 
           borderColor: colors.border,
-          paddingBottom: Math.max(insets.bottom, 12)
+          paddingBottom: Math.max(insets.bottom, 12) 
         }]}>
           <TextInput
             style={[styles.input, { backgroundColor: colors.card, color: colors.text }]}
