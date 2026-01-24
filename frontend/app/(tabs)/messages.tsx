@@ -6,27 +6,31 @@ import { Ionicons } from '@expo/vector-icons';
 import { getLocalInbox } from '../../utils/db';
 import { syncServerInbox } from '../../utils/sync';
 
+interface InboxItem {
+  conversation_id: string;
+  content: string;
+  timestamp: string;
+  unread_count: number;
+  avatar?: string;
+  is_own?: boolean;
+}
+
 export default function MessagesScreen() {
   const router = useRouter();
-  const [conversations, setConversations] = useState<any[]>([]);
+  const [conversations, setConversations] = useState<InboxItem[]>([]);
 
   const refreshInbox = useCallback(async () => {
-    // 1. Show whatever local history we have (Real messages from open chats)
-    const localData = getLocalInbox();
+    const localData = getLocalInbox() as any[]; 
     setConversations(localData);
 
-    // 2. Fetch fresh previews from Server
     const serverData = await syncServerInbox();
     
     if (serverData && serverData.length > 0) {
-      const formatted = serverData.map((item: any) => {
-         // Check if we have a real local message (Offline support)
-         const localMatch = localData.find(l => l.conversation_id === item.username);
+      const formatted: InboxItem[] = serverData.map((item: any) => {
+         const localMatch = localData.find((l: any) => l.conversation_id === item.username);
          
          return {
            conversation_id: item.username,
-           
-           //Prefer Server Preview (Real-time), fallback to Local, then placeholder
            content: item.content || localMatch?.content || "New Message", 
            
            timestamp: item.timestamp,
@@ -45,7 +49,7 @@ export default function MessagesScreen() {
     }, [refreshInbox])
   );
 
-  const renderUser = ({ item }: { item: any }) => (
+  const renderUser = ({ item }: { item: InboxItem }) => (
     <TouchableOpacity 
       style={styles.userRow}
       onPress={() => router.push(`/chat/${item.conversation_id}`)}

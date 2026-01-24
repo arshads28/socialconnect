@@ -424,18 +424,16 @@ class SendMessageAPIView(APIView):
         ciphertext = request.data.get('ciphertext')
         client_id = request.data.get('client_id')
 
+        # 1. Validation
         if not all([recipient_id, ciphertext, client_id]):
             return Response({"error": "Missing fields"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # If we already have this message, don't create it again. Just return success.
+        # 2. IDEMPOTENCY CHECK (Prevents Offline Duplicates)
         if Message.objects.filter(client_id=client_id).exists():
-            existing_msg = Message.objects.get(client_id=client_id)
-            return Response({
-                "status": existing_msg.status, 
-                "id": existing_msg.id,
-                "message": "Message already sent"
-            }, status=status.HTTP_200_OK)
+            existing = Message.objects.get(client_id=client_id)
+            return Response({"status": "sent", "id": existing.id}, status=status.HTTP_200_OK)
 
+        # 3. Get Receiver
         try:
             receiver = User.objects.get(id=recipient_id)
         except (User.DoesNotExist, ValueError):
@@ -444,28 +442,37 @@ class SendMessageAPIView(APIView):
         if receiver.blocking.filter(id=sender.id).exists() or sender.blocking.filter(id=receiver.id).exists():
              return Response({"error": "You cannot message this user."}, status=status.HTTP_403_FORBIDDEN)
 
-        # 2. SAVE TO DB
-        message = Message.objects.create(
-            sender=sender,
-            receiver=receiver,
-            content=ciphertext,
-            client_id=client_id,
-            status='sent'
-        )
+        # 5. SAVE TO DB (Corrected Field Name)
+        try:
+            message = Message.objects.create(
+                sender=sender,
+                receiver=receiver,
+                encrypted_content=ciphertext,
+                client_id=client_id,
+                status='sent'
+            )
+        except Exception as e:
+            print(f"❌ DB Error: {e}")
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        # 3. PUSH TO WEBSOCKET
-        channel_layer = get_channel_layer()
-        async_to_sync(channel_layer.group_send)(
-            f"user_{receiver.id}", 
-            {
-                "type": "chat_message",
-                "id": str(message.id),
-                "client_id": client_id,
-                "sender": sender.username,
-                "sender_id": str(sender.id),
-                "ciphertext": ciphertext,
-                "timestamp": message.timestamp.isoformat()
-            }
-        )
+        # 6. PUSH TO WEBSOCKET
+        try:
+            channel_layer = get_channel_layer()
+            if channel_layer:
+                async_to_sync(channel_layer.group_send)(
+                    f"user_{receiver.id}", 
+                    {
+                        "type": "chat_message",
+                        "id": str(message.id),
+                        "client_id": client_id,
+                        "sender": sender.username,
+                        "sender_id": str(sender.id),
+                        "ciphertext": ciphertext,
+                        "timestamp": message.timestamp.isoformat()
+                    }
+                )
+        except Exception as e:
+            print(f"❌ WebSocket Error: {e}")
+            # Do NOT crash. Return success because DB save worked.
 
         return Response({"status": "sent", "id": message.id}, status=status.HTTP_200_OK)

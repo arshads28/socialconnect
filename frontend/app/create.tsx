@@ -21,7 +21,6 @@ import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { getSecure } from '../utils/storage';
 import { BASE_URL } from '../utils/api';
 import { applyFilter } from '../utils/imageFilters';
-import LiveCameraGL from '../components/LiveCameraGL';
 
 
 export default function CreateCameraScreen() {

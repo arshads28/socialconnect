@@ -5,7 +5,7 @@ import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useColorScheme, View, ActivityIndicator, Platform } from 'react-native';
 
-import { AuthProvider, useAuth ,} from '../context/AuthContext';
+import { AuthProvider, useAuth } from '../context/AuthContext';
 import { WebSocketProvider } from '../contexts/WebSocketContext';
 import NetInfo from '@react-native-community/netinfo';
 import { registerBackgroundFetchAsync } from '../utils/backgroundTasks';
