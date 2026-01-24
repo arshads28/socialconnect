@@ -1,8 +1,8 @@
 import { 
   View, Text, FlatList, TextInput, TouchableOpacity, StyleSheet, 
-  KeyboardAvoidingView, Platform, DeviceEventEmitter, Image, Alert 
+  Platform, DeviceEventEmitter, Image, Alert , Keyboard
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { Ionicons } from '@expo/vector-icons';
@@ -19,6 +19,7 @@ import { useAuth } from '../../context/AuthContext';
 import { syncChatMessages } from '../../utils/sync';
 import NetInfo from '@react-native-community/netinfo';
 import { CallHeaderButton } from '../../contexts/CallComponent';
+import KeyboardWrapper from '../../components/KeyboardWrapper'; // <-- IMPORT NEW COMPONENT
 
 // Theme imports
 import { useTheme } from '../../context/ThemeContext';
@@ -28,6 +29,16 @@ export default function ChatScreen() {
   const { username } = useLocalSearchParams<{ username: string }>();
   const router = useRouter();
   const { user } = useAuth();
+  const insets = useSafeAreaInsets(); // <-- Get safe area for bottom padding
+
+  // Track if keyboard is visible
+  const [isKeyboardVisible, setKeyboardVisible] = useState(false);
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow', () => setKeyboardVisible(true));
+    const hideSub = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide', () => setKeyboardVisible(false));
+    return () => { showSub.remove(); hideSub.remove(); };
+  }, []);
   
   // Theme Setup
   const { isDark } = useTheme();
@@ -48,7 +59,10 @@ export default function ChatScreen() {
   const typingTimeout = useRef<any>(null);
   const lastTypingSent = useRef<number>(0);
 
-  // 1. INIT CHAT & NETWORK MONITOR (Unchanged)
+  // Constants for layout calculations
+  const HEADER_HEIGHT = 60;
+
+  // 1. INIT CHAT & NETWORK MONITOR
   useEffect(() => {
     let isMounted = true;
     setMessages([]); 
@@ -89,7 +103,7 @@ export default function ChatScreen() {
     };
   }, [username]);
 
-  // 2. WEBSOCKET ROOM JOINING (Unchanged)
+  // 2. WEBSOCKET ROOM JOINING
   useEffect(() => {
     if (!ws || ws.readyState !== WebSocket.OPEN || !targetProfile?.id) return;
     if (isConnected) {
@@ -103,7 +117,7 @@ export default function ChatScreen() {
     };
   }, [targetProfile, ws, isConnected]); 
 
-  // 3. EVENT LISTENERS (Unchanged)
+  // 3. EVENT LISTENERS
   useEffect(() => {
     const msgListener = DeviceEventEmitter.addListener('new_message', (event) => {
       if (event.conversation_id === username) {
@@ -258,8 +272,9 @@ export default function ChatScreen() {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      <View style={[styles.header, { borderColor: colors.border }]}>
+    // 'edges' ensures bottom inset is not doubled by Safe Area and our custom padding
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top', 'left', 'right']}>
+      <View style={[styles.header, { borderColor: colors.border, height: HEADER_HEIGHT }]}>
         <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
           <TouchableOpacity onPress={() => router.back()} style={{ marginRight: 10 }}>
             <Ionicons name="arrow-back" size={24} color={colors.icon} />
@@ -288,7 +303,7 @@ export default function ChatScreen() {
                     (isNetworkChecked && isConnected && isUserOnline) && { color: '#4caf50', fontWeight: 'bold' }
                 ]}>
                   {!isNetworkChecked 
-                    ? 'Connecting to server...' 
+                    ? 'Connecting...' 
                     : isConnected 
                         ? (isUserOnline ? 'Online' : 'Offline') 
                         : 'Waiting for network...'} 
@@ -303,18 +318,11 @@ export default function ChatScreen() {
                  <Ionicons name="trash-outline" size={22} color={colors.danger} />
             </TouchableOpacity>
             {targetProfile?.id && (
-              <>
-                <CallHeaderButton targetId={targetProfile.id} isVideo={false} />
-              </>
+              <CallHeaderButton targetId={targetProfile.id} isVideo={false} />
             )}
         </View>
       </View>
-
-      <KeyboardAvoidingView 
-        style={{ flex: 1 }} 
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
-      >
+      <KeyboardWrapper headerHeight={HEADER_HEIGHT}>
         <FlatList
           style={{ flex: 1 }}
           ref={flatListRef}
@@ -322,12 +330,17 @@ export default function ChatScreen() {
           renderItem={renderMessage}
           keyExtractor={(item) => item.client_id} 
           contentContainerStyle={styles.messagesList}
+          maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
           onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
           onLayout={() => flatListRef.current?.scrollToEnd({ animated: false })}
-          ListFooterComponent={<View style={{ height: 30 }} />}
+          ListFooterComponent={<View style={{ height: 10 }} />}
         />
 
-        <View style={[styles.inputContainer, { backgroundColor: colors.background, borderColor: colors.border }]}>
+        <View style={[styles.inputContainer, { 
+          backgroundColor: colors.background, 
+          borderColor: colors.border,
+          paddingBottom: Math.max(insets.bottom, 12)
+        }]}>
           <TextInput
             style={[styles.input, { backgroundColor: colors.card, color: colors.text }]}
             placeholder="Message..."
@@ -335,19 +348,20 @@ export default function ChatScreen() {
             value={text}
             onChangeText={handleTyping}
             multiline
+            textAlignVertical="center" 
           />
-          <TouchableOpacity onPress={handleSend} disabled={!text.trim()}>
+          <TouchableOpacity onPress={handleSend} disabled={!text.trim()} style={styles.sendBtn}>
             <Ionicons name="send" size={24} color={text.trim() ? colors.tint : colors.subText} />
           </TouchableOpacity>
         </View>
-      </KeyboardAvoidingView>
+      </KeyboardWrapper>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 10, borderBottomWidth: 1, height: 60 },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 10, borderBottomWidth: 1 },
   headerTitle: { fontSize: 16, fontWeight: 'bold' },
   headerStatus: { fontSize: 12 },
   headerStatusTyping: { fontSize: 12, fontWeight: 'bold' },
@@ -361,6 +375,7 @@ const styles = StyleSheet.create({
   messageText: { fontSize: 15, marginBottom: 4 },
   metaRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', marginTop: 2 },
   timestamp: { fontSize: 10 },
-  inputContainer: { flexDirection: 'row', alignItems: 'center', padding: 10, borderTopWidth: 1 },
-  input: { flex: 1, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 10, marginRight: 10, maxHeight: 100, fontSize: 16 },
+  inputContainer: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingTop: 10, borderTopWidth: 1 },
+  input: { flex: 1, borderRadius: 20, paddingHorizontal: 16, paddingTop: Platform.OS === 'ios' ? 12 : 10, paddingBottom: Platform.OS === 'ios' ? 12 : 10, marginRight: 10, maxHeight: 100, fontSize: 16 },
+  sendBtn: { padding: 4 }
 });

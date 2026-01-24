@@ -2,11 +2,11 @@ import * as Notifications from 'expo-notifications';
 import { useEffect } from 'react';
 import { DarkTheme, DefaultTheme, ThemeProvider as NavThemeProvider } from '@react-navigation/native';
 import { Stack, useRouter } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
+import { StatusBar } from 'expo-status-bar'; // <-- We update this below
 import { View, ActivityIndicator, Platform } from 'react-native';
 
 import { AuthProvider, useAuth } from '../context/AuthContext';
-import { ThemeProvider, useTheme } from '../context/ThemeContext';
+import { ThemeProvider, useTheme } from '../context/ThemeContext'; 
 import { Colors } from '../constants/Colors'; 
 import { WebSocketProvider } from '../contexts/WebSocketContext';
 import NetInfo from '@react-native-community/netinfo';
@@ -18,55 +18,38 @@ import { CallOverlay } from '../contexts/CallComponent';
 import Toast from 'react-native-toast-message';
 
 function RootLayoutNav() {
-  const { isDark } = useTheme();
+  const { isDark } = useTheme(); 
   const { isLoading, userToken } = useAuth(); 
   const router = useRouter();
 
   const themeColors = isDark ? Colors.dark : Colors.light;
 
-  // 1. NETWORK STATUS LISTENER
   useEffect(() => {
     if (!userToken) return;
-
     registerBackgroundFetchAsync();
-
     let timeout: NodeJS.Timeout;
-
     const unsubscribe = NetInfo.addEventListener(state => {
       if (state.isConnected && state.isInternetReachable) {
         clearTimeout(timeout);
         timeout = setTimeout(() => {
-            console.log("🌐 Internet Stable. Triggering Sync...");
             processOfflineQueue();
             syncPendingMessages();
         }, 2000); 
       }
     });
-
-    return () => {
-        unsubscribe();
-        clearTimeout(timeout);
-    };
+    return () => { unsubscribe(); clearTimeout(timeout); };
   }, [userToken]);
 
-  // 2. NOTIFICATION LISTENER
   useEffect(() => {
     if (Platform.OS === 'web') return;
-
     Notifications.getLastNotificationResponseAsync().then(response => {
       const data = response?.notification.request.content.data as any;
-      if (data?.url && typeof data.url === 'string') {
-        setTimeout(() => router.push(data.url), 500); 
-      }
+      if (data?.url && typeof data.url === 'string') setTimeout(() => router.push(data.url), 500); 
     });
-
     const subscription = Notifications.addNotificationResponseReceivedListener(response => {
       const data = response.notification.request.content.data as any;
-      if (data?.url && typeof data.url === 'string') {
-        router.push(data.url);
-      }
+      if (data?.url && typeof data.url === 'string') router.push(data.url);
     });
-
     return () => subscription.remove();
   }, []);
 
@@ -86,7 +69,14 @@ function RootLayoutNav() {
         <Stack.Screen name="chat/[username]" options={{ headerShown: false }} /> 
         <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
       </Stack>
-      <StatusBar style={isDark ? "light" : "dark"} />
+      
+      {/* THE FIX: translucent={false} reactivates Android's resize mode! */}
+      <StatusBar 
+        style={isDark ? "light" : "dark"} 
+        translucent={false} 
+        backgroundColor={themeColors.background} 
+      />
+
       <CallOverlay /> 
       <Toast />
     </NavThemeProvider>

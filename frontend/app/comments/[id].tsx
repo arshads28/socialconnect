@@ -2,12 +2,12 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { 
   View, Text, TextInput, TouchableOpacity, FlatList, 
-  StyleSheet, ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Modal
+  StyleSheet, ActivityIndicator, Alert, Platform, Modal,Keyboard
 } from 'react-native';
-import { useHeaderHeight } from '@react-navigation/elements';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../utils/api';
+import KeyboardWrapper from '../../components/KeyboardWrapper'; 
 
 // Theme Imports
 import { useTheme } from '../../context/ThemeContext';
@@ -16,6 +16,7 @@ import { Colors } from '../../constants/Colors';
 export default function CommentsScreen() {
   const { id } = useLocalSearchParams(); 
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   
   // Theme Setup
   const { isDark } = useTheme();
@@ -28,8 +29,18 @@ export default function CommentsScreen() {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [postAuthorId, setPostAuthorId] = useState<string | null>(null);
   const [menuVisible, setMenuVisible] = useState<number | null>(null);
-  const headerHeight = useHeaderHeight();
-  const insets = useSafeAreaInsets();
+
+  // Track if keyboard is visible
+  const [isKeyboardVisible, setKeyboardVisible] = useState(false);
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow', () => setKeyboardVisible(true));
+    const hideSub = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide', () => setKeyboardVisible(false));
+    return () => { showSub.remove(); hideSub.remove(); };
+  }, []);
+
+  // Constants
+  const HEADER_HEIGHT = 60;
 
   useEffect(() => {
     if (id) {
@@ -54,14 +65,10 @@ export default function CommentsScreen() {
       
       if (Array.isArray(response.data)) {
         setComments(response.data);
-        if (response.data.length > 0) {
-          setPostAuthorId(response.data[0].post_author_id);
-        }
+        if (response.data.length > 0) setPostAuthorId(response.data[0].post_author_id);
       } else if (response.data.results) {
         setComments(response.data.results);
-        if (response.data.results.length > 0) {
-          setPostAuthorId(response.data.results[0].post_author_id);
-        }
+        if (response.data.results.length > 0) setPostAuthorId(response.data.results[0].post_author_id);
       } else {
         setComments([]);
       }
@@ -151,13 +158,9 @@ export default function CommentsScreen() {
   };
 
   return (
-  <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top', 'left', 'right']}>
-    <KeyboardAvoidingView
-      style={{ flex: 1 }}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 69}
-    >
-      <View style={[styles.header, { borderColor: colors.border }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top', 'left', 'right']}>
+      
+      <View style={[styles.header, { borderColor: colors.border, height: HEADER_HEIGHT }]}>
         <TouchableOpacity onPress={() => router.back()}>
           <Ionicons name="arrow-back" size={24} color={colors.icon} />
         </TouchableOpacity>
@@ -165,37 +168,46 @@ export default function CommentsScreen() {
         <View style={{ width: 24 }} />
       </View>
 
-      {loading ? (
-        <ActivityIndicator style={{ marginTop: 20 }} color={colors.tint} />
-      ) : (
-        <FlatList
-          data={comments}
-          renderItem={renderItem}
-          keyExtractor={(item) => item.id.toString()}
-          contentContainerStyle={{ padding: 16 }}
-          ListEmptyComponent={<Text style={[styles.emptyText, { color: colors.subText }]}>No comments yet.</Text>}
-        />
-      )}
+      <KeyboardWrapper headerHeight={HEADER_HEIGHT}>
+        {loading ? (
+          <ActivityIndicator style={{ marginTop: 20 }} color={colors.tint} />
+        ) : (
+          <FlatList
+            data={comments}
+            renderItem={renderItem}
+            keyExtractor={(item) => item.id.toString()}
+            contentContainerStyle={{ padding: 16 }}
+            ListEmptyComponent={<Text style={[styles.emptyText, { color: colors.subText }]}>No comments yet.</Text>}
+            keyboardDismissMode="interactive"
+            maintainVisibleContentPosition={{ minIndexForVisible: 0 }} 
+          />
+        )}
 
-      <View style={[styles.inputContainer, { borderColor: colors.border, paddingBottom: Math.max(insets.bottom, 12) }]}>
-        <TextInput
-          style={[styles.input, { backgroundColor: colors.card, color: colors.text }]}
-          placeholder="Add a comment..."
-          placeholderTextColor={colors.subText}
-          value={text}
-          onChangeText={setText}
-          multiline
-        />
-        <TouchableOpacity onPress={handlePostComment} disabled={!text.trim() || sending}>
-          {sending ? (
-            <ActivityIndicator size="small" color={colors.tint} />
-          ) : (
-            <Text style={[styles.postText, { color: colors.tint }, !text.trim() && { opacity: 0.5 }]}>Post</Text>
-          )}
-        </TouchableOpacity>
-      </View>
-    </KeyboardAvoidingView>
+        <View style={[styles.inputContainer, { 
+          backgroundColor: colors.background, 
+          borderColor: colors.border,
+          paddingBottom: Math.max(insets.bottom, 12)
+        }]}>
+          <TextInput
+            style={[styles.input, { backgroundColor: colors.card, color: colors.text }]}
+            placeholder="Add a comment..."
+            placeholderTextColor={colors.subText}
+            value={text}
+            onChangeText={setText}
+            multiline
+            textAlignVertical="center"
+          />
+          <TouchableOpacity onPress={handlePostComment} disabled={!text.trim() || sending} style={{ padding: 8 }}>
+            {sending ? (
+              <ActivityIndicator size="small" color={colors.tint} />
+            ) : (
+              <Text style={[styles.postText, { color: colors.tint }, !text.trim() && { opacity: 0.5 }]}>Post</Text>
+            )}
+          </TouchableOpacity>
+        </View>
+      </KeyboardWrapper>
 
+      {/* Dropdown Menu Modal */}
       {menuVisible !== null && (
         <Modal
           visible={true}
@@ -234,15 +246,15 @@ export default function CommentsScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1 },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, borderBottomWidth: 1 },
   headerTitle: { fontSize: 18, fontWeight: 'bold' },
   commentItem: { marginBottom: 16, flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', paddingRight: 8 },
   username: { fontWeight: 'bold', marginBottom: 4, fontSize: 14 },
   commentText: { fontSize: 14, lineHeight: 20 },
   menuBtn: { padding: 8, marginLeft: 8 },
   emptyText: { textAlign: 'center', marginTop: 20 },
-  inputContainer: { flexDirection: 'row', alignItems: 'center', padding: 12, borderTopWidth: 1 },
-  input: { flex: 1, padding: 10, borderRadius: 20, marginRight: 10, maxHeight: 100 },
+  inputContainer: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingTop: 10, borderTopWidth: 1 },
+  input: { flex: 1, paddingHorizontal: 16, paddingTop: Platform.OS === 'ios' ? 12 : 10, paddingBottom: Platform.OS === 'ios' ? 12 : 10, borderRadius: 20, marginRight: 10, maxHeight: 100 },
   postText: { fontWeight: 'bold' },
 
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.3)' },
