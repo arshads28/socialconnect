@@ -1,44 +1,59 @@
-import { getQueue, removeFromQueue, clearQueue } from './db';
+import { getQueue, removeFromQueue, incrementRetryCount, clearQueue, updateMessageStatus } from './db'; // <--- Import updateMessageStatus
 import api from './api';
 import { getSecure } from './storage';
-import { Platform } from 'react-native';
+import { Platform, DeviceEventEmitter } from 'react-native'; // <--- Import DeviceEventEmitter
+import NetInfo from '@react-native-community/netinfo';
 
-//Define Type for Queue Task
 interface QueueTask {
   id: number;
   action_type: string;
-  payload: string; // JSON string
+  payload: string; 
   timestamp?: string;
+  retries: number;
 }
 
 const BATCH_SIZE = 5; 
+const MAX_RETRIES = 3; 
 let isProcessingQueue = false;
 
 export const processOfflineQueue = async () => {
-  // 1. LOCK CHECK: If already running, stop.
-  if (isProcessingQueue) {
-      console.log("⚠️ Queue already processing. Skipping duplicate trigger.");
-      return;
-  }
+  if (isProcessingQueue) return;
 
   try {
-      isProcessingQueue = true; // 🔒 LOCK
+      isProcessingQueue = true; 
 
-      // 2. AUTH GUARD
+      // 1. NETWORK CHECK
+      const netState = await NetInfo.fetch();
+      if (!netState.isConnected || !netState.isInternetReachable) {
+          console.log("🛑 Queue paused: Waiting for Internet...");
+          isProcessingQueue = false;
+          return;
+      }
+
+      // 2. AUTH CHECK
       const token = await getSecure('accessToken');
       if (!token) {
-          console.log("🛑 Queue paused: No active session.");
+          isProcessingQueue = false;
           return;
       }
 
       const queue = getQueue() as QueueTask[];
-
-      if (queue.length === 0) return;
+      if (queue.length === 0) {
+          isProcessingQueue = false;
+          return;
+      }
 
       const batch = queue.slice(0, BATCH_SIZE);
-      console.log(`🔄 Processing batch of ${batch.length} (Total Pending: ${queue.length})...`);
+      console.log(`🔄 Processing batch of ${batch.length}...`);
 
       for (const task of batch) {
+        
+        if (task.retries >= MAX_RETRIES) {
+            console.warn(`☠️ Task ${task.id} failed too many times. Dropping.`);
+            removeFromQueue(task.id);
+            continue; 
+        }
+
         try {
           const payload = JSON.parse(task.payload);
           let success = false;
@@ -48,49 +63,52 @@ export const processOfflineQueue = async () => {
                 success = await processCreatePost(payload); 
                 break;
             case 'DELETE_POST': 
-                try { await api.delete(`/api/updates/${payload.postId}/`); success = true; } 
-                catch(e: any){ if (e.response?.status === 401) throw e; success = false; }
+                await api.delete(`/api/updates/${payload.postId}/`); 
+                success = true; 
                 break;
             case 'LIKE_POST': 
-                try { await api.post(`/api/updates/${payload.postId}/like/`); success = true; } 
-                catch(e: any){ if (e.response?.status === 401) throw e; success = false; }
+                await api.post(`/api/updates/${payload.postId}/like/`); 
+                success = true; 
                 break;
             case 'SEND_MESSAGE': 
+                // We pass the whole payload so we can extract client_id
                 success = await processSendMessage(payload); 
                 break;
           }
 
           if (success) {
             removeFromQueue(task.id);
-            console.log(`✅ Task ${task.id} (${task.action_type}) completed.`);
+            console.log(`✅ Task ${task.id} synced.`);
           } else {
-            console.warn(`⚠️ Task ${task.id} failed, skipping for now.`);
+            incrementRetryCount(task.id);
           }
 
         } catch (error: any) {
-          console.error(`❌ Error on task ${task.id}:`, error);
-          if (error.response?.status === 401 || error.message === "No refresh token") {
-              console.log("🛑 Auth failed. Pausing.");
+          // Error Handling Logic (Same as before)
+          if (error.response?.status === 401) {
+              isProcessingQueue = false;
               return; 
           }
+          if (!error.response) {
+              isProcessingQueue = false; 
+              return; 
+          }
+          incrementRetryCount(task.id);
         }
       }
 
-      // Recursive check (only if we processed successfully)
+      // Recursion
       const remaining = getQueue() as QueueTask[];
       if (remaining.length > 0) {
           isProcessingQueue = false; 
           setTimeout(() => processOfflineQueue(), 1000);
       } else {
-          console.log("🎉 Offline Queue Cleared!");
-      }
-
-  } finally {
-      // Check queue length again safely
-      const finalQueue = getQueue() as QueueTask[];
-      if (finalQueue.length === 0) {
           isProcessingQueue = false; 
       }
+
+  } catch (err) {
+      console.error("Critical Queue Crash:", err);
+      isProcessingQueue = false;
   }
 };
 
@@ -98,7 +116,6 @@ export const processOfflineQueue = async () => {
 
 const processCreatePost = async (data: any) => {
   try {
-    const token = await getSecure('accessToken');
     const formData = new FormData();
     formData.append('content', data.content);
 
@@ -106,33 +123,51 @@ const processCreatePost = async (data: any) => {
         const filename = data.imageUri.split('/').pop() || 'upload.jpg';
         const match = /\.(\w+)$/.exec(filename);
         const type = match ? `image/${match[1]}` : `image/jpeg`;
-
+        // @ts-ignore
         formData.append('media', {
             uri: Platform.OS === 'android' ? data.imageUri : data.imageUri.replace('file://', ''),
             name: filename,
             type,
-        } as any);
+        });
     }
 
-    const response = await fetch(`${api.defaults.baseURL}api/updates/`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` },
-        body: formData,
+    const response = await api.post('/api/updates/', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
     });
-    return response.ok;
-  } catch(e) { return false; }
+    return response.status === 201 || response.status === 200;
+  } catch(e: any) { 
+      if (e.response?.status === 401) throw e;
+      if (!e.response) throw e; 
+      return false; 
+  }
 };
 
 const processSendMessage = async (data: any) => {
     try {
-        await api.post(`/chat/send/`, {
+        const response = await api.post(`/chat/send/`, {
             recipient_id: data.recipient_id, 
             ciphertext: data.ciphertext, 
             client_id: data.client_id
         });
-        return true;
+
+        if (response.status === 200 || response.status === 201) {
+            //Update Local DB Status
+            if (data.client_id) {
+                updateMessageStatus(data.client_id, 'sent');
+                
+                // Notify UI to re-render immediately
+                DeviceEventEmitter.emit('message_status_changed', { 
+                    client_id: data.client_id, 
+                    status: 'sent' 
+                });
+            }
+            return true;
+        }
+        return false;
+
     } catch (e: any) { 
         if (e.response?.status === 401) throw e;
+        if (!e.response) throw e; 
         console.error("Msg Sync Error:", e.response?.data || e.message);
         return false; 
     }

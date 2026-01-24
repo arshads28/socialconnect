@@ -50,7 +50,8 @@
         "android.permission.USE_FULL_SCREEN_INTENT",
         "android.permission.READ_PHONE_STATE",
         "android.permission.BIND_TELECOM_CONNECTION_SERVICE",
-        "android.permission.READ_PHONE_NUMBERS"
+        "android.permission.READ_PHONE_NUMBERS",
+        "android.permission.RECEIVE_BOOT_COMPLETED" 
       ]
     },
     "extra": {
@@ -67,6 +68,8 @@
       "expo-notifications",
       "expo-sqlite",
       "expo-secure-store",
+      "expo-task-manager", 
+      "expo-background-fetch", 
       [
         "expo-build-properties",
         {
@@ -80,12 +83,6 @@
           "ios": {
             "newArchEnabled": true
           }
-        }
-      ],
-      [
-        "expo-background-fetch",
-        {
-          "isStatusbarTranslucent": true
         }
       ],
       [

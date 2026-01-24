@@ -12,7 +12,8 @@ import { useWebSocket } from '../../contexts/WebSocketContext';
 import { encryptMessage } from '../../utils/crypto';
 import { 
   saveMessage, getMessagesForChat, markChatAsRead, 
-  deleteLocalChat, generateUUID, addToQueue 
+  deleteLocalChat, generateUUID, addToQueue,
+  getUser, saveUser  
 } from '../../utils/db';
 import { useAuth } from '../../context/AuthContext';
 import { syncChatMessages } from '../../utils/sync';
@@ -31,28 +32,49 @@ export default function ChatScreen() {
   const [text, setText] = useState('');
   const [targetProfile, setTargetProfile] = useState<any>(null); 
   const [isTyping, setIsTyping] = useState(false);
-  const [isOnline, setIsOnline] = useState(false);
+  const [isUserOnline, setIsUserOnline] = useState(false);
+  
+  // FIX 1: Default isConnected to false (safest assumption)
+  const [isConnected, setIsConnected] = useState(false);
+  // FIX 2: Add a flag to know if we have finished the initial check
+  const [isNetworkChecked, setIsNetworkChecked] = useState(false);
   
   const flatListRef = useRef<FlatList>(null);
   const typingTimeout = useRef<any>(null);
   const lastTypingSent = useRef<number>(0);
 
-  // 1. DATA LOADING (Profile + Messages)
+  // 1. INIT CHAT & NETWORK MONITOR
   useEffect(() => {
     let isMounted = true;
+    
+    // Cleanup previous chat immediately to prevent "flash" of old messages
+    setMessages([]); 
+    setIsNetworkChecked(false); // Reset on new chat load
 
     const initChat = async () => {
-      // Load local cache first for speed
+      // 1. Load messages immediately
       loadLocalMessages();
       
-      // Fetch Profile (Critical for getting UUID)
-      await fetchTargetProfile();
-
-      // Sync latest from server
-      const synced = await syncChatMessages(username as string);
+      // 2. Load Profile from Cache (Offline Support)
+      const cachedUser = getUser(username as string);
+      if (cachedUser) {
+        setTargetProfile(cachedUser);
+      }
       
-      if (isMounted && synced) {
-        loadLocalMessages();
+      // 3. Fetch Fresh Profile (and update cache)
+      await fetchTargetProfile();
+      
+      // 4. Check Network
+      const net = await NetInfo.fetch();
+      if (isMounted) {
+          setIsConnected(net.isConnected ?? false);
+          setIsNetworkChecked(true); 
+      }
+
+      // 5. Sync if online
+      if (net.isConnected) {
+        const synced = await syncChatMessages(username as string);
+        if (isMounted && synced) loadLocalMessages();
       }
       
       markChatAsRead(username as string);
@@ -61,26 +83,37 @@ export default function ChatScreen() {
 
     initChat();
 
-    return () => { isMounted = false; };
+    // Subscribe to Network Changes
+    const unsubscribeNet = NetInfo.addEventListener(state => {
+      if (isMounted) {
+          setIsConnected(state.isConnected ?? false);
+          setIsNetworkChecked(true);
+      }
+    });
+
+    return () => { 
+      isMounted = false; 
+      unsubscribeNet();
+    };
   }, [username]);
 
-  // 2. WEBSOCKET JOINING (Waits for UUID)
+  // 2. WEBSOCKET ROOM JOINING
   useEffect(() => {
-    // STOP: Don't join until we have the UUID (targetProfile.id)
     if (!ws || ws.readyState !== WebSocket.OPEN || !targetProfile?.id) return;
-
-    console.log(`🔌 Joining room with UUID: ${targetProfile.id}`);
     
-    ws.send(JSON.stringify({ command: 'join_room', recipient_id: targetProfile.id}));
+    // Only try to join if we are actually connected
+    if (isConnected) {
+        ws.send(JSON.stringify({ command: 'join_room', recipient_id: targetProfile.id}));
+    }
 
     return () => {
       if (ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ command: 'leave_room' }));
       }
     };
-  }, [targetProfile, ws]); // Re-run when profile is loaded
+  }, [targetProfile, ws, isConnected]); 
 
-  // 3. LISTENERS
+  // 3. EVENT LISTENERS
   useEffect(() => {
     const msgListener = DeviceEventEmitter.addListener('new_message', (event) => {
       if (event.conversation_id === username) {
@@ -90,7 +123,7 @@ export default function ChatScreen() {
       }
     });
 
-    const statusListener = DeviceEventEmitter.addListener('message_status_changed', (event) => {
+    const statusListener = DeviceEventEmitter.addListener('message_status_changed', () => {
       loadLocalMessages();
     });
 
@@ -103,9 +136,8 @@ export default function ChatScreen() {
     });
 
     const presenceListener = DeviceEventEmitter.addListener('presence_update', (data) => {
-      // Update online status based on ID or Username match
       if (data.username === username || data.user_id === targetProfile?.id) {
-        setIsOnline(data.is_online);
+        setIsUserOnline(data.is_online);
       }
     });
 
@@ -120,8 +152,12 @@ export default function ChatScreen() {
   const fetchTargetProfile = async () => {
     try {
       const res = await api.get(`/auth/api/profile/${username}/`);
+      
+      // Update State AND Cache
       setTargetProfile(res.data);
-      if (res.data.is_online !== undefined) setIsOnline(res.data.is_online);
+      saveUser(res.data); 
+
+      if (res.data.is_online !== undefined) setIsUserOnline(res.data.is_online);
     } catch (e) {
       console.log("Error fetching profile", e);
     }
@@ -129,13 +165,16 @@ export default function ChatScreen() {
 
   const loadLocalMessages = useCallback(() => {
     const msgs = getMessagesForChat(username as string);
-    if (msgs) setMessages(msgs);
+    if (Array.isArray(msgs)) {
+        setMessages(msgs);
+    }
   }, [username]);
 
   const handleTyping = (val: string) => {
     setText(val);
     const now = Date.now();
-    if (val.length > 0 && (now - lastTypingSent.current > 2000) && targetProfile?.id) {
+    // Only send typing signal if we are actually online
+    if (isConnected && val.length > 0 && (now - lastTypingSent.current > 2000) && targetProfile?.id) {
       sendTypingSignal(targetProfile.id);
       lastTypingSent.current = now;
     }
@@ -145,7 +184,7 @@ export default function ChatScreen() {
     if (!text.trim()) return;
 
     if (!targetProfile?.id) {
-        Alert.alert("Loading...", "Please wait for connection.");
+        Alert.alert("Error", "Recipient details missing. Please wait...");
         return;
     }
 
@@ -154,6 +193,7 @@ export default function ChatScreen() {
     const timestamp = new Date().toISOString();
     const recipientId = targetProfile.id; 
 
+    // 1. SAVE LOCAL (Optimistic UI)
     saveMessage({
       id: null, 
       client_id: clientId, 
@@ -161,7 +201,7 @@ export default function ChatScreen() {
       recipient_id: recipientId, 
       sender: user?.username,
       content: text, 
-      status: 'sending',
+      status: 'sending', 
       timestamp: timestamp,
       is_own: true
     });
@@ -169,10 +209,14 @@ export default function ChatScreen() {
     loadLocalMessages();
     setText('');
     
+    // 2. NETWORK CHECK
     const netState = await NetInfo.fetch();
+    const isNetworkUp = netState.isConnected && netState.isInternetReachable;
 
-    if (!netState.isConnected || ws?.readyState !== WebSocket.OPEN) {
- 
+    // If Offline OR WebSocket is dead -> Queue it
+    if (!isNetworkUp || ws?.readyState !== WebSocket.OPEN) {
+        console.log("⚠️ Offline/WS Closed. Adding to Queue.");
+        
         const queued = addToQueue('SEND_MESSAGE', {
             conversation_id: username,
             recipient_id: recipientId,
@@ -180,11 +224,9 @@ export default function ChatScreen() {
             client_id: clientId
         });
 
-        if (!queued) {
-            Alert.alert("Not Sent", "Queue full.");
-        }
+        if (!queued) Alert.alert("Not Sent", "Offline queue is full.");
     } else {
-        
+        // Online -> Send via WebSocket
         sendMessage(recipientId, ciphertext, clientId);
     }
   };
@@ -201,7 +243,8 @@ export default function ChatScreen() {
             onPress: async () => {
               deleteLocalChat(username as string);
               setMessages([]); 
-              try { await api.post(`/chat/clear/${username}/`); } catch(e){}
+              // Fire and forget server delete
+              api.post(`/chat/clear/${username}/`).catch(() => {}); 
             } 
           }
         ]
@@ -209,14 +252,14 @@ export default function ChatScreen() {
   };
 
   const renderMessage = ({ item }: { item: any }) => {
-    const isMe = item.is_own === 1;
+    const isMe = item.is_own === 1 || item.is_own === true;
     
     const renderTicks = () => {
       if (!isMe) return null;
-      if (item.status === 'sending') return <Ionicons name="time-outline" size={14} color="#ddd" />;
-      if (item.status === 'sent') return <Ionicons name="checkmark" size={16} color="#ddd" />;
-      if (item.status === 'delivered') return <Ionicons name="checkmark-done" size={16} color="#ddd" />;
-      if (item.status === 'read') return <Ionicons name="checkmark-done" size={16} color="#4dabf7" />;
+      if (item.status === 'sending') return <Ionicons name="time-outline" size={14} color="#ddd" />; 
+      if (item.status === 'sent') return <Ionicons name="checkmark" size={16} color="#ddd" />; 
+      if (item.status === 'delivered') return <Ionicons name="checkmark-done" size={16} color="#ddd" />; 
+      if (item.status === 'read') return <Ionicons name="checkmark-done" size={16} color="#4dabf7" />; 
       return null;
     };
 
@@ -254,11 +297,19 @@ export default function ChatScreen() {
             )}
             <View>
               <Text style={styles.headerTitle}>{username}</Text>
+              
               {isTyping ? (
                 <Text style={styles.headerStatusTyping}>typing...</Text>
               ) : (
-                <Text style={[styles.headerStatus, isOnline && { color: '#4caf50', fontWeight: 'bold' }]}>
-                  {isOnline ? 'Online' : 'Offline'}
+                <Text style={[
+                    styles.headerStatus, 
+                    (isNetworkChecked && isConnected && isUserOnline) && { color: '#4caf50', fontWeight: 'bold' }
+                ]}>
+                  {!isNetworkChecked 
+                    ? 'Connecting to server...' 
+                    : isConnected 
+                        ? (isUserOnline ? 'Online' : 'Offline') 
+                        : 'Waiting for network...'} 
                 </Text>
               )}
             </View>
@@ -272,7 +323,6 @@ export default function ChatScreen() {
             {targetProfile?.id && (
               <>
                 <CallHeaderButton targetId={targetProfile.id} isVideo={false} />
-                <CallHeaderButton targetId={targetProfile.id} isVideo={true} />
               </>
             )}
         </View>
@@ -287,9 +337,10 @@ export default function ChatScreen() {
           ref={flatListRef}
           data={messages}
           renderItem={renderMessage}
-          keyExtractor={(item) => item.client_id}
+          keyExtractor={(item) => item.client_id} 
           contentContainerStyle={styles.messagesList}
-          onContentSizeChange={() => flatListRef.current?.scrollToEnd()}
+          onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
+          onLayout={() => flatListRef.current?.scrollToEnd({ animated: false })}
           ListFooterComponent={<View style={{ height: 10 }} />}
         />
 

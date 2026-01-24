@@ -16,16 +16,23 @@ const MAX_QUEUE_SIZE = 50;
 
 interface IDatabaseAdapter {
   init(): void;
-  clearQueue(): void;
   saveMessage(msg: any): void;
   updateMessageStatus(clientId: string, status: string): void;
   getMessagesForChat(username: string): any[];
   markChatAsRead(username: string): void;
   deleteLocalChat(username: string): void;
   getLocalInbox(): any[];
+  
+  // Queue Methods
   addToQueue(actionType: string, payload: any): boolean;
   getQueue(): any[];
+  incrementRetryCount(id: number): void;
   removeFromQueue(id: number): void;
+  clearQueue(): void;
+
+  // User Cache Methods (New)
+  saveUser(user: any): void;
+  getUser(username: string): any;
 }
 
 class NativeDatabaseAdapter implements IDatabaseAdapter {
@@ -42,6 +49,7 @@ class NativeDatabaseAdapter implements IDatabaseAdapter {
   init() {
     if (!this.db) return;
     try {
+        // 1. Messages Table
         this.db.execSync(`
         CREATE TABLE IF NOT EXISTS messages (
             client_id TEXT PRIMARY KEY, 
@@ -55,8 +63,36 @@ class NativeDatabaseAdapter implements IDatabaseAdapter {
             is_own INTEGER DEFAULT 0
         );
         `);
-        this.db.execSync(`CREATE TABLE IF NOT EXISTS offline_queue (id INTEGER PRIMARY KEY AUTOINCREMENT, action_type TEXT, payload TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP);`);
-        console.log('📦 SQLite Initialized (Messages + Queue)');
+
+        // 2. Queue Table
+        this.db.execSync(`
+          CREATE TABLE IF NOT EXISTS offline_queue (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, 
+            action_type TEXT, 
+            payload TEXT, 
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            retries INTEGER DEFAULT 0
+          );
+        `);
+
+        // 3. User Cache Table (New)
+        this.db.execSync(`
+            CREATE TABLE IF NOT EXISTS users (
+                username TEXT PRIMARY KEY,
+                id TEXT,
+                avatar TEXT,
+                display_name TEXT
+            );
+        `);
+
+        // Migration: Add 'retries' column for existing users
+        try {
+          this.db.execSync('ALTER TABLE offline_queue ADD COLUMN retries INTEGER DEFAULT 0;');
+        } catch (e) {
+          // Ignore if exists
+        }
+
+        console.log('📦 SQLite Initialized (Messages + Queue + Users)');
     } catch (e) {
         console.error("SQLite Init Failed:", e);
     }
@@ -103,12 +139,18 @@ class NativeDatabaseAdapter implements IDatabaseAdapter {
     `);
   }
 
+  // --- QUEUE METHODS ---
+
   addToQueue(actionType: string, payload: any): boolean {
     if (!this.db) return false;
     try {
       const result: any[] = this.db.getAllSync('SELECT COUNT(*) as count FROM offline_queue');
       if (result[0]?.count >= MAX_QUEUE_SIZE) return false;
-      this.db.runSync(`INSERT INTO offline_queue (action_type, payload) VALUES (?, ?)`, [actionType, JSON.stringify(payload)]);
+      
+      this.db.runSync(
+        `INSERT INTO offline_queue (action_type, payload, retries) VALUES (?, ?, 0)`, 
+        [actionType, JSON.stringify(payload)]
+      );
       return true;
     } catch (e) { return false; }
   }
@@ -116,6 +158,13 @@ class NativeDatabaseAdapter implements IDatabaseAdapter {
   getQueue() { 
     if (!this.db) return [];
     return this.db.getAllSync('SELECT * FROM offline_queue ORDER BY id ASC'); 
+  }
+
+  incrementRetryCount(id: number) {
+    if (!this.db) return;
+    try {
+      this.db.runSync('UPDATE offline_queue SET retries = retries + 1 WHERE id = ?', [id]);
+    } catch(e) { console.error("DB Retry Inc Failed:", e); }
   }
   
   removeFromQueue(id: number) { 
@@ -127,11 +176,31 @@ class NativeDatabaseAdapter implements IDatabaseAdapter {
     if (!this.db) return;
     this.db.runSync('DELETE FROM offline_queue'); 
   }
+
+  // --- USER CACHE METHODS ---
+  saveUser(user: any) {
+    if (!this.db) return;
+    try {
+        this.db.runSync(
+            `INSERT OR REPLACE INTO users (username, id, avatar, display_name) VALUES (?, ?, ?, ?)`,
+            [user.username, user.id, user.avatar || '', user.display_name || user.username]
+        );
+    } catch (e) { console.error('DB Save User Error:', e); }
+  }
+
+  getUser(username: string) {
+    if (!this.db) return null;
+    try {
+        const result = this.db.getAllSync(`SELECT * FROM users WHERE username = ?`, [username]);
+        return result.length > 0 ? result[0] : null;
+    } catch (e) { return null; }
+  }
 }
 
 // Strictly Native Adapter
 const adapter = new NativeDatabaseAdapter();
 
+// Exports
 export const initDB = () => adapter.init();
 export const saveMessage = (msg: any) => adapter.saveMessage(msg);
 export const updateMessageStatus = (cid: string, status: string) => adapter.updateMessageStatus(cid, status);
@@ -139,10 +208,17 @@ export const getMessagesForChat = (user: string) => adapter.getMessagesForChat(u
 export const markChatAsRead = (user: string) => adapter.markChatAsRead(user);
 export const deleteLocalChat = (user: string) => adapter.deleteLocalChat(user);
 export const getLocalInbox = () => adapter.getLocalInbox();
+
+// Queue Exports
 export const addToQueue = (actionType: string, payload: any) => adapter.addToQueue(actionType, payload);
 export const getQueue = () => adapter.getQueue();
+export const incrementRetryCount = (id: number) => adapter.incrementRetryCount(id);
 export const removeFromQueue = (id: number) => adapter.removeFromQueue(id);
 export const clearQueue = () => adapter.clearQueue();
+
+// User Exports
+export const saveUser = (user: any) => adapter.saveUser(user);
+export const getUser = (username: string) => adapter.getUser(username);
 
 export const generateUUID = () => {
     return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
