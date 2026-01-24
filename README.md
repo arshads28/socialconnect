@@ -358,3 +358,10 @@ Backend Developer | Django | WebSockets | WebRTC
 ---
 
 
+to make build locally just apk 
+
+npx expo prebuild
+
+
+cd android
+.\gradlew assembleDebug
