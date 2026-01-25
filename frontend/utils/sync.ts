@@ -5,9 +5,17 @@ import {
 import { decryptMessage } from './crypto';
 import { DeviceEventEmitter } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getSecure } from './storage';
+import { getSecure, saveSecure } from './storage';
 
 const LAST_SYNC_TS_KEY = 'connect_last_sync_ts_v1';
+
+// Type definition for Inbox items
+interface InboxChat {
+  conversation_id: string;
+  sender: string;
+  last_message?: string;
+  unread_count?: number;
+}
 
 let isSyncingMessages = false;
 

@@ -1,29 +1,48 @@
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as FileSystem from 'expo-file-system';
 
-export const processMedia = async (uri: string, type: 'image' | 'video') => {
-  try {
-    if (type === 'video') {
-      // For videos, we return as-is (Video compression requires native modules like ffmpeg)
-      // Or checking file size to ensure it's not too huge
-      const info = await FileSystem.getInfoAsync(uri);
-      if (info.exists && info.size > 50 * 1024 * 1024) { // 50MB limit
-         throw new Error("Video too large");
-      }
-      return { uri, type };
-    }
+export interface ProcessedMedia {
+  uri: string;
+  type: 'image' | 'video';
+  width: number;
+  height: number;
+  size?: number; // bytes
+}
 
-    // IMAGE COMPRESSION
-    // Resize to max 1080px width, compress to 0.7 quality
+export const processMedia = async (uri: string, type: 'image' | 'video'): Promise<ProcessedMedia> => {
+  if (type === 'video') {
+    // ⚠️ Expo can't compress video easily without FFmpeg-kit (which adds 20MB+ size).
+    // Strategy: Validate size/duration, let backend re-encode if needed.
+    const info = await FileSystem.getInfoAsync(uri);
+    return {
+        uri,
+        type: 'video',
+        width: 0, // Video dims hard to get without extra lib, backend will handle
+        height: 0,
+        size: info.exists ? info.size : 0
+    };
+  }
+
+  // IMAGE PIPELINE: Resize -> Compress -> Convert to JPEG
+  try {
     const result = await ImageManipulator.manipulateAsync(
       uri,
-      [{ resize: { width: 1080 } }],
-      { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG }
+      [{ resize: { width: 720 } }], // Instagram standard width
+      { 
+        compress: 0.8, // 80% quality is indistinguishable but 1/4th size
+        format: ImageManipulator.SaveFormat.JPEG 
+      }
     );
 
-    return { uri: result.uri, type: 'image' };
+    return {
+        uri: result.uri,
+        type: 'image',
+        width: result.width,
+        height: result.height,
+        size: 0 // Not critical for images
+    };
   } catch (error) {
-    console.log("Media Processing Error:", error);
-    return { uri, type }; // Fallback to original
+    console.error("Media Processing Failed", error);
+    throw error;
   }
 };

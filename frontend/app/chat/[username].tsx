@@ -1,6 +1,6 @@
 import { 
   View, Text, FlatList, TextInput, TouchableOpacity, StyleSheet, 
-  Platform, DeviceEventEmitter, Image, Alert, ActivityIndicator
+  Platform, DeviceEventEmitter, Image, Alert, ActivityIndicator, Dimensions
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -26,11 +26,11 @@ import { useTheme } from '../../context/ThemeContext';
 import { Colors } from '../../constants/Colors';
 import { processMedia } from '../../utils/mediaProcessor';
 import UploadManager from '../../utils/UploadManager';
+import { ImageViewer } from '../../components/ImageViewer'; 
 
 export default function ChatScreen() {
   const params = useLocalSearchParams<{ username: string }>();
-  // 1. Raw Param (might be 'arsh__asdf')
-  const rawParam = Array.isArray(params.username) ? params.username[0] : params.username;
+  const rawParam = Array.isArray(params.username) ? params.username[0] : params.username || "";
   
   const router = useRouter();
   const { user } = useAuth();
@@ -38,7 +38,7 @@ export default function ChatScreen() {
   const { isDark } = useTheme();
   const colors = isDark ? Colors.dark : Colors.light;
 
-  // 2. 🛡️ Extract Real Username (Fixes 404 Error)
+  // 1. EXTRACT REAL USERNAME
   const targetUsername = useMemo(() => {
      if (rawParam.includes('__') && user?.username) {
          const parts = rawParam.split('__');
@@ -55,12 +55,17 @@ export default function ChatScreen() {
   const [isUserOnline, setIsUserOnline] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
   
+  // Viewer State
+  const [viewerVisible, setViewerVisible] = useState(false);
+  const [viewerImages, setViewerImages] = useState<{uri:string}[]>([]);
+  const [viewerIndex, setViewerIndex] = useState(0);
+
   const flatListRef = useRef<FlatList>(null);
   const typingTimeout = useRef<any>(null);
   const lastTypingSent = useRef<number>(0);
   const HEADER_HEIGHT = 60;
 
-  // 3. Generate Canonical ID for DB Lookups (using correct targetUsername)
+  // 2. GENERATE CANONICAL ID 
   const conversationId = useMemo(() => {
     return getConversationId(user?.username || '', targetUsername);
   }, [user?.username, targetUsername]);
@@ -76,19 +81,17 @@ export default function ChatScreen() {
     setMessages([]); 
     
     const initChat = async () => {
-      // 1. Load Local Cache
+      // Load cache
       loadLocalMessages();
       
-      // 2. Get Profile (Fixes 404 by using targetUsername)
+      // Get Profile
       const cachedUser = getUser(targetUsername);
       if (cachedUser) setTargetProfile(cachedUser);
       await fetchTargetProfile();
       
       const net = await NetInfo.fetch();
       if (isMounted) setIsConnected(net.isConnected ?? false);
-      
       if (net.isConnected) {
-        // 3. Sync History (Using correct targetUsername)
         const synced = await syncChatMessages(targetUsername);
         if (isMounted && synced) loadLocalMessages();
       }
@@ -105,7 +108,7 @@ export default function ChatScreen() {
     return () => { isMounted = false; unsubscribeNet(); };
   }, [targetUsername, conversationId]);
 
-  // WebSocket Room Join
+  // WebSocket
   useEffect(() => {
     if (!ws || ws.readyState !== WebSocket.OPEN || !targetProfile?.id) return;
     if (isConnected) ws.send(JSON.stringify({ command: 'join_room', recipient_id: targetProfile.id}));
@@ -159,48 +162,117 @@ export default function ChatScreen() {
 
   const pickMedia = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.All, allowsEditing: true, quality: 0.8,
+      mediaTypes: ImagePicker.MediaTypeOptions.Images, // Restricted to Images
+      allowsMultipleSelection: true, 
+      selectionLimit: 10,
+      quality: 0.8,
     });
     if (!result.canceled) {
-      handleSendMedia(result.assets[0].uri, result.assets[0].type === 'video' ? 'video' : 'image');
+      handleSendMedia(result.assets); // Send array of assets
     }
   };
 
-  const handleSendMedia = async (uri: string, type: 'image' | 'video') => {
+  // ✅ FIXED: Handle Forwarding (Share) logic with Type Safety
+  const handleForwardMedia = async (imageUris: string[], targetUsers: string[]) => {
+      try {
+          let successCount = 0;
+
+          // Loop through every user
+          for (const targetUser of targetUsers) {
+              
+              // 1. Get ID (Check cache then API)
+              let targetId = null;
+              const userObj = getUser(targetUser) as any;
+              
+              if (userObj?.id) {
+                  targetId = userObj.id;
+              } else {
+                  try {
+                      const res = await api.get(`/auth/api/profile/${targetUser}/`);
+                      targetId = res.data?.id;
+                  } catch (e) {
+                      console.log(`Failed to resolve user ${targetUser}`);
+                      continue;
+                  }
+              }
+
+              if (!targetId) continue;
+
+              // 2. Loop through every image for this user
+              for (const imgUrl of imageUris) {
+                  // Normalize URL
+                  const cleanUrl = imgUrl.startsWith('http') ? imgUrl : `${BASE_URL}${imgUrl}`;
+                  const ciphertext = encryptMessage(cleanUrl);
+                  
+                  // Send via API (Robust)
+                  await api.post(`/chat/send/`, {
+                      recipient_id: targetId,
+                      ciphertext: ciphertext,
+                      client_id: generateUUID()
+                  });
+              }
+              successCount++;
+          }
+
+      } catch (e) {
+          console.error("Forward failed", e);
+          Alert.alert("Error", "Some forwards failed.");
+      }
+  };
+
+  // ✅ FIXED: Updated to support Array input and UploadManager.files format
+  const handleSendMedia = async (assets: ImagePicker.ImagePickerAsset[]) => {
     if (!targetProfile?.id) return;
-    const processed = await processMedia(uri, type);
-    const clientId = generateUUID();
-    const recipientId = targetProfile.id;
-    const token = await getSecure('accessToken');
+    
+    // Process all images
+    for (const asset of assets) {
+        const processed = await processMedia(asset.uri, 'image');
+        const clientId = generateUUID();
+        const recipientId = targetProfile.id;
+        const token = await getSecure('accessToken');
 
-    const optimisticMsg: Message = {
-        id: null, client_id: clientId, conversation_id: conversationId, recipient_id: recipientId,
-        sender: user?.username || '', content: processed.uri, status: 'uploading', 
-        timestamp: new Date().toISOString(), media: processed.uri, media_type: type,
-        // @ts-ignore
-        media_progress: 0, media_failed: false
-    };
+        const optimisticMsg: Message = {
+            id: null, client_id: clientId, conversation_id: conversationId, recipient_id: recipientId,
+            sender: user?.username || '', content: processed.uri, status: 'uploading', 
+            timestamp: new Date().toISOString(), media: processed.uri, media_type: 'image',
+            // @ts-ignore
+            media_progress: 0, media_failed: false
+        };
 
-    saveMessage(optimisticMsg); 
-    loadLocalMessages();
+        saveMessage(optimisticMsg); 
+        setMessages(prev => [...prev, optimisticMsg]);
 
-    UploadManager.add({
-        id: clientId, uri: processed.uri, type: type, endpoint: `${BASE_URL}/chat/upload/`,
-        headers: { 'Authorization': `Bearer ${token}` }, additionalData: { id: clientId, recipient_id: recipientId },
-    }, {
-        onProgress: (p) => setMessages(prev => prev.map(m => m.client_id === clientId ? { ...m, media_progress: p } : m)),
-        onSuccess: (res) => {
-             const remoteUrl = res.media_url || res.url;
-             const ciphertext = encryptMessage(remoteUrl);
-             sendMessage(recipientId, ciphertext, clientId); 
-             saveMessage({ ...optimisticMsg, content: remoteUrl, media: remoteUrl, status: 'sent' });
-             setMessages(prev => prev.map(m => m.client_id === clientId ? { ...m, content: remoteUrl, media: remoteUrl, status: 'sent', media_progress: 100 } : m));
-        },
-        onError: () => {
-             setMessages(prev => prev.map(m => m.client_id === clientId ? { ...m, media_failed: true, status: 'failed' } : m));
-             saveMessage({ ...optimisticMsg, status: 'failed' });
-        }
-    });
+        // ✅ FIX: Use 'files' array instead of 'uri'
+        UploadManager.add({
+            id: clientId,
+            files: [{ uri: processed.uri, type: 'image' }], 
+            endpoint: `${BASE_URL}/chat/upload/`,
+            headers: { 'Authorization': `Bearer ${token}` },
+            additionalData: { id: clientId, recipient_id: recipientId },
+        }, {
+            onProgress: (p) => setMessages(prev => prev.map(m => m.client_id === clientId ? { ...m, media_progress: p } : m)),
+            onSuccess: (res) => {
+                const remoteUrl = res.media_url || res.url;
+                const ciphertext = encryptMessage(remoteUrl);
+                
+                sendMessage(recipientId, ciphertext, clientId); 
+                
+                saveMessage({ ...optimisticMsg, content: remoteUrl, media: remoteUrl, status: 'sent' });
+                setMessages(prev => prev.map(m => m.client_id === clientId ? { ...m, content: remoteUrl, media: remoteUrl, status: 'sent', media_progress: 100 } : m));
+            },
+            onError: () => {
+                setMessages(prev => prev.map(m => m.client_id === clientId ? { ...m, media_failed: true, status: 'failed' } : m));
+                saveMessage({ ...optimisticMsg, status: 'failed' });
+            }
+        });
+    }
+  };
+
+  const openImage = (url: string) => {
+      const fullUrl = url.startsWith('http') ? url : `${BASE_URL}${url}`;
+      setViewerImages([{ uri: fullUrl }]);
+      setViewerIndex(0);
+      setViewerVisible(true);
   };
 
   const handleSend = async () => {
@@ -237,7 +309,7 @@ export default function ChatScreen() {
     const isMe = item.sender === user?.username;
     let mediaUri = item.media || item.content;
     if (typeof mediaUri === 'string' && mediaUri.startsWith('/media/')) mediaUri = `${BASE_URL}${mediaUri}`;
-    const isMedia = item.media_type === 'image' || item.media_type === 'video' || (typeof item.content === 'string' && item.content.startsWith('file://'));
+    const isMedia = item.media_type === 'image' || (typeof item.content === 'string' && item.content.startsWith('file://'));
 
     const renderTicks = () => {
       if (!isMe) return null;
@@ -253,10 +325,21 @@ export default function ChatScreen() {
         <View style={[styles.bubble, isMe ? { backgroundColor: colors.tint } : { backgroundColor: isDark ? '#2c2c2e' : '#efefef' }]}>
           {isMedia ? (
              <View>
-                {item.media_type === 'video' ? <View style={styles.videoPlaceholder}><Ionicons name="play" size={40} color="#fff" /></View> 
-                : <Image source={{ uri: mediaUri }} style={styles.mediaImage} resizeMode="cover"/>}
+                <TouchableOpacity onPress={() => openImage(mediaUri)}>
+                    <Image source={{ uri: mediaUri }} style={styles.mediaImage} resizeMode="cover"/>
+                </TouchableOpacity>
                 {item.status === 'uploading' && <View style={styles.mediaOverlay}><ActivityIndicator color="#fff" size="small" /></View>}
-                {(item.media_failed || item.status === 'failed') && <TouchableOpacity style={styles.mediaOverlay} onPress={() => handleSendMedia(item.content, item.media_type || 'image')}><Ionicons name="refresh" size={24} color="#fff" /></TouchableOpacity>}
+                {/* ✅ FIX: Pass array to handleSendMedia for retry 
+                   We wrap the single failed item in an array to match the new signature
+                */}
+                {(item.media_failed || item.status === 'failed') && (
+                  <TouchableOpacity 
+                    style={styles.mediaOverlay} 
+                    onPress={() => handleSendMedia([{ uri: item.content } as any])}
+                  >
+                      <Ionicons name="refresh" size={24} color="#fff" />
+                  </TouchableOpacity>
+                )}
              </View>
           ) : ( <Text style={[styles.messageText, { color: isMe ? '#fff' : colors.text }]}>{item.content}</Text> )}
           <View style={styles.metaRow}>
@@ -270,7 +353,6 @@ export default function ChatScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top', 'left', 'right']}>
-      {/* HEADER */}
       <View style={[styles.header, { borderColor: colors.border, height: HEADER_HEIGHT }]}>
         <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
           <TouchableOpacity onPress={() => router.back()} style={{ marginRight: 10 }}><Ionicons name="arrow-back" size={24} color={colors.icon} /></TouchableOpacity>
@@ -295,6 +377,14 @@ export default function ChatScreen() {
           <TouchableOpacity onPress={handleSend} disabled={!text.trim()} style={styles.sendBtn}><Ionicons name="send" size={24} color={text.trim() ? colors.tint : colors.subText} /></TouchableOpacity>
         </View>
       </KeyboardWrapper>
+
+      <ImageViewer 
+        visible={viewerVisible} 
+        images={viewerImages} 
+        index={viewerIndex} 
+        onClose={() => setViewerVisible(false)}
+        onForward={handleForwardMedia} 
+      />
     </SafeAreaView>
   );
 }
