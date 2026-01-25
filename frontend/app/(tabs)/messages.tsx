@@ -7,9 +7,11 @@ import { getLocalInbox } from '../../utils/db';
 import { syncServerInbox } from '../../utils/sync';
 import { useTheme } from '../../context/ThemeContext';
 import { Colors } from '../../constants/Colors';
+import { useAuth } from '../../context/AuthContext'; // ✅ Need this to know "Who am I?"
 
 interface InboxItem {
-  conversation_id: string;
+  conversation_id: string; // This will now be the clean "Other Person's Name"
+  original_id: string;     // The DB key (could be 'arsh__asdf')
   content: string;
   timestamp: string;
   unread_count: number;
@@ -19,6 +21,7 @@ interface InboxItem {
 
 export default function MessagesScreen() {
   const router = useRouter();
+  const { user } = useAuth(); // ✅ Get current user
   const { isDark } = useTheme();
   const colors = isDark ? Colors.dark : Colors.light;
 
@@ -26,27 +29,61 @@ export default function MessagesScreen() {
 
   const refreshInbox = useCallback(async () => {
     const localData = getLocalInbox() as any[]; 
-    setConversations(localData);
-
     const serverData = await syncServerInbox();
     
+    // 1. Merge Local & Server Data
+    let combined = [...localData];
+
+    // Merge server data if not present locally
     if (serverData && serverData.length > 0) {
-      const formatted: InboxItem[] = serverData.map((item: any) => {
-         const localMatch = localData.find((l: any) => l.conversation_id === item.username);
-         
-         return {
-           conversation_id: item.username,
-           content: item.content || localMatch?.content || "New Message", 
-           
-           timestamp: item.timestamp,
-           unread_count: item.unread_count,
-           avatar: item.avatar_url, 
-           is_own: false
-         };
-      });
-      setConversations(formatted);
-    } 
-  }, []);
+       serverData.forEach((sItem: any) => {
+           const exists = combined.find(l => l.conversation_id === sItem.username);
+           if (!exists) {
+               combined.push({
+                   conversation_id: sItem.username,
+                   content: sItem.content || "New Message",
+                   timestamp: sItem.timestamp,
+                   unread_count: sItem.unread_count,
+                   avatar: sItem.avatar_url,
+                   is_own: false
+               });
+           }
+       });
+    }
+
+    // 2. 🧹 CLEANUP & DEDUPLICATE (The Fix)
+    const uniqueChats = new Map<string, InboxItem>();
+
+    combined.forEach(item => {
+        let partnerName = item.conversation_id;
+
+        // 🛡️ Logic: If ID is 'arsh__asdf', strip 'arsh' to get 'asdf'
+        if (partnerName.includes('__') && user?.username) {
+            const parts = partnerName.split('__');
+            partnerName = parts.find((p: string) => p !== user.username) || partnerName;
+        }
+
+        // If we found a duplicate (e.g. 'asdf' and 'arsh__asdf' both resolve to 'asdf')
+        // We keep the one with the NEWER message.
+        if (uniqueChats.has(partnerName)) {
+            const existing = uniqueChats.get(partnerName)!;
+            if (new Date(item.timestamp) > new Date(existing.timestamp)) {
+                // Update with newer data, but force the Display Name (conversation_id) to be the partner
+                uniqueChats.set(partnerName, { ...item, conversation_id: partnerName, original_id: item.conversation_id });
+            }
+        } else {
+            uniqueChats.set(partnerName, { ...item, conversation_id: partnerName, original_id: item.conversation_id });
+        }
+    });
+
+    // 3. Convert back to array & Sort
+    const sortedChats = Array.from(uniqueChats.values()).sort((a, b) => 
+        new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+    );
+
+    setConversations(sortedChats);
+
+  }, [user?.username]); // Re-run if user changes
 
   useFocusEffect(
     useCallback(() => {
@@ -57,6 +94,7 @@ export default function MessagesScreen() {
   const renderUser = ({ item }: { item: InboxItem }) => (
     <TouchableOpacity 
       style={[styles.userRow, { borderColor: colors.border }]}
+      // ✅ We pass the CLEAN name (e.g. 'asdf') so ChatScreen knows who to fetch
       onPress={() => router.push(`/chat/${item.conversation_id}`)}
     >
       <View style={styles.avatarContainer}>
@@ -70,6 +108,7 @@ export default function MessagesScreen() {
       </View>
       
       <View style={styles.userInfo}>
+        {/* Display the Clean Name */}
         <Text style={[styles.username, { color: colors.text }]}>{item.conversation_id}</Text>
         <Text style={[styles.status, { color: colors.subText }]} numberOfLines={1}>
           {item.content}

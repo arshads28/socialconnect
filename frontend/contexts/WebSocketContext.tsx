@@ -3,7 +3,14 @@ import { DeviceEventEmitter, AppState } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import { getSecure } from '../utils/storage';
 import { BASE_URL } from '../utils/api';
-import { initDB, saveMessage, updateMessageStatus } from '../utils/db';
+import { 
+  initDB, 
+  saveMessage, 
+  updateMessageStatus, 
+  markChatAsRead, 
+  getConversationId,
+  Message 
+} from '../utils/db';
 import { decryptMessage } from '../utils/crypto';
 import { useAuth } from '../context/AuthContext';
 import { syncPendingMessages, resendStuckMessages } from '../utils/sync'; 
@@ -16,6 +23,7 @@ interface WebSocketContextType {
   sendMessage: (targetId: string, ciphertext: string, clientId: string) => void;
   sendReadSignal: (targetUser: string) => void;
   sendTypingSignal: (targetUser: string) => void;
+  setActiveConversationId: (id: string | null) => void;
 }
 
 const WebSocketContext = createContext<WebSocketContextType>({ 
@@ -23,20 +31,31 @@ const WebSocketContext = createContext<WebSocketContextType>({
   isConnected: false, 
   sendMessage: () => {}, 
   sendReadSignal: () => {},
-  sendTypingSignal: () => {} 
+  sendTypingSignal: () => {},
+  setActiveConversationId: () => {} 
 });
 
 export const useWebSocket = () => useContext(WebSocketContext);
 
 export const WebSocketProvider = ({ children }: { children: React.ReactNode }) => {
-  const { user, userToken } = useAuth(); // Need user for filtering own messages
+  const { user, userToken } = useAuth(); 
+  
   const [ws, setWs] = useState<WebSocket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   
+  // 🧠 Track which chat is open on screen
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+  const activeConversationIdRef = useRef<string | null>(null);
+
   const wsRef = useRef<WebSocket | null>(null);
   const pingInterval = useRef<any>(null);
   const reconnectTimeout = useRef<any>(null);
   const appState = useRef(AppState.currentState);
+
+  // 0. Sync State to Ref (Crucial for Event Listener access)
+  useEffect(() => {
+    activeConversationIdRef.current = activeConversationId;
+  }, [activeConversationId]);
 
   // 1. REGISTER PUSH
   useEffect(() => {
@@ -72,14 +91,6 @@ export const WebSocketProvider = ({ children }: { children: React.ReactNode }) =
              connect(); 
         }
       } 
-      // else if (nextAppState.match(/inactive|background/)) {
-      //   console.log('🔴 App Background: Pausing Socket...');
-      //   if (wsRef.current) {
-      //       wsRef.current.close();
-      //       wsRef.current = null;
-      //       setIsConnected(false);
-      //   }
-      // }
       appState.current = nextAppState;
     });
 
@@ -112,7 +123,7 @@ export const WebSocketProvider = ({ children }: { children: React.ReactNode }) =
     const cleanUrl = BASE_URL.replace(/^https?:\/\//, '').replace(/\/$/, '');
     const wsUrl = `${protocol}://${cleanUrl}/ws/unified/?token=${token}`;
     
-    console.log("🔌 Connecting WS...");
+    console.log("🔌 Connecting WS...", wsUrl);
     const socket = new WebSocket(wsUrl);
     wsRef.current = socket;
 
@@ -133,48 +144,84 @@ export const WebSocketProvider = ({ children }: { children: React.ReactNode }) =
       try {
         const data = JSON.parse(e.data);
 
-        // Filter own messages echoes
+        // 1️⃣ Filter echoes
         if (data.sender === user?.username && data.type === 'chat_message') return;
 
+        // 2️⃣ Handle Server Acknowledgment
         if (data.type === 'message_ack') {
             updateMessageStatus(data.client_id, 'sent');
             return;
         }
+
+        // 3️⃣ Handle Incoming Chat Message
         if (data.type === 'chat_message') {
           const decryptedContent = decryptMessage(data.ciphertext);
           
+          // 🛡️ CRITICAL FIX: Repair "unknown" Conversation IDs
+          let conversationId = data.conversation_id;
+          
+          if (!conversationId || conversationId === 'unknown') {
+              conversationId = getConversationId(user?.username || '', data.sender);
+          }
+
+          // 💾 Save to DB
           saveMessage({
-            id: data.id.toString(),
             client_id: data.client_id,
-            conversation_id: data.sender,
+            id: data.id.toString(),
+            conversation_id: conversationId, 
             sender: data.sender,
+            recipient_id: user?.username || '',
             content: decryptedContent,
-            status: 'delivered',
-            timestamp: data.timestamp,
-            is_own: false
+            status: 'delivered', 
+            timestamp: data.timestamp || new Date().toISOString(),
+            media: data.media,
+            media_type: data.media_type,
           });
 
-          socket.send(JSON.stringify({ command: 'ack_delivery', message_id: data.id }));
-          DeviceEventEmitter.emit('new_message', { conversation_id: data.sender });
+          // 📡 Send Delivery Receipt
+          if (socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({ command: 'ack_delivery', message_id: data.id }));
+          }
+
+          // ⚡ Check Read Status
+          const isActiveChat = activeConversationIdRef.current === conversationId;
+
+          if (isActiveChat) {
+            markChatAsRead(conversationId, user?.username || '');
+          } 
+
+          // 🔄 Update Legacy Listeners
+          DeviceEventEmitter.emit('new_message', { conversation_id: conversationId });
         }
 
+        // 4️⃣ Handle Status Updates
         if (data.type === 'status_update') {
-          if (data.client_id) updateMessageStatus(data.client_id, data.status);
+          if (data.client_id) {
+            updateMessageStatus(data.client_id, data.status);
+          }
           DeviceEventEmitter.emit('message_status_changed', data);
         }
         
+        // 5️⃣ Handle Presence / Typing
         if (data.type === 'user_status_event') DeviceEventEmitter.emit('presence_update', data);
         if (data.type === 'typing_event') DeviceEventEmitter.emit('typing_event', data);
 
+        // 6️⃣ Handle Notifications
         if (data.type === 'new_message_notification') {
-          await Notifications.scheduleNotificationAsync({
-            content: {
-              title: data.sender,
-              body: "Sent you a message", 
-              data: { url: `/chat/${data.sender}` }, 
-            },
-            trigger: null, 
-          });
+          // Logic Check: Don't notify if I'm already looking at the chat
+          // Also handle cases where notification might have legacy ID format
+          const notifConvId = data.conversation_id || getConversationId(user?.username || '', data.sender);
+          
+          if (activeConversationIdRef.current !== notifConvId) {
+              await Notifications.scheduleNotificationAsync({
+                content: {
+                  title: data.sender,
+                  body: "Sent you a message", 
+                  data: { url: `/chat/${data.sender}` }, 
+                },
+                trigger: null, 
+              });
+          }
         }
 
       } catch (err) {
@@ -216,7 +263,14 @@ export const WebSocketProvider = ({ children }: { children: React.ReactNode }) =
   };
 
   return (
-    <WebSocketContext.Provider value={{ ws, isConnected, sendMessage, sendReadSignal, sendTypingSignal }}>
+    <WebSocketContext.Provider value={{ 
+      ws, 
+      isConnected, 
+      sendMessage, 
+      sendReadSignal, 
+      sendTypingSignal,
+      setActiveConversationId
+    }}>
       {children}
     </WebSocketContext.Provider>
   );

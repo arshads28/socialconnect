@@ -2,15 +2,14 @@ import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Modal, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useWebRTC } from './WebRTCContext'; 
-// ✅ Import directly from library again
 import { RTCView } from 'react-native-webrtc'; 
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-export const CallHeaderButton = ({ targetId, isVideo = false }: { targetId: string, isVideo?: boolean }) => {
+export const CallHeaderButton = ({ targetId, isVideo = false, targetName }: { targetId: string, isVideo?: boolean, targetName: string }) => {
   const { startCall } = useWebRTC();
 
   return (
-    <TouchableOpacity onPress={() => startCall(targetId, isVideo)} style={{ marginRight: 15 }}>
+    <TouchableOpacity onPress={() => startCall(targetId, isVideo, targetName)} style={{ marginRight: 15 }}>
       <Ionicons name={isVideo ? "videocam-outline" : "call-outline"} size={24} color="#0095f6" />
     </TouchableOpacity>
   );
@@ -22,6 +21,7 @@ export const CallOverlay = () => {
     localStream, 
     remoteStream, 
     callerId,
+    callerName,
     endCall, 
     acceptCall,
     toggleMute,
@@ -76,7 +76,7 @@ export const CallOverlay = () => {
             <View style={styles.avatarPlaceholder}>
               <Ionicons name="person" size={50} color="#fff" />
             </View>
-            <Text style={styles.callerName}>{callerId || 'Unknown Caller'}</Text>
+            <Text style={styles.callerName}>{callerName || callerId || 'Unknown Caller'}</Text>
             <Text style={styles.callStatus}>
               {callState === 'calling' ? 'Calling...' : 
                callState === 'ringing' ? 'Incoming Call...' : 

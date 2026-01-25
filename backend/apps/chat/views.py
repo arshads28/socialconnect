@@ -13,14 +13,16 @@ from rest_framework import viewsets, mixins
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.decorators import api_view
-from .serializers import InboxSerializer
+from .serializers import InboxSerializer, MessageSerializer
 from django.utils.dateparse import parse_datetime
+from django.db import IntegrityError
 
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 from rest_framework.views import APIView
 from rest_framework import status
 
+from rest_framework.parsers import MultiPartParser, FormParser
 
 User = get_user_model()
 
@@ -382,7 +384,8 @@ def clear_chat_history(request, username):
 @api_view(['GET'])
 def chat_history(request, username):
     """
-    WEB VIEW: Fetches full chat history with a specific user.
+    Fetches full chat history with a specific user.
+    UPDATED: Uses MessageSerializer to correctly handle Media URLs.
     """
     try:
         target_user = User.objects.get(username=username)
@@ -393,21 +396,10 @@ def chat_history(request, username):
             Q(sender=target_user, receiver=request.user)
         ).order_by('timestamp')
         
-        data = []
-        for msg in messages:
-            data.append({
-                "id": msg.id,
-                "client_id": str(msg.client_id),
-                "sender": msg.sender.username,
-                "conversation_id": username, 
-                "content": msg.encrypted_content, 
-                "encrypted_content": msg.encrypted_content, 
-                "status": msg.status,
-                "timestamp": msg.timestamp.isoformat(),
-                "is_own": msg.sender == request.user
-            })
+        # passing context={'request': request} is CRITICAL for building full media URLs
+        serializer = MessageSerializer(messages, many=True, context={'request': request})
             
-        return Response(data)
+        return Response(serializer.data)
         
     except User.DoesNotExist:
         return Response([], status=404)
@@ -476,3 +468,97 @@ class SendMessageAPIView(APIView):
             # Do NOT crash. Return success because DB save worked.
 
         return Response({"status": "sent", "id": message.id}, status=status.HTTP_200_OK)
+    
+
+
+
+class SendMessageAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        client_id = request.data.get('client_id')
+        recipient_id = request.data.get('recipient_id')
+        ciphertext = request.data.get('ciphertext')
+
+        if not all([client_id, recipient_id, ciphertext]):
+            return Response({"error": "Missing fields"}, status=400)
+
+        # ✅ HARD IDEMPOTENCY: If message exists, return it immediately.
+        # This makes offline retries safe.
+        if Message.objects.filter(client_id=client_id).exists():
+            return Response({"status": "sent", "id": Message.objects.get(client_id=client_id).id}, status=200)
+
+        try:
+            receiver = User.objects.get(id=recipient_id)
+            
+            # Use get_or_create as a secondary safety net against race conditions
+            message, created = Message.objects.get_or_create(
+                client_id=client_id,
+                defaults={
+                    "sender": request.user,
+                    "receiver": receiver,
+                    "encrypted_content": ciphertext,
+                    "status": "sent"
+                }
+            )
+            return Response({"status": "sent", "id": message.id}, status=201)
+
+        except User.DoesNotExist:
+            return Response({"error": "User not found"}, status=404)
+        except Exception as e:
+            return Response({"error": str(e)}, status=500)
+
+class ChatUploadAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request, *args, **kwargs):
+        client_id = request.data.get('id')
+        
+        # Check before processing file
+        if Message.objects.filter(client_id=client_id).exists():
+            msg = Message.objects.get(client_id=client_id)
+            return Response({
+                "status": "success",
+                "media_url": request.build_absolute_uri(msg.media.url) if msg.media else "",
+                "media_type": msg.media_type,
+                "id": msg.id
+            }, status=200)
+
+        file_obj = request.data.get('media')
+        recipient_id = request.data.get('recipient_id')
+
+        if not file_obj:
+            return Response({"error": "No media provided"}, status=400)
+        
+        try:
+            receiver = User.objects.get(id=recipient_id)
+        except User.DoesNotExist:
+            return Response({"error": "Recipient not found"}, status=404)
+
+        media_type = Message.MediaType.IMAGE
+        if file_obj.content_type.startswith('video'):
+            media_type = Message.MediaType.VIDEO
+
+        try:
+            message = Message.objects.create(
+                sender=request.user,
+                receiver=receiver, 
+                client_id=client_id,
+                media=file_obj,
+                media_type=media_type,
+                encrypted_content="[Media Upload]", 
+                status='sent'
+            )
+            
+            media_url = request.build_absolute_uri(message.media.url)
+            
+            return Response({
+                "status": "success",
+                "media_url": media_url,
+                "media_type": media_type,
+                "id": message.id
+            }, status=201)
+            
+        except IntegrityError:
+            return Response({"status": "exists"}, status=200)

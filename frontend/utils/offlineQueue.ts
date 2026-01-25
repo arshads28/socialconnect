@@ -1,8 +1,9 @@
-import { getQueue, removeFromQueue, incrementRetryCount, clearQueue, updateMessageStatus } from './db'; // <--- Import updateMessageStatus
+import { getQueue, removeFromQueue, incrementRetryCount, clearQueue, updateMessageStatus } from './db'; 
 import api from './api';
 import { getSecure } from './storage';
-import { Platform, DeviceEventEmitter } from 'react-native'; // <--- Import DeviceEventEmitter
+import { Platform, DeviceEventEmitter } from 'react-native'; 
 import NetInfo from '@react-native-community/netinfo';
+import UploadManager from './UploadManager';
 
 interface QueueTask {
   id: number;
@@ -25,10 +26,12 @@ export const processOfflineQueue = async () => {
       // 1. NETWORK CHECK
       const netState = await NetInfo.fetch();
       if (!netState.isConnected || !netState.isInternetReachable) {
-          console.log("🛑 Queue paused: Waiting for Internet...");
+          console.log("Queue paused: Waiting for Internet...");
           isProcessingQueue = false;
           return;
       }
+
+      UploadManager.resume();
 
       // 2. AUTH CHECK
       const token = await getSecure('accessToken');
@@ -71,7 +74,6 @@ export const processOfflineQueue = async () => {
                 success = true; 
                 break;
             case 'SEND_MESSAGE': 
-                // We pass the whole payload so we can extract client_id
                 success = await processSendMessage(payload); 
                 break;
           }
@@ -84,7 +86,6 @@ export const processOfflineQueue = async () => {
           }
 
         } catch (error: any) {
-          // Error Handling Logic (Same as before)
           if (error.response?.status === 401) {
               isProcessingQueue = false;
               return; 
@@ -97,7 +98,6 @@ export const processOfflineQueue = async () => {
         }
       }
 
-      // Recursion
       const remaining = getQueue() as QueueTask[];
       if (remaining.length > 0) {
           isProcessingQueue = false; 
@@ -123,6 +123,7 @@ const processCreatePost = async (data: any) => {
         const filename = data.imageUri.split('/').pop() || 'upload.jpg';
         const match = /\.(\w+)$/.exec(filename);
         const type = match ? `image/${match[1]}` : `image/jpeg`;
+
         // @ts-ignore
         formData.append('media', {
             uri: Platform.OS === 'android' ? data.imageUri : data.imageUri.replace('file://', ''),
@@ -151,11 +152,9 @@ const processSendMessage = async (data: any) => {
         });
 
         if (response.status === 200 || response.status === 201) {
-            //Update Local DB Status
             if (data.client_id) {
                 updateMessageStatus(data.client_id, 'sent');
                 
-                // Notify UI to re-render immediately
                 DeviceEventEmitter.emit('message_status_changed', { 
                     client_id: data.client_id, 
                     status: 'sent' 

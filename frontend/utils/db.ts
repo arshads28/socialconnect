@@ -1,5 +1,10 @@
 import * as SQLite from 'expo-sqlite';
 
+export const getConversationId = (userA: string, userB: string) => {
+    if (!userA || !userB) return "unknown";
+    return [userA, userB].sort().join('__');
+};
+
 export interface Message {
   client_id: string;
   id?: string | null;
@@ -8,39 +13,21 @@ export interface Message {
   sender: string;
   content: string;
   status: string;
-  timestamp: string;
-  is_own: number | boolean;
+  timestamp: string; 
+  media?: string | null;
+  media_type?: string | null;
+  system_message?: boolean;
 }
 
 const MAX_QUEUE_SIZE = 50;
 
-interface IDatabaseAdapter {
-  init(): void;
-  saveMessage(msg: any): void;
-  updateMessageStatus(clientId: string, status: string): void;
-  getMessagesForChat(username: string): any[];
-  markChatAsRead(username: string): void;
-  deleteLocalChat(username: string): void;
-  getLocalInbox(): any[];
-  
-  // Queue Methods
-  addToQueue(actionType: string, payload: any): boolean;
-  getQueue(): any[];
-  incrementRetryCount(id: number): void;
-  removeFromQueue(id: number): void;
-  clearQueue(): void;
-
-  // User Cache Methods (New)
-  saveUser(user: any): void;
-  getUser(username: string): any;
-}
-
-class NativeDatabaseAdapter implements IDatabaseAdapter {
+class NativeDatabaseAdapter {
   private db: SQLite.SQLiteDatabase | null = null;
 
   constructor() { 
     try {
       this.db = SQLite.openDatabaseSync('connect.db');
+      this.init(); 
     } catch (e) {
       console.error("Failed to open SQLite DB", e);
     }
@@ -49,22 +36,30 @@ class NativeDatabaseAdapter implements IDatabaseAdapter {
   init() {
     if (!this.db) return;
     try {
-        // 1. Messages Table
+        // Safe Migration: Clean slate for new schema
+        this.db.execSync(`DROP TABLE IF EXISTS messages_new;`);
+
         this.db.execSync(`
         CREATE TABLE IF NOT EXISTS messages (
             client_id TEXT PRIMARY KEY, 
-            id TEXT, 
-            conversation_id TEXT,
+            id TEXT UNIQUE, 
+            conversation_id TEXT NOT NULL,
             recipient_id TEXT, 
-            sender TEXT,
+            sender TEXT NOT NULL,
             content TEXT,
-            status TEXT, 
+            status TEXT DEFAULT 'sent', 
             timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-            is_own INTEGER DEFAULT 0
+            media TEXT,
+            media_type TEXT,
+            system_message BOOLEAN DEFAULT 0
         );
         `);
 
-        // 2. Queue Table
+        this.db.execSync(`
+            CREATE INDEX IF NOT EXISTS idx_messages_conversation_ts 
+            ON messages (conversation_id, timestamp DESC);
+        `);
+
         this.db.execSync(`
           CREATE TABLE IF NOT EXISTS offline_queue (
             id INTEGER PRIMARY KEY AUTOINCREMENT, 
@@ -74,8 +69,6 @@ class NativeDatabaseAdapter implements IDatabaseAdapter {
             retries INTEGER DEFAULT 0
           );
         `);
-
-        // 3. User Cache Table (New)
         this.db.execSync(`
             CREATE TABLE IF NOT EXISTS users (
                 username TEXT PRIMARY KEY,
@@ -84,27 +77,76 @@ class NativeDatabaseAdapter implements IDatabaseAdapter {
                 display_name TEXT
             );
         `);
-
-        // Migration: Add 'retries' column for existing users
+        
+        // Migration check for older versions
         try {
-          this.db.execSync('ALTER TABLE offline_queue ADD COLUMN retries INTEGER DEFAULT 0;');
-        } catch (e) {
-          // Ignore if exists
-        }
+            const tableInfo = this.db.getAllSync("PRAGMA table_info(messages)");
+            const hasMedia = tableInfo.some((col: any) => col.name === 'media');
+            if (!hasMedia) {
+                console.log("🛠 Migrating DB: Adding media columns...");
+                this.db.execSync("ALTER TABLE messages ADD COLUMN media TEXT;");
+                this.db.execSync("ALTER TABLE messages ADD COLUMN media_type TEXT;");
+            }
+        } catch(e) { /* ignore */ }
 
-        console.log('📦 SQLite Initialized (Messages + Queue + Users)');
+        console.log('📦 SQLite Initialized');
     } catch (e) {
         console.error("SQLite Init Failed:", e);
     }
   }
 
-  saveMessage(msg: any) {
+  // ✅ FIXED: AUTO-REPAIR LOGIC
+  saveMessage(msg: Message) {
     if (!this.db) return;
+
+    let finalConversationId = msg.conversation_id;
+
+    // 1. Auto-Repair: If ID is missing/unknown, try to generate it
+    if (!finalConversationId || finalConversationId === 'unknown' || !finalConversationId.includes('__')) {
+        if (msg.sender && msg.recipient_id) {
+            finalConversationId = getConversationId(msg.sender, msg.recipient_id);
+        } else {
+            console.warn('⚠️ Warning: Saving message with potentially invalid ID', msg);
+        }
+    }
+    
     try {
-      this.db.runSync(
-        `INSERT OR REPLACE INTO messages (client_id, id, conversation_id, recipient_id, sender, content, status, timestamp, is_own) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [msg.client_id, msg.id, msg.conversation_id, msg.recipient_id, msg.sender, msg.content, msg.status || 'delivered', msg.timestamp, msg.is_own ? 1 : 0]
+      // 2. Upsert (Update or Insert)
+      const result = this.db.runSync(
+        `UPDATE messages 
+         SET status = COALESCE(?, status),
+             media = COALESCE(?, media),
+             id = COALESCE(?, id),
+             conversation_id = COALESCE(?, conversation_id)
+         WHERE client_id = ?`,
+        [
+            msg.status || 'delivered', 
+            msg.media ?? null,     
+            msg.id ?? null,
+            finalConversationId,         
+            msg.client_id
+        ]
       );
+
+      if (result.changes === 0) {
+          this.db.runSync(
+            `INSERT INTO messages (client_id, id, conversation_id, recipient_id, sender, content, status, timestamp, media, media_type, system_message) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+                msg.client_id, 
+                msg.id ?? null,             
+                finalConversationId,
+                msg.recipient_id, 
+                msg.sender, 
+                msg.content, 
+                msg.status || 'delivered', 
+                msg.timestamp, 
+                msg.media ?? null,          
+                msg.media_type ?? null,      
+                msg.system_message ? 1 : 0
+            ]
+          );
+      }
     } catch (e) { console.error('DB Save Error:', e); }
   }
 
@@ -113,44 +155,48 @@ class NativeDatabaseAdapter implements IDatabaseAdapter {
     this.db.runSync(`UPDATE messages SET status = ? WHERE client_id = ?`, [status, clientId]); 
   }
   
-  getMessagesForChat(username: string) { 
+  getMessagesForChat(conversationId: string) { 
     if (!this.db) return [];
-    return this.db.getAllSync(`SELECT * FROM messages WHERE conversation_id = ? ORDER BY timestamp ASC`, [username]); 
+    return this.db.getAllSync(`SELECT * FROM messages WHERE conversation_id = ? ORDER BY timestamp ASC`, [conversationId]); 
   }
   
-  markChatAsRead(username: string) { 
+  markChatAsRead(conversationId: string, currentUser: string) { 
+    if (!this.db || !currentUser) return;
+    this.db.runSync(
+        `UPDATE messages 
+         SET status = 'read' 
+         WHERE conversation_id = ? 
+           AND sender != ?     
+           AND status != 'read'
+        `, 
+        [conversationId, currentUser]
+    ); 
+  }
+  
+  deleteLocalChat(conversationId: string) { 
     if (!this.db) return;
-    this.db.runSync(`UPDATE messages SET status = 'read' WHERE conversation_id = ? AND is_own = 0`, [username]); 
+    this.db.runSync(`DELETE FROM messages WHERE conversation_id = ?`, [conversationId]); 
   }
   
-  deleteLocalChat(username: string) { 
-    if (!this.db) return;
-    this.db.runSync(`DELETE FROM messages WHERE conversation_id = ?`, [username]); 
-  }
-  
-  getLocalInbox() {
+  getLocalInbox(currentUser: string) {
     if (!this.db) return [];
     return this.db.getAllSync(`
-      SELECT m.*, (SELECT COUNT(*) FROM messages WHERE conversation_id = m.conversation_id AND status != 'read' AND is_own = 0) as unread_count
+      SELECT m.*, 
+      (SELECT COUNT(*) FROM messages WHERE conversation_id = m.conversation_id AND status != 'read' AND sender != ?) as unread_count
       FROM messages m
       INNER JOIN (SELECT conversation_id, MAX(timestamp) as max_ts FROM messages GROUP BY conversation_id) latest 
       ON m.conversation_id = latest.conversation_id AND m.timestamp = latest.max_ts
       ORDER BY m.timestamp DESC;
-    `);
+    `, [currentUser]);
   }
 
   // --- QUEUE METHODS ---
-
   addToQueue(actionType: string, payload: any): boolean {
     if (!this.db) return false;
     try {
       const result: any[] = this.db.getAllSync('SELECT COUNT(*) as count FROM offline_queue');
       if (result[0]?.count >= MAX_QUEUE_SIZE) return false;
-      
-      this.db.runSync(
-        `INSERT INTO offline_queue (action_type, payload, retries) VALUES (?, ?, 0)`, 
-        [actionType, JSON.stringify(payload)]
-      );
+      this.db.runSync(`INSERT INTO offline_queue (action_type, payload, retries) VALUES (?, ?, 0)`, [actionType, JSON.stringify(payload)]);
       return true;
     } catch (e) { return false; }
   }
@@ -159,35 +205,15 @@ class NativeDatabaseAdapter implements IDatabaseAdapter {
     if (!this.db) return [];
     return this.db.getAllSync('SELECT * FROM offline_queue ORDER BY id ASC'); 
   }
+  incrementRetryCount(id: number) { if (!this.db) return; this.db.runSync('UPDATE offline_queue SET retries = retries + 1 WHERE id = ?', [id]); }
+  removeFromQueue(id: number) { if (!this.db) return; this.db.runSync('DELETE FROM offline_queue WHERE id = ?', [id]); }
+  clearQueue() { if (!this.db) return; this.db.runSync('DELETE FROM offline_queue'); }
 
-  incrementRetryCount(id: number) {
-    if (!this.db) return;
-    try {
-      this.db.runSync('UPDATE offline_queue SET retries = retries + 1 WHERE id = ?', [id]);
-    } catch(e) { console.error("DB Retry Inc Failed:", e); }
-  }
-  
-  removeFromQueue(id: number) { 
-    if (!this.db) return;
-    this.db.runSync('DELETE FROM offline_queue WHERE id = ?', [id]); 
-  }
-  
-  clearQueue() { 
-    if (!this.db) return;
-    this.db.runSync('DELETE FROM offline_queue'); 
-  }
-
-  // --- USER CACHE METHODS ---
+  // --- USER CACHE ---
   saveUser(user: any) {
     if (!this.db) return;
-    try {
-        this.db.runSync(
-            `INSERT OR REPLACE INTO users (username, id, avatar, display_name) VALUES (?, ?, ?, ?)`,
-            [user.username, user.id, user.avatar || '', user.display_name || user.username]
-        );
-    } catch (e) { console.error('DB Save User Error:', e); }
+    this.db.runSync(`INSERT OR REPLACE INTO users (username, id, avatar, display_name) VALUES (?, ?, ?, ?)`, [user.username, user.id, user.avatar || '', user.display_name || user.username]);
   }
-
   getUser(username: string) {
     if (!this.db) return null;
     try {
@@ -197,32 +223,19 @@ class NativeDatabaseAdapter implements IDatabaseAdapter {
   }
 }
 
-// Strictly Native Adapter
 const adapter = new NativeDatabaseAdapter();
-
-// Exports
 export const initDB = () => adapter.init();
-export const saveMessage = (msg: any) => adapter.saveMessage(msg);
+export const saveMessage = (msg: Message) => adapter.saveMessage(msg);
 export const updateMessageStatus = (cid: string, status: string) => adapter.updateMessageStatus(cid, status);
-export const getMessagesForChat = (user: string) => adapter.getMessagesForChat(user);
-export const markChatAsRead = (user: string) => adapter.markChatAsRead(user);
-export const deleteLocalChat = (user: string) => adapter.deleteLocalChat(user);
-export const getLocalInbox = () => adapter.getLocalInbox();
-
-// Queue Exports
+export const getMessagesForChat = (cid: string) => adapter.getMessagesForChat(cid);
+export const markChatAsRead = (cid: string, currentUser: string) => adapter.markChatAsRead(cid, currentUser);
+export const deleteLocalChat = (cid: string) => adapter.deleteLocalChat(cid);
+export const getLocalInbox = (user: string = "") => adapter.getLocalInbox(user);
 export const addToQueue = (actionType: string, payload: any) => adapter.addToQueue(actionType, payload);
 export const getQueue = () => adapter.getQueue();
 export const incrementRetryCount = (id: number) => adapter.incrementRetryCount(id);
 export const removeFromQueue = (id: number) => adapter.removeFromQueue(id);
 export const clearQueue = () => adapter.clearQueue();
-
-// User Exports
 export const saveUser = (user: any) => adapter.saveUser(user);
 export const getUser = (username: string) => adapter.getUser(username);
-
-export const generateUUID = () => {
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-        const r = Math.random() * 16 | 0;
-        return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
-    });
-};
+export const generateUUID = () => { return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => { const r = Math.random() * 16 | 0; return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16); }); };

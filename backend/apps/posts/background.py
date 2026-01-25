@@ -6,7 +6,6 @@ from django.core.files.storage import default_storage
 from django.db import close_old_connections
 from .models import Post
 
-
 def process_post_image_background(post_id):
     # Close old DB connections to prevent "InterfaceError" in worker threads
     close_old_connections()
@@ -28,10 +27,10 @@ def process_post_image_background(post_id):
         # 1 Open Image (Supports PNG, JPG, HEIC automatically now)
         img = Image.open(BytesIO(image_data))
 
-        # 2Fix Rotation (iPhone/Samsung photos are often rotated)
+        # 2 Fix Rotation (iPhone/Samsung photos are often rotated)
         img = ImageOps.exif_transpose(img)
 
-        # 3Convert to RGB (Drop Alpha channel for JPEG)
+        # 3 Convert to RGB (Drop Alpha channel for JPEG)
         if img.mode != "RGB":
             img = img.convert("RGB")
 
@@ -49,7 +48,7 @@ def process_post_image_background(post_id):
             format="JPEG",
             quality=80,
             optimize=True,
-            progressive=True  # True =Loads faster on slow networks
+            progressive=True 
         )
         
         buffer.seek(0)
@@ -62,6 +61,10 @@ def process_post_image_background(post_id):
         # Ensure we save in the same directory (S3/Local)
         dir_name = os.path.dirname(old_path)
         new_path = os.path.join(dir_name, new_filename)
+
+        # Delete file if it exists so Django reuses the filename
+        if default_storage.exists(new_path):
+            default_storage.delete(new_path)
 
         saved_path = default_storage.save(
             new_path,

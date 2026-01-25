@@ -9,14 +9,14 @@ import {
 } from 'react-native-webrtc';
 import RNCallKeep from 'react-native-callkeep';
 import InCallManager from 'react-native-incall-manager';
-import AsyncStorage from '@react-native-async-storage/async-storage'; // ✅ Import this
+import AsyncStorage from '@react-native-async-storage/async-storage'; 
 import { useWebSocket } from './WebSocketContext';
 import { useAuth } from '../context/AuthContext';
 import { generateUUID } from '../utils/db';
 import { checkCallPermissions } from '../utils/webrtcPermissions';
 
 /* ============================================================
-   🛠 CONFIGURATION
+    CONFIGURATION
 ============================================================ */
 const PEER_CONNECTION_CONFIG = {
   iceServers: [
@@ -36,10 +36,10 @@ const PEER_CONNECTION_CONFIG = {
   bundlePolicy: 'max-bundle' as const,
 };
 
-// ⚙️ DEFAULT SETTINGS (Fallback)
+//  DEFAULT SETTINGS (Fallback)
 const DEFAULTS = { width: 480, height: 360, fps: 15, bitrate: 250 };
 
-// 🔍 RESOLUTION MAP (Matches settings page)
+//  RESOLUTION MAP (Matches settings page)
 const RES_MAP: any = {
   '360': { width: 480, height: 360, bitrate: 250 },
   '480': { width: 640, height: 480, bitrate: 500 },
@@ -54,10 +54,11 @@ interface WebRTCContextType {
   localStream: MediaStream | null;
   remoteStream: MediaStream | null;
   callerId: string | null;
+  callerName: string | null; 
   isMuted: boolean;
   isSpeakerOn: boolean;
   isVideoEnabled: boolean;
-  startCall: (targetId: string, isVideo?: boolean) => void;
+  startCall: (targetId: string, isVideo: boolean, targetName?: string) => void;
   acceptCall: (uuid?: string) => void;
   endCall: () => void;
   toggleMute: () => void;
@@ -78,25 +79,26 @@ export const WebRTCProvider = ({ children }: { children: React.ReactNode }) => {
   const { ws } = useWebSocket();
   const { user } = useAuth();
 
-  // 📡 STATE
+
   const [callState, setCallState] = useState<CallState>('idle');
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [callerId, setCallerId] = useState<string | null>(null);
+  const [callerName, setCallerName] = useState<string | null>(null); 
   const [isMuted, setIsMuted] = useState(false);
   const [isSpeakerOn, setIsSpeakerOn] = useState(false);
   const [isVideoEnabled, setIsVideoEnabled] = useState(false);
 
-  // 🔒 REFS
+ 
   const peerConnection = useRef<RTCPeerConnection | null>(null);
   const targetUserId = useRef<string | null>(null);
   const currentCallUUID = useRef<string | null>(null);
   const iceCandidateQueue = useRef<RTCIceCandidate[]>([]);
   const callTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const currentBitrateRef = useRef<number>(250); // Store calculated bitrate
+  const currentBitrateRef = useRef<number>(250); 
 
   // ============================================================
-  // 1️⃣ INITIAL SETUP
+  //  INITIAL SETUP
   // ============================================================
   useEffect(() => {
     const init = async () => { await setupCallKeep(); };
@@ -124,7 +126,7 @@ export const WebRTCProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   // ============================================================
-  // 🛠 HELPER: GET USER SETTINGS
+  //  HELPER: GET USER SETTINGS
   // ============================================================
   const getUserMediaConstraints = async (isVideo: boolean) => {
     if (!isVideo) return { audio: true, video: false };
@@ -136,7 +138,6 @@ export const WebRTCProvider = ({ children }: { children: React.ReactNode }) => {
       const resConfig = RES_MAP[savedRes || '360'] || RES_MAP['360'];
       const fps = parseInt(savedFps || '15');
 
-      // Update ref for SDP munging
       currentBitrateRef.current = resConfig.bitrate;
 
       return {
@@ -149,7 +150,6 @@ export const WebRTCProvider = ({ children }: { children: React.ReactNode }) => {
         }
       };
     } catch (e) {
-      // Default Fallback
       currentBitrateRef.current = 250;
       return {
         audio: true,
@@ -159,13 +159,12 @@ export const WebRTCProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   const setBandwidth = (sdp: string) => {
-    // Dynamically set bandwidth based on user choice
     const limit = currentBitrateRef.current || 250;
     return sdp.replace(/a=mid:video\r\n/g, `a=mid:video\r\nb=AS:${limit}\r\n`);
   };
 
   // ============================================================
-  // 2️⃣ CORE WEBRTC LOGIC
+  // CORE WEBRTC LOGIC
   // ============================================================
   const createPeerConnection = async () => {
     if (peerConnection.current) peerConnection.current.close();
@@ -199,7 +198,6 @@ export const WebRTCProvider = ({ children }: { children: React.ReactNode }) => {
     if (!hasPerms) { Alert.alert("Permission Denied"); return null; }
 
     try {
-      // ✅ USE DYNAMIC CONSTRAINTS HERE
       const constraints = await getUserMediaConstraints(isVideo);
       const stream = await mediaDevices.getUserMedia(constraints as any);
       
@@ -228,7 +226,7 @@ export const WebRTCProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   // ============================================================
-  // 3️⃣ SIGNALING
+  // SIGNALING
   // ============================================================
   useEffect(() => {
     if (!ws) return;
@@ -240,7 +238,8 @@ export const WebRTCProvider = ({ children }: { children: React.ReactNode }) => {
 
         if (data.type === 'offer') {
           targetUserId.current = sender;
-          setCallerId(sender); // To show name in UI
+          setCallerId(sender); 
+          setCallerName(sender);
           setCallState('ringing');
           setIsVideoEnabled(data.isVideo || false);
           
@@ -277,13 +276,14 @@ export const WebRTCProvider = ({ children }: { children: React.ReactNode }) => {
   }, [ws, callState]);
 
   // ============================================================
-  // 4️⃣ ACTIONS
+  // ACTIONS
   // ============================================================
-  const startCall = async (targetId: string, isVideo: boolean = false) => {
+  const startCall = async (targetId: string, isVideo: boolean = false, targetName?: string) => {
     if (callState !== 'idle') return;
     targetUserId.current = targetId;
     setCallState('calling');
     setCallerId(targetId);
+    setCallerName(targetName || targetId); 
     
     callTimeoutRef.current = setTimeout(endCall, 30000);
 
@@ -295,8 +295,6 @@ export const WebRTCProvider = ({ children }: { children: React.ReactNode }) => {
     InCallManager.setForceSpeakerphoneOn(isVideo);
 
     const offer = await pc.createOffer({});
-    
-    // ✅ Apply Dynamic Bitrate Limit
     offer.sdp = setBandwidth(offer.sdp);
     
     await pc.setLocalDescription(offer);
@@ -304,7 +302,7 @@ export const WebRTCProvider = ({ children }: { children: React.ReactNode }) => {
 
     const uuid = generateUUID();
     currentCallUUID.current = uuid;
-    RNCallKeep.startCall(uuid, targetId, targetId);
+    RNCallKeep.startCall(uuid, targetId, targetName || targetId);
   };
 
   const acceptCall = async (uuid?: string) => {
@@ -316,8 +314,6 @@ export const WebRTCProvider = ({ children }: { children: React.ReactNode }) => {
     if (!stream) { endCall(); return; }
 
     const answer = await peerConnection.current.createAnswer();
-    
-    // ✅ Apply Dynamic Bitrate Limit
     answer.sdp = setBandwidth(answer.sdp);
 
     await peerConnection.current.setLocalDescription(answer);
@@ -336,6 +332,7 @@ export const WebRTCProvider = ({ children }: { children: React.ReactNode }) => {
     setRemoteStream(null);
     setCallState('idle');
     setCallerId(null);
+    setCallerName(null);
     targetUserId.current = null;
     iceCandidateQueue.current = [];
     clearCallTimeout();
@@ -383,7 +380,7 @@ export const WebRTCProvider = ({ children }: { children: React.ReactNode }) => {
   }, []);
 
   return (
-    <WebRTCContext.Provider value={{ callState, localStream, remoteStream, callerId, isMuted, isSpeakerOn, isVideoEnabled, startCall, acceptCall, endCall, toggleMute, toggleSpeaker, toggleVideo, switchCamera }}>
+    <WebRTCContext.Provider value={{ callState, localStream, remoteStream, callerId, callerName, isMuted, isSpeakerOn, isVideoEnabled, startCall, acceptCall, endCall, toggleMute, toggleSpeaker, toggleVideo, switchCamera }}>
       {children}
     </WebRTCContext.Provider>
   );

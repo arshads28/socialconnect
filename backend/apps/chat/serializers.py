@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
+from .models import Message
 
 User = get_user_model()
 
@@ -27,4 +28,27 @@ class InboxSerializer(serializers.ModelSerializer):
         request = self.context.get('request')
         if obj.avatar and request:
             return request.build_absolute_uri(obj.avatar.url)
+        return None
+    
+
+class MessageSerializer(serializers.ModelSerializer):
+    sender_username = serializers.ReadOnlyField(source='sender.username')
+    receiver_username = serializers.ReadOnlyField(source='receiver.username')
+    media = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Message
+        fields = [
+            'id', 'client_id', 'sender', 'sender_username', 
+            'receiver', 'receiver_username', 
+            'encrypted_content', 'status', 'timestamp',
+            'media', 'media_type', 'processing'
+        ]
+
+    def get_media(self, obj):
+        if obj.media:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.media.url)
+            return obj.media.url
         return None
