@@ -1,13 +1,13 @@
-// socialconnect/frontend/app/chat/[username].tsx
 import { 
   View, Text, FlatList, TextInput, TouchableOpacity, StyleSheet, 
-  Platform, DeviceEventEmitter, Image, Alert
+  Platform, DeviceEventEmitter, Image, Alert, ActivityIndicator
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { Ionicons } from '@expo/vector-icons';
-import api from '../../utils/api'; 
+import api, { BASE_URL } from '../../utils/api'; 
+import * as ImagePicker from 'expo-image-picker'; 
 
 import { useWebSocket } from '../../contexts/WebSocketContext';
 import { encryptMessage } from '../../utils/crypto';
@@ -21,37 +21,33 @@ import { syncChatMessages } from '../../utils/sync';
 import NetInfo from '@react-native-community/netinfo';
 import { CallHeaderButton } from '../../contexts/CallComponent';
 import KeyboardWrapper from '../../components/KeyboardWrapper'; 
+import { getSecure } from '../../utils/storage'; 
 
-// Theme imports
 import { useTheme } from '../../context/ThemeContext';
 import { Colors } from '../../constants/Colors';
+import { processMedia } from '../../utils/mediaProcessor';
+import UploadManager from '../../utils/UploadManager';
 
 export default function ChatScreen() {
   const { username } = useLocalSearchParams<{ username: string }>();
   const router = useRouter();
   const { user } = useAuth();
-  const insets = useSafeAreaInsets(); // Used for bottom padding
-
-  // Theme Setup
+  const insets = useSafeAreaInsets(); 
   const { isDark } = useTheme();
   const colors = isDark ? Colors.dark : Colors.light;
 
   const { sendMessage, sendReadSignal, sendTypingSignal, ws } = useWebSocket();
-  
   const [messages, setMessages] = useState<any[]>([]);
   const [text, setText] = useState('');
   const [targetProfile, setTargetProfile] = useState<any>(null); 
   const [isTyping, setIsTyping] = useState(false);
   const [isUserOnline, setIsUserOnline] = useState(false);
-  
   const [isConnected, setIsConnected] = useState(false);
   const [isNetworkChecked, setIsNetworkChecked] = useState(false);
   
   const flatListRef = useRef<FlatList>(null);
   const typingTimeout = useRef<any>(null);
   const lastTypingSent = useRef<number>(0);
-
-  // Constants for layout calculations
   const HEADER_HEIGHT = 60;
 
   // 1. INIT CHAT & NETWORK MONITOR
@@ -59,13 +55,10 @@ export default function ChatScreen() {
     let isMounted = true;
     setMessages([]); 
     setIsNetworkChecked(false); 
-
     const initChat = async () => {
       loadLocalMessages();
       const cachedUser = getUser(username as string);
-      if (cachedUser) {
-        setTargetProfile(cachedUser);
-      }
+      if (cachedUser) setTargetProfile(cachedUser);
       await fetchTargetProfile();
       const net = await NetInfo.fetch();
       if (isMounted) {
@@ -79,37 +72,26 @@ export default function ChatScreen() {
       markChatAsRead(username as string);
       sendReadSignal(username as string);
     };
-
     initChat();
-
     const unsubscribeNet = NetInfo.addEventListener(state => {
       if (isMounted) {
           setIsConnected(state.isConnected ?? false);
           setIsNetworkChecked(true);
       }
     });
-
-    return () => { 
-      isMounted = false; 
-      unsubscribeNet();
-    };
+    return () => { isMounted = false; unsubscribeNet(); };
   }, [username]);
 
-  // 2. WEBSOCKET ROOM JOINING
+  // 2. WEBSOCKET
   useEffect(() => {
     if (!ws || ws.readyState !== WebSocket.OPEN || !targetProfile?.id) return;
-    if (isConnected) {
-        ws.send(JSON.stringify({ command: 'join_room', recipient_id: targetProfile.id}));
-    }
-
+    if (isConnected) ws.send(JSON.stringify({ command: 'join_room', recipient_id: targetProfile.id}));
     return () => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ command: 'leave_room' }));
-      }
+      if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ command: 'leave_room' }));
     };
   }, [targetProfile, ws, isConnected]); 
 
-  // 3. EVENT LISTENERS
+  // 3. LISTENERS
   useEffect(() => {
     const msgListener = DeviceEventEmitter.addListener('new_message', (event) => {
       if (event.conversation_id === username) {
@@ -118,11 +100,7 @@ export default function ChatScreen() {
         sendReadSignal(username as string);
       }
     });
-
-    const statusListener = DeviceEventEmitter.addListener('message_status_changed', () => {
-      loadLocalMessages();
-    });
-
+    const statusListener = DeviceEventEmitter.addListener('message_status_changed', () => loadLocalMessages());
     const typingListener = DeviceEventEmitter.addListener('typing_event', (event) => {
       if (event.sender === username) {
         setIsTyping(true);
@@ -130,13 +108,9 @@ export default function ChatScreen() {
         typingTimeout.current = setTimeout(() => setIsTyping(false), 3000);
       }
     });
-
     const presenceListener = DeviceEventEmitter.addListener('presence_update', (data) => {
-      if (data.username === username || data.user_id === targetProfile?.id) {
-        setIsUserOnline(data.is_online);
-      }
+      if (data.username === username || data.user_id === targetProfile?.id) setIsUserOnline(data.is_online);
     });
-
     return () => {
       msgListener.remove();
       statusListener.remove();
@@ -151,16 +125,12 @@ export default function ChatScreen() {
       setTargetProfile(res.data);
       saveUser(res.data); 
       if (res.data.is_online !== undefined) setIsUserOnline(res.data.is_online);
-    } catch (e) {
-      console.log("Error fetching profile", e);
-    }
+    } catch (e) { console.log("Error fetching profile", e); }
   };
 
   const loadLocalMessages = useCallback(() => {
     const msgs = getMessagesForChat(username as string);
-    if (Array.isArray(msgs)) {
-        setMessages(msgs);
-    }
+    if (Array.isArray(msgs)) setMessages(msgs);
   }, [username]);
 
   const handleTyping = (val: string) => {
@@ -172,13 +142,69 @@ export default function ChatScreen() {
     }
   };
 
+  const pickMedia = async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.All,
+      allowsEditing: true,
+      quality: 1,
+    });
+    if (!result.canceled) {
+      handleSendMedia(result.assets[0].uri, result.assets[0].type === 'video' ? 'video' : 'image');
+    }
+  };
+
+  const handleSendMedia = async (uri: string, type: 'image' | 'video') => {
+    if (!targetProfile?.id) return;
+    const processed = await processMedia(uri, type);
+    const clientId = generateUUID();
+    const recipientId = targetProfile.id;
+    const token = await getSecure('accessToken');
+
+    const optimisticMsg = {
+        id: null,
+        client_id: clientId,
+        conversation_id: username,
+        recipient_id: recipientId,
+        sender: user?.username,
+        content: processed.uri, 
+        local_media_uri: processed.uri, // ✅ HARDENING: Keep local path for retry
+        status: 'uploading', 
+        timestamp: new Date().toISOString(),
+        is_own: true,
+        media_type: type,
+        media_progress: 0,
+        media_failed: false,
+    };
+
+    saveMessage(optimisticMsg); 
+    loadLocalMessages(); // This usually reloads from DB, might lose transient 'local_media_uri' if not in schema.
+    // For pure in-memory smoothness, we also update state directly
+    setMessages(prev => [...prev, optimisticMsg]);
+
+    UploadManager.add({
+        id: clientId,
+        uri: processed.uri,
+        type: type,
+        endpoint: `${BASE_URL}/chat/upload/`,
+        headers: { 'Authorization': `Bearer ${token}` },
+        onProgress: (p) => {
+             setMessages(prev => prev.map(m => m.client_id === clientId ? { ...m, media_progress: p } : m));
+        },
+        onSuccess: (response) => {
+             const remoteUrl = response.media_url || response.url;
+             const ciphertext = encryptMessage(remoteUrl);
+             sendMessage(recipientId, ciphertext, clientId); 
+             setMessages(prev => prev.map(m => m.client_id === clientId ? { ...m, content: remoteUrl, status: 'sent', media_progress: 100 } : m));
+        },
+        onError: () => {
+             setMessages(prev => prev.map(m => m.client_id === clientId ? { ...m, media_failed: true, status: 'failed' } : m));
+        }
+    });
+  };
+
   const handleSend = async () => {
     if (!text.trim()) return;
-
-    if (!targetProfile?.id) {
-        Alert.alert("Error", "Recipient details missing. Please wait...");
-        return;
-    }
+    if (!targetProfile?.id) { Alert.alert("Error", "Recipient details missing."); return; }
 
     const clientId = generateUUID();
     const ciphertext = encryptMessage(text);
@@ -186,15 +212,8 @@ export default function ChatScreen() {
     const recipientId = targetProfile.id; 
 
     saveMessage({
-      id: null, 
-      client_id: clientId, 
-      conversation_id: username, 
-      recipient_id: recipientId, 
-      sender: user?.username,
-      content: text, 
-      status: 'sending', 
-      timestamp: timestamp,
-      is_own: true
+      id: null, client_id: clientId, conversation_id: username, recipient_id: recipientId, 
+      sender: user?.username, content: text, status: 'sending', timestamp: timestamp, is_own: true
     });
 
     loadLocalMessages();
@@ -204,41 +223,28 @@ export default function ChatScreen() {
     const isNetworkUp = netState.isConnected && netState.isInternetReachable;
 
     if (!isNetworkUp || ws?.readyState !== WebSocket.OPEN) {
-        const queued = addToQueue('SEND_MESSAGE', {
-            conversation_id: username,
-            recipient_id: recipientId,
-            ciphertext: ciphertext,
-            client_id: clientId
-        });
-
-        if (!queued) Alert.alert("Not Sent", "Offline queue is full.");
+        addToQueue('SEND_MESSAGE', { conversation_id: username, recipient_id: recipientId, ciphertext, client_id: clientId });
     } else {
         sendMessage(recipientId, ciphertext, clientId);
     }
   };
 
   const handleClearChat = () => {
-      Alert.alert(
-        "Clear Chat?",
-        "Delete local and server history?",
-        [
+      Alert.alert("Clear Chat?", "Delete local history?", [
           { text: "Cancel", style: "cancel" },
-          { 
-            text: "Delete", 
-            style: "destructive", 
-            onPress: async () => {
+          { text: "Delete", style: "destructive", onPress: async () => {
               deleteLocalChat(username as string);
               setMessages([]); 
               api.post(`/chat/clear/${username}/`).catch(() => {}); 
             } 
           }
-        ]
-      );
+        ]);
   };
 
   const renderMessage = ({ item }: { item: any }) => {
     const isMe = item.is_own === 1 || item.is_own === true;
-    
+    const isMedia = item.media_type === 'image' || item.media_type === 'video' || (typeof item.content === 'string' && (item.content.startsWith('file://') || item.content.includes('cloudinary') || item.content.includes('s3'))); 
+
     const renderTicks = () => {
       if (!isMe) return null;
       if (item.status === 'sending') return <Ionicons name="time-outline" size={14} color="#ddd" />; 
@@ -251,7 +257,31 @@ export default function ChatScreen() {
     return (
       <View style={[styles.messageRow, isMe ? styles.messageRowRight : styles.messageRowLeft]}>
         <View style={[styles.bubble, isMe ? { backgroundColor: colors.tint } : { backgroundColor: isDark ? '#2c2c2e' : '#efefef' }]}>
-          <Text style={[styles.messageText, { color: isMe ? '#fff' : colors.text }]}>{item.content}</Text>
+          {isMedia ? (
+             <View>
+                {item.media_type === 'video' ? (
+                     <View style={{ width: 200, height: 200, borderRadius: 10, justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' }}>
+                         <Ionicons name="play" size={40} color="#fff" />
+                     </View>
+                ) : (
+                     <Image source={{ uri: item.content }} style={{ width: 200, height: 200, borderRadius: 10 }} />
+                )}
+                {item.status === 'uploading' && (
+                  <View style={styles.mediaOverlay}>
+                      <ActivityIndicator color="#fff" size="small" />
+                      <Text style={{color:'#fff', fontSize:10, marginTop: 4}}>{item.media_progress}%</Text>
+                  </View>
+                )}
+                {item.media_failed && (
+                  // ✅ HARDENING: Pass correct local_media_uri (fallback to content) and media_type
+                  <TouchableOpacity style={styles.mediaOverlay} onPress={() => handleSendMedia(item.local_media_uri || item.content, item.media_type || 'image')}>
+                      <Ionicons name="refresh" size={24} color="#fff" />
+                  </TouchableOpacity>
+                )}
+             </View>
+          ) : (
+             <Text style={[styles.messageText, { color: isMe ? '#fff' : colors.text }]}>{item.content}</Text>
+          )}
           <View style={styles.metaRow}>
             <Text style={[styles.timestamp, { color: isMe ? 'rgba(255,255,255,0.7)' : colors.subText }]}>
               {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -267,20 +297,11 @@ export default function ChatScreen() {
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top', 'left', 'right']}>
       <View style={[styles.header, { borderColor: colors.border, height: HEADER_HEIGHT }]}>
         <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-          <TouchableOpacity onPress={() => router.back()} style={{ marginRight: 10 }}>
-            <Ionicons name="arrow-back" size={24} color={colors.icon} />
-          </TouchableOpacity>
-          
-          <TouchableOpacity 
-            style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }} 
-            onPress={() => router.push(`/profile/${username}`)}
-          >
+          <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }} onPress={() => router.push(`/profile/${username}`)}>
             {targetProfile?.avatar ? (
               <Image source={{ uri: targetProfile.avatar }} style={styles.avatar} />
             ) : (
-              <View style={[styles.avatarPlaceholder, { backgroundColor: colors.border }]}>
-                 <Ionicons name="person" size={20} color={colors.subText} />
-              </View>
+              <View style={[styles.avatarPlaceholder, { backgroundColor: colors.border }]}><Ionicons name="person" size={20} color={colors.subText} /></View>
             )}
             <View>
               <Text style={[styles.headerTitle, { color: colors.text }]}>{username}</Text>
@@ -303,14 +324,9 @@ export default function ChatScreen() {
             </View>
           </TouchableOpacity>
         </View>
-        
         <View style={{ flexDirection: 'row', gap: 15, alignItems: 'center' }}>
-            <TouchableOpacity onPress={handleClearChat}>
-                 <Ionicons name="trash-outline" size={22} color={colors.danger} />
-            </TouchableOpacity>
-            {targetProfile?.id && (
-              <CallHeaderButton targetId={targetProfile.id} isVideo={false} />
-            )}
+            <TouchableOpacity onPress={handleClearChat}><Ionicons name="trash-outline" size={22} color={colors.danger} /></TouchableOpacity>
+            {targetProfile?.id && <CallHeaderButton targetId={targetProfile.id} isVideo={false} />}
         </View>
       </View>
       
@@ -326,13 +342,8 @@ export default function ChatScreen() {
           onLayout={() => flatListRef.current?.scrollToEnd({ animated: false })}
           ListFooterComponent={<View style={{ height: 10 }} />}
         />
-
-        {/* ✅ FIX: Consistent padding. Insets.bottom handles the closed keyboard state */}
-        <View style={[styles.inputContainer, { 
-          backgroundColor: colors.background, 
-          borderColor: colors.border,
-          paddingBottom: Math.max(insets.bottom, 12) 
-        }]}>
+        <View style={[styles.inputContainer, { backgroundColor: colors.background, borderColor: colors.border, paddingBottom: Math.max(insets.bottom, 12) }]}>
+          <TouchableOpacity onPress={pickMedia} style={{ padding: 8, marginRight: 4 }}><Ionicons name="add-circle-outline" size={28} color={colors.tint} /></TouchableOpacity>
           <TextInput
             style={[styles.input, { backgroundColor: colors.card, color: colors.text }]}
             placeholder="Message..."
@@ -369,5 +380,6 @@ const styles = StyleSheet.create({
   timestamp: { fontSize: 10 },
   inputContainer: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingTop: 10, borderTopWidth: 1 },
   input: { flex: 1, borderRadius: 20, paddingHorizontal: 16, paddingTop: Platform.OS === 'ios' ? 12 : 10, paddingBottom: Platform.OS === 'ios' ? 12 : 10, marginRight: 10, maxHeight: 100, fontSize: 16 },
-  sendBtn: { padding: 4 }
+  sendBtn: { padding: 4 },
+  mediaOverlay: { position: 'absolute', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', borderRadius: 10 }
 });
