@@ -1,6 +1,6 @@
 import { 
   View, Text, FlatList, TextInput, TouchableOpacity, StyleSheet, 
-  Platform, DeviceEventEmitter, Image, Alert, ActivityIndicator, Dimensions
+  Platform, DeviceEventEmitter, Image, Alert, ActivityIndicator
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -26,7 +26,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { Colors } from '../../constants/Colors';
 import { processMedia } from '../../utils/mediaProcessor';
 import UploadManager from '../../utils/UploadManager';
-import { ImageViewer } from '../../components/ImageViewer'; 
+import ImageViewer from '../../components/ImageViewer'; 
 
 export default function ChatScreen() {
   const params = useLocalSearchParams<{ username: string }>();
@@ -38,7 +38,6 @@ export default function ChatScreen() {
   const { isDark } = useTheme();
   const colors = isDark ? Colors.dark : Colors.light;
 
-  // 1. EXTRACT REAL USERNAME
   const targetUsername = useMemo(() => {
      if (rawParam.includes('__') && user?.username) {
          const parts = rawParam.split('__');
@@ -65,12 +64,10 @@ export default function ChatScreen() {
   const lastTypingSent = useRef<number>(0);
   const HEADER_HEIGHT = 60;
 
-  // 2. GENERATE CANONICAL ID 
   const conversationId = useMemo(() => {
     return getConversationId(user?.username || '', targetUsername);
   }, [user?.username, targetUsername]);
 
-  // Track active chat for Read Receipts
   useEffect(() => {
     setActiveConversationId(conversationId);
     return () => setActiveConversationId(null);
@@ -81,10 +78,7 @@ export default function ChatScreen() {
     setMessages([]); 
     
     const initChat = async () => {
-      // Load cache
       loadLocalMessages();
-      
-      // Get Profile
       const cachedUser = getUser(targetUsername);
       if (cachedUser) setTargetProfile(cachedUser);
       await fetchTargetProfile();
@@ -95,20 +89,16 @@ export default function ChatScreen() {
         const synced = await syncChatMessages(targetUsername);
         if (isMounted && synced) loadLocalMessages();
       }
-      
       markChatAsRead(conversationId, user?.username || '');
       sendReadSignal(targetUsername);
     };
-
     initChat();
-    
     const unsubscribeNet = NetInfo.addEventListener(state => {
       if (isMounted) setIsConnected(state.isConnected ?? false);
     });
     return () => { isMounted = false; unsubscribeNet(); };
   }, [targetUsername, conversationId]);
 
-  // WebSocket
   useEffect(() => {
     if (!ws || ws.readyState !== WebSocket.OPEN || !targetProfile?.id) return;
     if (isConnected) ws.send(JSON.stringify({ command: 'join_room', recipient_id: targetProfile.id}));
@@ -117,7 +107,6 @@ export default function ChatScreen() {
     };
   }, [targetProfile, ws, isConnected]); 
 
-  // Listeners
   useEffect(() => {
     const msgListener = DeviceEventEmitter.addListener('new_message', (event) => {
       if (event.conversation_id === conversationId) loadLocalMessages();
@@ -162,69 +151,99 @@ export default function ChatScreen() {
 
   const pickMedia = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images, // Restricted to Images
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsMultipleSelection: true, 
       selectionLimit: 10,
       quality: 0.8,
     });
     if (!result.canceled) {
-      handleSendMedia(result.assets); // Send array of assets
+      handleSendMedia(result.assets);
     }
   };
 
-  // ✅ FIXED: Handle Forwarding (Share) logic with Type Safety
+  // ✅ FIXED: Instant UI Update + Correct Media Type
   const handleForwardMedia = async (imageUris: string[], targetUsers: string[]) => {
       try {
           let successCount = 0;
 
-          // Loop through every user
-          for (const targetUser of targetUsers) {
-              
-              // 1. Get ID (Check cache then API)
+          for (const rawTarget of targetUsers) {
+              // 1. Clean Name
+              let cleanTarget = rawTarget;
+              if (rawTarget.includes('__') && user?.username) {
+                  const parts = rawTarget.split('__');
+                  cleanTarget = parts.find(p => p !== user.username) || rawTarget;
+              }
+
+              // 2. Resolve ID
               let targetId = null;
-              const userObj = getUser(targetUser) as any;
+              const userObj = getUser(cleanTarget) as any;
               
               if (userObj?.id) {
                   targetId = userObj.id;
               } else {
                   try {
-                      const res = await api.get(`/auth/api/profile/${targetUser}/`);
+                      const res = await api.get(`/auth/api/profile/${cleanTarget}/`);
                       targetId = res.data?.id;
                   } catch (e) {
-                      console.log(`Failed to resolve user ${targetUser}`);
+                      console.log(`Failed to resolve user ${cleanTarget}`);
                       continue;
                   }
               }
 
               if (!targetId) continue;
 
-              // 2. Loop through every image for this user
+              // 3. Send Images
               for (const imgUrl of imageUris) {
-                  // Normalize URL
+                  // Ensure Full URL
                   const cleanUrl = imgUrl.startsWith('http') ? imgUrl : `${BASE_URL}${imgUrl}`;
                   const ciphertext = encryptMessage(cleanUrl);
                   
-                  // Send via API (Robust)
-                  await api.post(`/chat/send/`, {
+                  // A. API Call (Background)
+                  api.post(`/chat/send/`, {
                       recipient_id: targetId,
                       ciphertext: ciphertext,
+                      media: cleanUrl,
+                      media_type: 'image',
                       client_id: generateUUID()
                   });
+
+                  // B. ✅ INSTANT UI UPDATE (Optimistic)
+                  // Only if we are forwarding TO the current active chat
+                  if (cleanTarget === targetUsername) {
+                      const optimisticMsg: Message = {
+                          id: null,
+                          client_id: generateUUID(),
+                          conversation_id: conversationId,
+                          recipient_id: targetId,
+                          sender: user?.username || '',
+                          content: cleanUrl, 
+                          status: 'sending',
+                          timestamp: new Date().toISOString(),
+                          media: cleanUrl,       // ✅ Set this so it displays as image
+                          media_type: 'image',   // ✅ Set this so it displays as image
+                          // @ts-ignore
+                          media_progress: 100, 
+                          // @ts-ignore
+                          media_failed: false
+                      };
+                      
+                      saveMessage(optimisticMsg);
+                      setMessages(prev => [...prev, optimisticMsg]);
+                  }
               }
               successCount++;
           }
+          if (successCount > 0) Alert.alert("Success", "Images forwarded!");
 
       } catch (e) {
           console.error("Forward failed", e);
-          Alert.alert("Error", "Some forwards failed.");
+          Alert.alert("Error", "Forwarding failed.");
       }
   };
 
-  // ✅ FIXED: Updated to support Array input and UploadManager.files format
   const handleSendMedia = async (assets: ImagePicker.ImagePickerAsset[]) => {
     if (!targetProfile?.id) return;
     
-    // Process all images
     for (const asset of assets) {
         const processed = await processMedia(asset.uri, 'image');
         const clientId = generateUUID();
@@ -242,7 +261,6 @@ export default function ChatScreen() {
         saveMessage(optimisticMsg); 
         setMessages(prev => [...prev, optimisticMsg]);
 
-        // ✅ FIX: Use 'files' array instead of 'uri'
         UploadManager.add({
             id: clientId,
             files: [{ uri: processed.uri, type: 'image' }], 
@@ -254,9 +272,7 @@ export default function ChatScreen() {
             onSuccess: (res) => {
                 const remoteUrl = res.media_url || res.url;
                 const ciphertext = encryptMessage(remoteUrl);
-                
                 sendMessage(recipientId, ciphertext, clientId); 
-                
                 saveMessage({ ...optimisticMsg, content: remoteUrl, media: remoteUrl, status: 'sent' });
                 setMessages(prev => prev.map(m => m.client_id === clientId ? { ...m, content: remoteUrl, media: remoteUrl, status: 'sent', media_progress: 100 } : m));
             },
@@ -307,9 +323,22 @@ export default function ChatScreen() {
 
   const renderMessage = ({ item }: { item: any }) => {
     const isMe = item.sender === user?.username;
+    
+    // Normalize Media URL
     let mediaUri = item.media || item.content;
-    if (typeof mediaUri === 'string' && mediaUri.startsWith('/media/')) mediaUri = `${BASE_URL}${mediaUri}`;
-    const isMedia = item.media_type === 'image' || (typeof item.content === 'string' && item.content.startsWith('file://'));
+    if (!mediaUri || typeof mediaUri !== 'string') mediaUri = "";
+    if (mediaUri.startsWith('/media/')) {
+        mediaUri = `${BASE_URL}${mediaUri}`;
+    }
+
+    // ✅ FIXED: Better Image Detection
+    // 1. Explicit type check
+    // 2. File protocol check
+    // 3. Extension check (jpg, png, etc.)
+    const isMedia = 
+        item.media_type === 'image' || 
+        mediaUri.startsWith('file://') ||
+        /\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(mediaUri);
 
     const renderTicks = () => {
       if (!isMe) return null;
@@ -329,9 +358,6 @@ export default function ChatScreen() {
                     <Image source={{ uri: mediaUri }} style={styles.mediaImage} resizeMode="cover"/>
                 </TouchableOpacity>
                 {item.status === 'uploading' && <View style={styles.mediaOverlay}><ActivityIndicator color="#fff" size="small" /></View>}
-                {/* ✅ FIX: Pass array to handleSendMedia for retry 
-                   We wrap the single failed item in an array to match the new signature
-                */}
                 {(item.media_failed || item.status === 'failed') && (
                   <TouchableOpacity 
                     style={styles.mediaOverlay} 
