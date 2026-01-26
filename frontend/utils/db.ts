@@ -17,6 +17,7 @@ export interface Message {
   media?: string | null;
   media_type?: string | null;
   system_message?: boolean;
+  locally_deleted?: boolean; // ✅ Added property
 }
 
 const MAX_QUEUE_SIZE = 50;
@@ -36,9 +37,7 @@ class NativeDatabaseAdapter {
   init() {
     if (!this.db) return;
     try {
-        // Safe Migration: Clean slate for new schema
-        this.db.execSync(`DROP TABLE IF EXISTS messages_new;`);
-
+        // Core Schema
         this.db.execSync(`
         CREATE TABLE IF NOT EXISTS messages (
             client_id TEXT PRIMARY KEY, 
@@ -51,14 +50,12 @@ class NativeDatabaseAdapter {
             timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
             media TEXT,
             media_type TEXT,
-            system_message BOOLEAN DEFAULT 0
+            system_message BOOLEAN DEFAULT 0,
+            locally_deleted BOOLEAN DEFAULT 0 
         );
         `);
 
-        this.db.execSync(`
-            CREATE INDEX IF NOT EXISTS idx_messages_conversation_ts 
-            ON messages (conversation_id, timestamp DESC);
-        `);
+        this.db.execSync(`CREATE INDEX IF NOT EXISTS idx_messages_conversation_ts ON messages (conversation_id, timestamp DESC);`);
 
         this.db.execSync(`
           CREATE TABLE IF NOT EXISTS offline_queue (
@@ -71,21 +68,20 @@ class NativeDatabaseAdapter {
         `);
         this.db.execSync(`
             CREATE TABLE IF NOT EXISTS users (
-                username TEXT PRIMARY KEY,
-                id TEXT,
-                avatar TEXT,
+                username TEXT PRIMARY KEY, 
+                id TEXT, 
+                avatar TEXT, 
                 display_name TEXT
             );
         `);
         
-        // Migration check for older versions
+        // ✅ Safe Migrations (Runs only if needed)
         try {
             const tableInfo = this.db.getAllSync("PRAGMA table_info(messages)");
-            const hasMedia = tableInfo.some((col: any) => col.name === 'media');
-            if (!hasMedia) {
-                console.log("🛠 Migrating DB: Adding media columns...");
-                this.db.execSync("ALTER TABLE messages ADD COLUMN media TEXT;");
-                this.db.execSync("ALTER TABLE messages ADD COLUMN media_type TEXT;");
+            const hasDeleted = tableInfo.some((col: any) => col.name === 'locally_deleted');
+            if (!hasDeleted) {
+                console.log("🛠 Migrating DB: Adding locally_deleted...");
+                this.db.execSync("ALTER TABLE messages ADD COLUMN locally_deleted BOOLEAN DEFAULT 0;");
             }
         } catch(e) { /* ignore */ }
 
@@ -95,23 +91,17 @@ class NativeDatabaseAdapter {
     }
   }
 
-  // ✅ FIXED: AUTO-REPAIR LOGIC
   saveMessage(msg: Message) {
     if (!this.db) return;
 
     let finalConversationId = msg.conversation_id;
-
-    // 1. Auto-Repair: If ID is missing/unknown, try to generate it
     if (!finalConversationId || finalConversationId === 'unknown' || !finalConversationId.includes('__')) {
         if (msg.sender && msg.recipient_id) {
             finalConversationId = getConversationId(msg.sender, msg.recipient_id);
-        } else {
-            console.warn('⚠️ Warning: Saving message with potentially invalid ID', msg);
         }
     }
     
     try {
-      // 2. Upsert (Update or Insert)
       const result = this.db.runSync(
         `UPDATE messages 
          SET status = COALESCE(?, status),
@@ -119,35 +109,43 @@ class NativeDatabaseAdapter {
              id = COALESCE(?, id),
              conversation_id = COALESCE(?, conversation_id)
          WHERE client_id = ?`,
-        [
-            msg.status || 'delivered', 
-            msg.media ?? null,     
-            msg.id ?? null,
-            finalConversationId,         
-            msg.client_id
-        ]
+        [msg.status || 'delivered', msg.media ?? null, msg.id ?? null, finalConversationId, msg.client_id]
       );
 
       if (result.changes === 0) {
           this.db.runSync(
-            `INSERT INTO messages (client_id, id, conversation_id, recipient_id, sender, content, status, timestamp, media, media_type, system_message) 
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT INTO messages (client_id, id, conversation_id, recipient_id, sender, content, status, timestamp, media, media_type, system_message, locally_deleted) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
             [
-                msg.client_id, 
-                msg.id ?? null,             
-                finalConversationId,
-                msg.recipient_id, 
-                msg.sender, 
-                msg.content, 
-                msg.status || 'delivered', 
-                msg.timestamp, 
-                msg.media ?? null,          
-                msg.media_type ?? null,      
-                msg.system_message ? 1 : 0
+                msg.client_id, msg.id ?? null, finalConversationId, msg.recipient_id, msg.sender, 
+                msg.content, msg.status || 'delivered', msg.timestamp, msg.media ?? null, 
+                msg.media_type ?? null, msg.system_message ? 1 : 0
             ]
           );
       }
     } catch (e) { console.error('DB Save Error:', e); }
+  }
+
+  // ✅ FIXED: Soft Delete (Hides message, prevents re-syncing)
+  deleteMessagesByClientIds(ids: string[]) {
+    if (!this.db || ids.length === 0) return;
+    const placeholders = ids.map(() => '?').join(',');
+    this.db.runSync(
+      `UPDATE messages SET locally_deleted = 1 WHERE client_id IN (${placeholders})`,
+      ids
+    );
+  }
+
+  // ✅ FIXED: Filter out soft-deleted messages
+  getMessagesForChat(conversationId: string) { 
+    if (!this.db) return [];
+    return this.db.getAllSync(
+        `SELECT * FROM messages 
+         WHERE conversation_id = ? 
+         AND (locally_deleted IS NULL OR locally_deleted = 0) 
+         ORDER BY timestamp ASC`, 
+        [conversationId]
+    ); 
   }
 
   updateMessageStatus(clientId: string, status: string) { 
@@ -155,22 +153,9 @@ class NativeDatabaseAdapter {
     this.db.runSync(`UPDATE messages SET status = ? WHERE client_id = ?`, [status, clientId]); 
   }
   
-  getMessagesForChat(conversationId: string) { 
-    if (!this.db) return [];
-    return this.db.getAllSync(`SELECT * FROM messages WHERE conversation_id = ? ORDER BY timestamp ASC`, [conversationId]); 
-  }
-  
   markChatAsRead(conversationId: string, currentUser: string) { 
     if (!this.db || !currentUser) return;
-    this.db.runSync(
-        `UPDATE messages 
-         SET status = 'read' 
-         WHERE conversation_id = ? 
-           AND sender != ?     
-           AND status != 'read'
-        `, 
-        [conversationId, currentUser]
-    ); 
+    this.db.runSync(`UPDATE messages SET status = 'read' WHERE conversation_id = ? AND sender != ? AND status != 'read'`, [conversationId, currentUser]); 
   }
   
   deleteLocalChat(conversationId: string) { 
@@ -182,15 +167,20 @@ class NativeDatabaseAdapter {
     if (!this.db) return [];
     return this.db.getAllSync(`
       SELECT m.*, 
-      (SELECT COUNT(*) FROM messages WHERE conversation_id = m.conversation_id AND status != 'read' AND sender != ?) as unread_count
+      (SELECT COUNT(*) FROM messages WHERE conversation_id = m.conversation_id AND status != 'read' AND sender != ? AND (locally_deleted IS NULL OR locally_deleted = 0)) as unread_count
       FROM messages m
-      INNER JOIN (SELECT conversation_id, MAX(timestamp) as max_ts FROM messages GROUP BY conversation_id) latest 
+      INNER JOIN (
+          SELECT conversation_id, MAX(timestamp) as max_ts 
+          FROM messages 
+          WHERE (locally_deleted IS NULL OR locally_deleted = 0)
+          GROUP BY conversation_id
+      ) latest 
       ON m.conversation_id = latest.conversation_id AND m.timestamp = latest.max_ts
       ORDER BY m.timestamp DESC;
     `, [currentUser]);
   }
 
-  // --- QUEUE METHODS ---
+  // --- QUEUE ---
   addToQueue(actionType: string, payload: any): boolean {
     if (!this.db) return false;
     try {
@@ -200,7 +190,6 @@ class NativeDatabaseAdapter {
       return true;
     } catch (e) { return false; }
   }
-  
   getQueue() { 
     if (!this.db) return [];
     return this.db.getAllSync('SELECT * FROM offline_queue ORDER BY id ASC'); 
@@ -209,18 +198,9 @@ class NativeDatabaseAdapter {
   removeFromQueue(id: number) { if (!this.db) return; this.db.runSync('DELETE FROM offline_queue WHERE id = ?', [id]); }
   clearQueue() { if (!this.db) return; this.db.runSync('DELETE FROM offline_queue'); }
 
-  // --- USER CACHE ---
-  saveUser(user: any) {
-    if (!this.db) return;
-    this.db.runSync(`INSERT OR REPLACE INTO users (username, id, avatar, display_name) VALUES (?, ?, ?, ?)`, [user.username, user.id, user.avatar || '', user.display_name || user.username]);
-  }
-  getUser(username: string) {
-    if (!this.db) return null;
-    try {
-        const result = this.db.getAllSync(`SELECT * FROM users WHERE username = ?`, [username]);
-        return result.length > 0 ? result[0] : null;
-    } catch (e) { return null; }
-  }
+  // --- USERS ---
+  saveUser(user: any) { if (!this.db) return; this.db.runSync(`INSERT OR REPLACE INTO users (username, id, avatar, display_name) VALUES (?, ?, ?, ?)`, [user.username, user.id, user.avatar || '', user.display_name || user.username]); }
+  getUser(username: string) { if (!this.db) return null; try { const result = this.db.getAllSync(`SELECT * FROM users WHERE username = ?`, [username]); return result.length > 0 ? result[0] : null; } catch (e) { return null; } }
 }
 
 const adapter = new NativeDatabaseAdapter();
@@ -238,4 +218,5 @@ export const removeFromQueue = (id: number) => adapter.removeFromQueue(id);
 export const clearQueue = () => adapter.clearQueue();
 export const saveUser = (user: any) => adapter.saveUser(user);
 export const getUser = (username: string) => adapter.getUser(username);
+export const deleteMessagesByClientIds = (ids: string[]) => adapter.deleteMessagesByClientIds(ids);
 export const generateUUID = () => { return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => { const r = Math.random() * 16 | 0; return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16); }); };

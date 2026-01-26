@@ -293,6 +293,14 @@ class UnifiedConsumer(AsyncWebsocketConsumer):
                 }
             )
 
+    async def messages_deleted(self, event):
+            """
+            Handles the 'messages_deleted' event sent from delete_for_everyone view.
+            Forwards the event to the connected WebSocket client.
+            """
+            # Forward the entire event payload to the client
+            await self.send(text_data=json.dumps(event))
+
     async def handle_mark_read(self, data):
         sender_identifier = data.get('sender') # Could be username or ID
         if not sender_identifier: return

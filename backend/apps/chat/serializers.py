@@ -42,13 +42,27 @@ class MessageSerializer(serializers.ModelSerializer):
             'id', 'client_id', 'sender', 'sender_username', 
             'receiver', 'receiver_username', 
             'encrypted_content', 'status', 'timestamp',
-            'media', 'media_type', 'processing'
+            'media', 'media_type', 'processing', 'deleted_globally'
         ]
 
     def get_media(self, obj):
+        if obj.deleted_globally:
+            return None
+            
         if obj.media:
             request = self.context.get('request')
             if request:
                 return request.build_absolute_uri(obj.media.url)
             return obj.media.url
         return None
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+
+        if instance.deleted_globally:
+            data['encrypted_content'] = "" 
+            data['media'] = None
+            data['media_type'] = "none"
+            data['status'] = "deleted"
+        
+        return data

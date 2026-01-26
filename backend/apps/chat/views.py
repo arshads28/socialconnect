@@ -267,7 +267,6 @@ def search_user(request):
 
 
 class InboxViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
-    permission_classes = [IsAuthenticated]
     serializer_class = InboxSerializer
 
     def get_queryset(self):
@@ -318,55 +317,76 @@ class InboxViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     
 
 
+
 @api_view(['GET'])
 def sync_messages(request):
+    """
+    Syncs messages for the authenticated user based on last_sync timestamp.
+    Excludes messages deleted by the user locally.
+    """
     user = request.user
     last_sync_str = request.GET.get('last_sync')
+    user_id_str = str(user.id) # ✅ Fix: Convert UUID to string
     
-    # 1. Base Query (Uses Index: receiver_id + timestamp)
-    pending_messages = Message.objects.filter(receiver=user)
+    # 1. Base Query: Messages sent to me OR by me
+    messages = Message.objects.filter(
+        Q(receiver=user) | Q(sender=user)
+    )
 
+    # 2. Exclude messages I deleted locally
+    # We query using the string representation of the ID
+    messages = messages.exclude(deleted_for__contains=user_id_str)
+
+    # 3. Filter by Time
     if last_sync_str and last_sync_str != 'null':
         last_sync = parse_datetime(last_sync_str)
         if last_sync:
-            pending_messages = pending_messages.filter(timestamp__gt=last_sync)
+            messages = messages.filter(timestamp__gt=last_sync)
 
+    # 4. Limit and Serialize
+    messages = messages.order_by('timestamp')[:100] 
+    
+    serializer = MessageSerializer(messages, many=True, context={'request': request})
 
-    pending_messages = pending_messages.order_by('timestamp')[:60] 
+    return Response({
+        "messages": serializer.data, 
+        "count": len(serializer.data),
+        "server_time": timezone.now().isoformat()
+    })
 
-    # 3. Optimized Serialization (Values List is faster than Model Instantiation)
-    data = list(pending_messages.values(
-        'id', 'client_id', 'sender__username', 'encrypted_content', 'timestamp'
-    ))
-
-    # Rename keys to match frontend expectation if needed
-    formatted_data = [
-        {
-            "id": msg['id'],
-            "client_id": str(msg['client_id']),
-            "sender": msg['sender__username'], # accessing joined field
-            "ciphertext": msg['encrypted_content'],
-            "timestamp": msg['timestamp'].isoformat()
-        } 
-        for msg in data
-    ]
-
-    return Response({"messages": formatted_data, "count": len(formatted_data)})
-
+@api_view(['GET'])
+def chat_history(request, username):
+    """
+    Fetches full chat history with a specific user.
+    """
+    try:
+        target_user = User.objects.get(username=username)
+        user_id_str = str(request.user.id) 
+        
+        messages = Message.objects.filter(
+            Q(sender=request.user, receiver=target_user) | 
+            Q(sender=target_user, receiver=request.user)
+        ).exclude(
+            deleted_for__contains=user_id_str 
+        ).order_by('timestamp')
+        
+        serializer = MessageSerializer(messages, many=True, context={'request': request})
+        return Response(serializer.data)
+        
+    except User.DoesNotExist:
+        return Response([], status=404)
 
 
 @api_view(['POST'])
 def clear_chat_history(request, username):
     """
-    Deletes all messages between the authenticated user and the target 'username'.
-    This clears the 'Server Queue' so messages don't re-sync.
+    Hard delete or Soft delete depending on requirements.
+    Here we do a HARD delete for the specific conversation.
     """
     try:
         target_user = User.objects.get(username=username)
         
-        # Delete messages where:
-        # 1. I sent it to them (sender=me, receiver=them)
-        # 2. They sent it to me (sender=them, receiver=me)
+        # Hard delete logic
         deleted_count, _ = Message.objects.filter(
             Q(sender=request.user, receiver=target_user) | 
             Q(sender=target_user, receiver=request.user)
@@ -378,34 +398,10 @@ def clear_chat_history(request, username):
         return Response({"error": "User not found"}, status=404)
     except Exception as e:
         return Response({"error": str(e)}, status=500)
-    
 
-
-@api_view(['GET'])
-def chat_history(request, username):
-    """
-    Fetches full chat history with a specific user.
-    UPDATED: Uses MessageSerializer to correctly handle Media URLs.
-    """
-    try:
-        target_user = User.objects.get(username=username)
-        
-        # Get all messages between Me and Target (Both directions)
-        messages = Message.objects.filter(
-            Q(sender=request.user, receiver=target_user) | 
-            Q(sender=target_user, receiver=request.user)
-        ).order_by('timestamp')
-        
-        # passing context={'request': request} is CRITICAL for building full media URLs
-        serializer = MessageSerializer(messages, many=True, context={'request': request})
-            
-        return Response(serializer.data)
-        
-    except User.DoesNotExist:
-        return Response([], status=404)
-    
-
-
+# ============================================================================
+#  SENDING & UPLOAD
+# ============================================================================
 
 class SendMessageAPIView(APIView):
     permission_classes = [IsAuthenticated]
@@ -416,25 +412,22 @@ class SendMessageAPIView(APIView):
         ciphertext = request.data.get('ciphertext')
         client_id = request.data.get('client_id')
 
-        # 1. Validation
         if not all([recipient_id, ciphertext, client_id]):
             return Response({"error": "Missing fields"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # 2. IDEMPOTENCY CHECK (Prevents Offline Duplicates)
+        # Idempotency
         if Message.objects.filter(client_id=client_id).exists():
             existing = Message.objects.get(client_id=client_id)
             return Response({"status": "sent", "id": existing.id}, status=status.HTTP_200_OK)
 
-        # 3. Get Receiver
         try:
-            receiver = User.objects.get(id=recipient_id)
-        except (User.DoesNotExist, ValueError):
+            try:
+                receiver = User.objects.get(id=recipient_id)
+            except:
+                receiver = User.objects.get(username=recipient_id)
+        except User.DoesNotExist:
             return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
 
-        if receiver.blocking.filter(id=sender.id).exists() or sender.blocking.filter(id=receiver.id).exists():
-             return Response({"error": "You cannot message this user."}, status=status.HTTP_403_FORBIDDEN)
-
-        # 5. SAVE TO DB (Corrected Field Name)
         try:
             message = Message.objects.create(
                 sender=sender,
@@ -443,12 +436,8 @@ class SendMessageAPIView(APIView):
                 client_id=client_id,
                 status='sent'
             )
-        except Exception as e:
-            print(f"❌ DB Error: {e}")
-            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-        # 6. PUSH TO WEBSOCKET
-        try:
+            
+            # WebSocket Push
             channel_layer = get_channel_layer()
             if channel_layer:
                 async_to_sync(channel_layer.group_send)(
@@ -456,66 +445,27 @@ class SendMessageAPIView(APIView):
                     {
                         "type": "chat_message",
                         "id": str(message.id),
-                        "client_id": client_id,
+                        "client_id": str(client_id),
                         "sender": sender.username,
                         "sender_id": str(sender.id),
                         "ciphertext": ciphertext,
-                        "timestamp": message.timestamp.isoformat()
+                        "timestamp": message.timestamp.isoformat(),
+                        "conversation_id": f"{min(sender.username, receiver.username)}__{max(sender.username, receiver.username)}"
                     }
                 )
+
+            return Response({"status": "sent", "id": message.id}, status=status.HTTP_201_CREATED)
+
         except Exception as e:
-            print(f"❌ WebSocket Error: {e}")
-            # Do NOT crash. Return success because DB save worked.
-
-        return Response({"status": "sent", "id": message.id}, status=status.HTTP_200_OK)
-    
-
-
-
-class SendMessageAPIView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request):
-        client_id = request.data.get('client_id')
-        recipient_id = request.data.get('recipient_id')
-        ciphertext = request.data.get('ciphertext')
-
-        if not all([client_id, recipient_id, ciphertext]):
-            return Response({"error": "Missing fields"}, status=400)
-
-        # ✅ HARD IDEMPOTENCY: If message exists, return it immediately.
-        # This makes offline retries safe.
-        if Message.objects.filter(client_id=client_id).exists():
-            return Response({"status": "sent", "id": Message.objects.get(client_id=client_id).id}, status=200)
-
-        try:
-            receiver = User.objects.get(id=recipient_id)
-            
-            # Use get_or_create as a secondary safety net against race conditions
-            message, created = Message.objects.get_or_create(
-                client_id=client_id,
-                defaults={
-                    "sender": request.user,
-                    "receiver": receiver,
-                    "encrypted_content": ciphertext,
-                    "status": "sent"
-                }
-            )
-            return Response({"status": "sent", "id": message.id}, status=201)
-
-        except User.DoesNotExist:
-            return Response({"error": "User not found"}, status=404)
-        except Exception as e:
-            return Response({"error": str(e)}, status=500)
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class ChatUploadAPIView(APIView):
-    permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
 
     def post(self, request, *args, **kwargs):
         client_id = request.data.get('id')
         
-        # Check before processing file
+        # Idempotency check
         if Message.objects.filter(client_id=client_id).exists():
             msg = Message.objects.get(client_id=client_id)
             return Response({
@@ -532,7 +482,10 @@ class ChatUploadAPIView(APIView):
             return Response({"error": "No media provided"}, status=400)
         
         try:
-            receiver = User.objects.get(id=recipient_id)
+            try:
+                receiver = User.objects.get(id=recipient_id)
+            except:
+                receiver = User.objects.get(username=recipient_id)
         except User.DoesNotExist:
             return Response({"error": "Recipient not found"}, status=404)
 
@@ -562,3 +515,75 @@ class ChatUploadAPIView(APIView):
             
         except IntegrityError:
             return Response({"status": "exists"}, status=200)
+
+# ============================================================================
+#  DELETE LOGIC (NEW)
+# ============================================================================
+
+@api_view(["POST"])
+def delete_for_me(request):
+    """
+    User wants to hide specific messages from their own history.
+    """
+    client_ids = request.data.get("client_ids", [])
+    if not client_ids:
+        return Response({"error": "No IDs provided"}, status=400)
+
+    user_id_str = str(request.user.id) # ✅ Fix: Convert UUID to string
+
+    msgs = Message.objects.filter(client_id__in=client_ids)
+    
+    for msg in msgs:
+        # Check if ID (as string) is already in the list
+        if user_id_str not in msg.deleted_for:
+            msg.deleted_for.append(user_id_str)
+            msg.save(update_fields=['deleted_for'])
+
+    return Response({"status": "ok"})
+
+@api_view(["POST"])
+def delete_for_everyone(request):
+    """
+    User wants to delete messages they sent, for everyone.
+    Constraint: Within 6 hours.
+    """
+    client_ids = request.data.get("client_ids", [])
+    if not client_ids:
+        return Response({"error": "No IDs provided"}, status=400)
+
+    cutoff = timezone.now() - timedelta(hours=6)
+
+    # 1. Filter: Valid IDs, Sent by Me, Sent recently
+    qs = Message.objects.filter(
+        client_id__in=client_ids,
+        sender=request.user,
+        timestamp__gte=cutoff
+    )
+
+    # 2. Update DB: Clear content, mark global delete
+    updated_count = qs.update(
+        deleted_globally=True,
+        encrypted_content="", 
+        media=None,
+        media_type="none", 
+        status='deleted'
+    )
+
+    # 3. Notify Receiver via WebSocket
+    receivers = qs.values_list('receiver_id', flat=True).distinct()
+    channel_layer = get_channel_layer()
+    if channel_layer:
+        for receiver_id in receivers:
+            async_to_sync(channel_layer.group_send)(
+                f"user_{receiver_id}",
+                {
+                    "type": "messages_deleted",
+                    "client_ids": client_ids,
+                    "conversation_id": request.user.username 
+                }
+            )
+
+    return Response({
+        "status": "ok",
+        "deleted_count": updated_count
+    })

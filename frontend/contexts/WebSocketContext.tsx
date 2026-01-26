@@ -9,6 +9,7 @@ import {
   updateMessageStatus, 
   markChatAsRead, 
   getConversationId,
+  deleteMessagesByClientIds, // ✅ IMPORTED THIS
   Message 
 } from '../utils/db';
 import { decryptMessage } from '../utils/crypto';
@@ -157,7 +158,6 @@ export const WebSocketProvider = ({ children }: { children: React.ReactNode }) =
         if (data.type === 'chat_message') {
           const decryptedContent = decryptMessage(data.ciphertext);
           
-          // 🛡️ CRITICAL FIX: Repair "unknown" Conversation IDs
           let conversationId = data.conversation_id;
           
           if (!conversationId || conversationId === 'unknown') {
@@ -194,7 +194,18 @@ export const WebSocketProvider = ({ children }: { children: React.ReactNode }) =
           DeviceEventEmitter.emit('new_message', { conversation_id: conversationId });
         }
 
-        // 4️⃣ Handle Status Updates
+        // ✅ 4️⃣ Handle Deleted Messages (THIS WAS MISSING)
+        if (data.type === 'messages_deleted') {
+            console.log("🗑️ Received Delete Signal:", data.client_ids);
+            
+            // A. Update Local SQLite DB (Soft Delete)
+            deleteMessagesByClientIds(data.client_ids);
+            
+            // B. Notify ChatScreen to update UI immediately
+            DeviceEventEmitter.emit('messages_deleted_event', data.client_ids);
+        }
+
+        // 5️⃣ Handle Status Updates
         if (data.type === 'status_update') {
           if (data.client_id) {
             updateMessageStatus(data.client_id, data.status);
@@ -202,14 +213,12 @@ export const WebSocketProvider = ({ children }: { children: React.ReactNode }) =
           DeviceEventEmitter.emit('message_status_changed', data);
         }
         
-        // 5️⃣ Handle Presence / Typing
+        // 6️⃣ Handle Presence / Typing
         if (data.type === 'user_status_event') DeviceEventEmitter.emit('presence_update', data);
         if (data.type === 'typing_event') DeviceEventEmitter.emit('typing_event', data);
 
-        // 6️⃣ Handle Notifications
+        // 7️⃣ Handle Notifications
         if (data.type === 'new_message_notification') {
-          // Logic Check: Don't notify if I'm already looking at the chat
-          // Also handle cases where notification might have legacy ID format
           const notifConvId = data.conversation_id || getConversationId(user?.username || '', data.sender);
           
           if (activeConversationIdRef.current !== notifConvId) {

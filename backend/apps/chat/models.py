@@ -28,11 +28,11 @@ class Message(models.Model):
         choices=[
             ('sent', 'Sent'), 
             ('delivered', 'Delivered'), 
-            ('read', 'Read')
+            ('read', 'Read'),
+            ('deleted', 'Deleted') 
         ]
     )
     
-    # We rename 'content' to 'encrypted_content' to be clear: The server CANNOT read this.
     encrypted_content = models.TextField(blank=True) 
 
     media = models.FileField(upload_to="chat_media/", blank=True, null=True)
@@ -43,16 +43,19 @@ class Message(models.Model):
     )
     processing = models.BooleanField(default=False)
 
-    # Timestamp is used for sorting in the sync queue
     timestamp = models.DateTimeField(auto_now_add=True)
+
+    # List of user IDs who deleted this message locally
+    deleted_for = models.JSONField(default=list, blank=True)  
+    # Boolean to check if deleted for everyone
+    deleted_globally = models.BooleanField(default=False)
 
     class Meta:
         ordering = ["timestamp", "id"]
         indexes = [
-            # "Show me all messages between Me and Sam"
             models.Index(fields=['sender', 'receiver']),
-            # "Show me messages for Me that came after ID 500" Sync instant.
-            models.Index(fields=['receiver', 'timestamp'])
+            models.Index(fields=['receiver', 'timestamp']),
+            models.Index(fields=['client_id']),
         ]
 
     def __str__(self):
@@ -75,10 +78,10 @@ class Message(models.Model):
                     processing=False
                 )
             else:
+                # Trigger background processing
                 def run_after_commit():
                     from .background import process_chat_image_background
                     from apps.posts.threadpool import thread_pool_executor 
-
                     thread_pool_executor.submit(process_chat_image_background, self.id)  
 
                 transaction.on_commit(run_after_commit)
