@@ -1,30 +1,60 @@
+# apps/chat/crypto.py
+
+import base64
+import hashlib
 from cryptography.fernet import Fernet
 from django.conf import settings
-import base64
 
-# This should use the SAME key logic as your frontend/other utils
-# Usually provided via environment variables
-SECRET_KEY = "super_secret_postman_key"
+# ============================================================
+#   KEY DERIVATION (SAFE + DETERMINISTIC)
+# ============================================================
 
-FERNET_KEY = base64.urlsafe_b64encode(SECRET_KEY)
-cipher_suite = Fernet(FERNET_KEY)
-
-def encrypt_for_storage(text: str) -> str:
+def derive_fernet_key(secret: str) -> bytes:
     """
-    Encrypts a string for storage in the database.
-    Used for generating tombstones.
+    Convert Django SECRET_KEY (string) into a valid Fernet key.
+    Fernet requires 32 url-safe base64-encoded bytes.
     """
-    if not text:
+    #  Convert string → bytes
+    secret_bytes = secret.encode("utf-8")
+
+    # Hash to fixed 32 bytes
+    digest = hashlib.sha256(secret_bytes).digest()
+
+    # Base64-url encode
+    return base64.urlsafe_b64encode(digest)
+
+
+FERNET_KEY = derive_fernet_key(settings.SECRET_KEY)
+fernet = Fernet(FERNET_KEY)
+
+# ============================================================
+# ENCRYPTED TOMBSTONES
+# ============================================================
+
+TOMBSTONE_MARKER = "__TOMBSTONE__"
+
+
+def encrypt_for_storage(plain_text: str) -> str:
+    """
+    Encrypt content for DB storage.
+    Used for messages AND encrypted tombstones.
+    """
+    if not plain_text:
         return ""
-    encrypted_text = cipher_suite.encrypt(text.encode('utf-8'))
-    return encrypted_text.decode('utf-8')
 
-def decrypt_from_storage(ciphertext: str) -> str:
+    token = fernet.encrypt(plain_text.encode("utf-8"))
+    return token.decode("utf-8")
+
+
+def decrypt_from_storage(cipher_text: str) -> str:
     """
-    Decrypts a string from the database.
+    Decrypt content from DB.
     """
+    if not cipher_text:
+        return ""
+
     try:
-        decrypted_text = cipher_suite.decrypt(ciphertext.encode('utf-8'))
-        return decrypted_text.decode('utf-8')
+        plain = fernet.decrypt(cipher_text.encode("utf-8"))
+        return plain.decode("utf-8")
     except Exception:
         return ""

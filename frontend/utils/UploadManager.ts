@@ -14,9 +14,9 @@ export type UploadTask = {
 };
 
 type TaskCallbacks = {
-  onProgress: (percent: number) => void;
-  onSuccess: (response: any) => void;
-  onError: (error: any) => void;
+  onProgress?: (percent: number) => void;
+  onSuccess?: (response: any) => void;
+  onError?: (error: any) => void;
 };
 
 class UploadManager {
@@ -98,11 +98,12 @@ class UploadManager {
 
   private upload(task: UploadTask) {
     const file = task.files[0]; // Take first file
+    const cbs = this.callbacks.get(task.id) || task.callbacks;
     
     // If no files left, task is complete
     if (!file) {
-        const cbs = this.callbacks.get(task.id) || task.callbacks;
-        if (cbs) cbs.onSuccess({ status: 'done' });
+        // ✅ FIX: Optional chaining
+        cbs?.onSuccess?.({ status: 'done' });
         
         this.queue.shift();
         this.callbacks.delete(task.id);
@@ -133,12 +134,11 @@ class UploadManager {
 
     xhr.timeout = 60000; 
 
-    const cbs = this.callbacks.get(task.id) || task.callbacks;
-
     xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable && cbs) {
+      if (e.lengthComputable) {
         const percent = Math.round((e.loaded / e.total) * 100);
-        cbs.onProgress(percent);
+        // ✅ FIX: Optional chaining ensures no crash if callback is missing
+        cbs?.onProgress?.(percent);
       }
     };
 
@@ -151,8 +151,9 @@ class UploadManager {
           try { response = JSON.parse(xhr.responseText); } catch(e){}
 
           // If it was the last file, success callback happens next cycle
-          if (task.files.length === 0 && cbs) {
-              cbs.onSuccess(response);
+          if (task.files.length === 0) {
+              // ✅ FIX: Optional chaining
+              cbs?.onSuccess?.(response);
           }
           
           this.saveQueue();
@@ -189,11 +190,18 @@ class UploadManager {
           console.log(`Auto-retrying upload ${task.id} (${task.retryCount + 1}/3)`);
           task.retryCount++;
           this.saveQueue(); 
+          
+          setTimeout(() => {
+             this.uploading = false;
+             this.process();
+          }, 1000);
+          
       } else {
+          console.warn("Upload failed after 3 retries:", reason);
           this.queue.shift(); 
           this.callbacks.delete(task.id);
           this.saveQueue();
-          if (cbs) cbs.onError(reason);
+          cbs?.onError?.(reason);
       }
   }
 }

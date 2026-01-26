@@ -360,7 +360,9 @@ Backend Developer | Django | WebSockets | WebRTC
 
 to make build locally just apk 
 
-npx expo prebuild
+npm install
+
+npx expo prebuild --clean
 
 
 cd android
