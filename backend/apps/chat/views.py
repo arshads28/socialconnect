@@ -15,12 +15,18 @@ from rest_framework.response import Response
 from rest_framework.decorators import api_view
 from .serializers import InboxSerializer, MessageSerializer
 from django.utils.dateparse import parse_datetime
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 from rest_framework.views import APIView
 from rest_framework import status
+
+
+from django.db import transaction
+from .constants import TOMBSTONE_MARKER
+from .crypto import encrypt_for_storage
+from .utils import schedule_media_deletion
 
 from rest_framework.parsers import MultiPartParser, FormParser
 
@@ -326,7 +332,7 @@ def sync_messages(request):
     """
     user = request.user
     last_sync_str = request.GET.get('last_sync')
-    user_id_str = str(user.id) # ✅ Fix: Convert UUID to string
+    user_id_str = str(user.id) # Convert UUID to string
     
     # 1. Base Query: Messages sent to me OR by me
     messages = Message.objects.filter(
@@ -336,6 +342,7 @@ def sync_messages(request):
     # 2. Exclude messages I deleted locally
     # We query using the string representation of the ID
     messages = messages.exclude(deleted_for__contains=user_id_str)
+    messages = messages.filter(deleted_globally=False)
 
     # 3. Filter by Time
     if last_sync_str and last_sync_str != 'null':
@@ -367,9 +374,11 @@ def chat_history(request, username):
             Q(sender=request.user, receiver=target_user) | 
             Q(sender=target_user, receiver=request.user)
         ).exclude(
-            deleted_for__contains=user_id_str 
+            deleted_for__contains=user_id_str
+        ).filter(
+            deleted_globally=False
         ).order_by('timestamp')
-        
+
         serializer = MessageSerializer(messages, many=True, context={'request': request})
         return Response(serializer.data)
         
@@ -385,14 +394,23 @@ def clear_chat_history(request, username):
     """
     try:
         target_user = User.objects.get(username=username)
-        
-        # Hard delete logic
-        deleted_count, _ = Message.objects.filter(
+        user_id_str = str(request.user.id)
+
+        # Find all messages in this conversation
+        msgs = Message.objects.filter(
             Q(sender=request.user, receiver=target_user) | 
             Q(sender=target_user, receiver=request.user)
-        ).delete()
+        )
         
-        return Response({"status": "success", "deleted": deleted_count})
+        count = 0
+        # Iterate and update (JSONField append is not easily bulk-updatable in generic Django)
+        for msg in msgs:
+            if user_id_str not in msg.deleted_for:
+                msg.deleted_for.append(user_id_str)
+                msg.save(update_fields=['deleted_for'])
+                count += 1
+        
+        return Response({"status": "success", "cleared_count": count})
         
     except User.DoesNotExist:
         return Response({"error": "User not found"}, status=404)
@@ -415,12 +433,12 @@ class SendMessageAPIView(APIView):
         if not all([recipient_id, ciphertext, client_id]):
             return Response({"error": "Missing fields"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Idempotency
         if Message.objects.filter(client_id=client_id).exists():
             existing = Message.objects.get(client_id=client_id)
             return Response({"status": "sent", "id": existing.id}, status=status.HTTP_200_OK)
 
         try:
+            # Resolve Receiver
             try:
                 receiver = User.objects.get(id=recipient_id)
             except:
@@ -460,12 +478,12 @@ class SendMessageAPIView(APIView):
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class ChatUploadAPIView(APIView):
+    permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
 
     def post(self, request, *args, **kwargs):
         client_id = request.data.get('id')
         
-        # Idempotency check
         if Message.objects.filter(client_id=client_id).exists():
             msg = Message.objects.get(client_id=client_id)
             return Response({
@@ -489,28 +507,26 @@ class ChatUploadAPIView(APIView):
         except User.DoesNotExist:
             return Response({"error": "Recipient not found"}, status=404)
 
-        media_type = Message.MediaType.IMAGE
-        if file_obj.content_type.startswith('video'):
-            media_type = Message.MediaType.VIDEO
-
         try:
-            message = Message.objects.create(
+            # Use model method for consistent inference
+            msg = Message(
                 sender=request.user,
                 receiver=receiver, 
                 client_id=client_id,
                 media=file_obj,
-                media_type=media_type,
-                encrypted_content="[Media Upload]", 
+                encrypted_content="", 
                 status='sent'
             )
+            msg.media_type = msg.infer_media_type() # Use consistent logic
+            msg.save()
             
-            media_url = request.build_absolute_uri(message.media.url)
+            media_url = request.build_absolute_uri(msg.media.url)
             
             return Response({
                 "status": "success",
                 "media_url": media_url,
-                "media_type": media_type,
-                "id": message.id
+                "media_type": msg.media_type,
+                "id": msg.id
             }, status=201)
             
         except IntegrityError:
@@ -529,12 +545,15 @@ def delete_for_me(request):
     if not client_ids:
         return Response({"error": "No IDs provided"}, status=400)
 
-    user_id_str = str(request.user.id) # ✅ Fix: Convert UUID to string
-
-    msgs = Message.objects.filter(client_id__in=client_ids)
+    user_id_str = str(request.user.id)
+    # Filter only messages involved with this user
+    msgs = Message.objects.filter(
+        client_id__in=client_ids
+    ).filter(
+        Q(sender=request.user) | Q(receiver=request.user)
+    )
     
     for msg in msgs:
-        # Check if ID (as string) is already in the list
         if user_id_str not in msg.deleted_for:
             msg.deleted_for.append(user_id_str)
             msg.save(update_fields=['deleted_for'])
@@ -543,43 +562,66 @@ def delete_for_me(request):
 
 @api_view(["POST"])
 def delete_for_everyone(request):
-    """
-    User wants to delete messages they sent, for everyone.
-    Constraint: Within 6 hours.
-    """
     client_ids = request.data.get("client_ids", [])
     if not client_ids:
         return Response({"error": "No IDs provided"}, status=400)
 
     cutoff = timezone.now() - timedelta(hours=6)
 
-    # 1. Filter: Valid IDs, Sent by Me, Sent recently
+    # BASE QUERY
     qs = Message.objects.filter(
         client_id__in=client_ids,
         sender=request.user,
         timestamp__gte=cutoff
     )
 
-    # 2. Update DB: Clear content, mark global delete
-    updated_count = qs.update(
-        deleted_globally=True,
-        encrypted_content="", 
-        media=None,
-        media_type="none", 
-        status='deleted'
+    # PRE-FETCH DATA (single DB hit)
+    rows = list(
+        qs.values("receiver_id", "media")
     )
 
-    # 3. Notify Receiver via WebSocket
-    receivers = qs.values_list('receiver_id', flat=True).distinct()
+    if not rows:
+        return Response({"status": "ok", "deleted_count": 0})
+
+    receiver_ids = {row["receiver_id"] for row in rows}
+    media_paths = [row["media"] for row in rows if row["media"]]
+
+    encrypted_tombstone = encrypt_for_storage(TOMBSTONE_MARKER)
+
+    # ATOMIC BULK UPDATE
+    with transaction.atomic():
+        updated_count = qs.update(
+            deleted_globally=True,
+            encrypted_content=encrypted_tombstone,
+            media=None,
+            media_type="none",
+            status="deleted"
+        )
+
+        if media_paths:
+            transaction.on_commit(
+                lambda: schedule_media_deletion(media_paths)
+            )
+
+    # SINGLE WS FAN-OUT
     channel_layer = get_channel_layer()
-    if channel_layer:
-        for receiver_id in receivers:
+    if channel_layer and updated_count > 0:
+        sender_username = request.user.username
+
+        users = User.objects.filter(id__in=receiver_ids).only("id", "username")
+
+        for u in users:
+            a, b = sorted([sender_username, u.username])
+            conv_id = f"{a}__{b}"
+
             async_to_sync(channel_layer.group_send)(
-                f"user_{receiver_id}",
+                f"user_{u.id}",
                 {
                     "type": "messages_deleted",
                     "client_ids": client_ids,
-                    "conversation_id": request.user.username 
+                    "conversation_id": conv_id,
+                    "deleted_by": sender_username,
+                    "scope": "global"
                 }
             )
 

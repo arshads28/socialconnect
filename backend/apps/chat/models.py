@@ -7,6 +7,7 @@ class Message(models.Model):
     class MediaType(models.TextChoices):
         IMAGE = "image", "Image"
         VIDEO = "video", "Video"
+        AUDIO = "audio"
         NONE = "none", "None"
     
     client_id = models.UUIDField(default=uuid.uuid4, editable=False, unique=True, null=True)
@@ -61,24 +62,36 @@ class Message(models.Model):
     def __str__(self):
         return f"{self.sender} -> {self.receiver} [{self.client_id}]"
     
+    # Single Source of Truth for Media Types
+    def infer_media_type(self):
+        if not self.media:
+            return self.MediaType.NONE
+        content_type, _ = mimetypes.guess_type(self.media.name)
+        if content_type:
+            if content_type.startswith("video"):
+                return self.MediaType.VIDEO
+            if content_type.startswith("image"):
+                return self.MediaType.IMAGE
+            if content_type.startswith("audio"):
+                return self.MediaType.AUDIO
+        return self.MediaType.NONE
+
+
     def save(self, *args, **kwargs):
         is_new = self._state.adding
 
-        if is_new and self.media:
+        # Auto-detect media type if not set
+        if is_new and self.media and self.media_type == self.MediaType.NONE:
+            self.media_type = self.infer_media_type()
             self.processing = True
 
         super().save(*args, **kwargs)
 
+        # Trigger processing if needed
         if is_new and self.media:
-            content_type, _ = mimetypes.guess_type(self.media.name)
-            
-            if content_type and content_type.startswith('video'):
-                Message.objects.filter(pk=self.pk).update(
-                    media_type=self.MediaType.VIDEO, 
-                    processing=False
-                )
+            if self.media_type == self.MediaType.VIDEO or self.media_type == self.MediaType.AUDIO:
+                Message.objects.filter(pk=self.pk).update(processing=False)
             else:
-                # Trigger background processing
                 def run_after_commit():
                     from .background import process_chat_image_background
                     from apps.posts.threadpool import thread_pool_executor 

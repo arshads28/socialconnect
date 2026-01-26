@@ -38,7 +38,7 @@ class NativeDatabaseAdapter {
   init() {
     if (!this.db) return;
     try {
-        // Core Schema
+        // Core Schema with album_id and locally_deleted support
         this.db.execSync(`
         CREATE TABLE IF NOT EXISTS messages (
             client_id TEXT PRIMARY KEY, 
@@ -52,12 +52,15 @@ class NativeDatabaseAdapter {
             media TEXT,
             media_type TEXT,
             system_message BOOLEAN DEFAULT 0,
-            locally_deleted BOOLEAN DEFAULT 0 
+            locally_deleted BOOLEAN DEFAULT 0,
+            album_id TEXT
         );
         `);
 
+        // Index for high-speed chat rendering
         this.db.execSync(`CREATE INDEX IF NOT EXISTS idx_messages_conversation_ts ON messages (conversation_id, timestamp DESC);`);
 
+        // Offline storage for actions performed while disconnected
         this.db.execSync(`
           CREATE TABLE IF NOT EXISTS offline_queue (
             id INTEGER PRIMARY KEY AUTOINCREMENT, 
@@ -67,28 +70,41 @@ class NativeDatabaseAdapter {
             retries INTEGER DEFAULT 0
           );
         `);
+
+        // Cached user profiles for instant header rendering
         this.db.execSync(`
             CREATE TABLE IF NOT EXISTS users (
                 username TEXT PRIMARY KEY, id TEXT, avatar TEXT, display_name TEXT
             );
         `);
         
-        // Safe Migration for locally_deleted
+        // --- SAFE MIGRATIONS ---
         try {
             const tableInfo = this.db.getAllSync("PRAGMA table_info(messages)");
-            if (!tableInfo.some((col: any) => col.name === 'locally_deleted')) {
+            
+            const hasDeleted = tableInfo.some((col: any) => col.name === 'locally_deleted');
+            if (!hasDeleted) {
                 this.db.execSync("ALTER TABLE messages ADD COLUMN locally_deleted BOOLEAN DEFAULT 0;");
             }
-        } catch(e) { /* ignore */ }
 
-        console.log('📦 SQLite Initialized');
+            const hasAlbumId = tableInfo.some((col: any) => col.name === 'album_id');
+            if (!hasAlbumId) {
+                this.db.execSync("ALTER TABLE messages ADD COLUMN album_id TEXT;");
+            }
+        } catch(e) { console.log("Migration check skipped/failed: ", e); }
+
+        console.log('📦 SQLite Initialized with Album support');
     } catch (e) { console.error("SQLite Init Failed:", e); }
   }
 
-  // ✅ UPDATED: Guaranteed Redaction on Update
+  /**
+   * Upserts a message. 
+   * Uses CASE logic to physically clear content/media if the message is being marked as deleted.
+   */
   saveMessage(msg: Message) {
     if (!this.db) return;
 
+    // Auto-repair Conversation ID if missing or malformed
     let finalConversationId = msg.conversation_id;
     if (!finalConversationId || finalConversationId === 'unknown' || !finalConversationId.includes('__')) {
         if (msg.sender && msg.recipient_id) {
@@ -96,11 +112,10 @@ class NativeDatabaseAdapter {
         }
     }
 
-    const isDeleted = (msg.status === 'deleted' || msg.locally_deleted) ? 1 : 0;
+    const isDeletedFlag = (msg.status === 'deleted' || msg.locally_deleted) ? 1 : 0;
     
     try {
-      // ✅ LOGIC: If isDeleted=1, force content/media to NULL/Empty during UPDATE
-      // This prevents "Zombie" data where the flag is set but content remains.
+      // 1. Try Update (with privacy redaction)
       const result = this.db.runSync(
         `UPDATE messages 
          SET status = COALESCE(?, status),
@@ -108,36 +123,43 @@ class NativeDatabaseAdapter {
              content = CASE WHEN ? = 1 THEN '' ELSE content END,
              id = COALESCE(?, id),
              conversation_id = COALESCE(?, conversation_id),
+             album_id = COALESCE(?, album_id),
              locally_deleted = CASE WHEN ? = 1 THEN 1 ELSE locally_deleted END 
          WHERE client_id = ?`,
         [
             msg.status || 'delivered', 
-            isDeleted, // Check for Media redaction
-            msg.media ?? null, 
-            isDeleted, // Check for Content redaction
+            isDeletedFlag, msg.media ?? null, 
+            isDeletedFlag, 
             msg.id ?? null, 
-            finalConversationId, 
-            isDeleted, // Update deleted flag
+            finalConversationId,
+            msg.album_id ?? null,
+            isDeletedFlag, 
             msg.client_id
         ]
       );
 
+      // 2. If no rows updated, Insert
       if (result.changes === 0) {
           this.db.runSync(
-            `INSERT INTO messages (client_id, id, conversation_id, recipient_id, sender, content, status, timestamp, media, media_type, system_message, locally_deleted) 
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT INTO messages (client_id, id, conversation_id, recipient_id, sender, content, status, timestamp, media, media_type, system_message, locally_deleted, album_id) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
                 msg.client_id, msg.id ?? null, finalConversationId, msg.recipient_id, msg.sender, 
-                msg.content, msg.status || 'delivered', msg.timestamp, msg.media ?? null, 
+                isDeletedFlag === 1 ? '' : msg.content, 
+                msg.status || 'delivered', msg.timestamp, 
+                isDeletedFlag === 1 ? null : (msg.media ?? null), 
                 msg.media_type ?? null, msg.system_message ? 1 : 0, 
-                isDeleted 
+                isDeletedFlag,
+                msg.album_id ?? null
             ]
           );
       }
     } catch (e) { console.error('DB Save Error:', e); }
   }
 
-  // ✅ Soft Delete Helper (Clears content immediately)
+  /**
+   * Bulk soft-delete (clears data immediately for local privacy)
+   */
   deleteMessagesByClientIds(ids: string[]) {
     if (!this.db || ids.length === 0) return;
     const placeholders = ids.map(() => '?').join(',');
@@ -149,7 +171,9 @@ class NativeDatabaseAdapter {
     );
   }
 
-  // ✅ Filter out hidden messages
+  /**
+   * Retrieves messages for a specific chat, filtering out those marked deleted.
+   */
   getMessagesForChat(conversationId: string) { 
     if (!this.db) return [];
     return this.db.getAllSync(
@@ -180,6 +204,9 @@ class NativeDatabaseAdapter {
     this.db.runSync(`DELETE FROM messages WHERE conversation_id = ?`, [conversationId]); 
   }
   
+  /**
+   * Generates the inbox view: latest message per conversation, with unread counts.
+   */
   getLocalInbox(currentUser: string) {
     if (!this.db) return [];
     return this.db.getAllSync(`
@@ -197,6 +224,7 @@ class NativeDatabaseAdapter {
     `, [currentUser]);
   }
 
+  // --- QUEUE METHODS ---
   addToQueue(actionType: string, payload: any): boolean {
     if (!this.db) return false;
     try {
@@ -211,6 +239,7 @@ class NativeDatabaseAdapter {
   removeFromQueue(id: number) { if (!this.db) return; this.db.runSync('DELETE FROM offline_queue WHERE id = ?', [id]); }
   clearQueue() { if (!this.db) return; this.db.runSync('DELETE FROM offline_queue'); }
 
+  // --- USER CACHE METHODS ---
   saveUser(user: any) { if (!this.db) return; this.db.runSync(`INSERT OR REPLACE INTO users (username, id, avatar, display_name) VALUES (?, ?, ?, ?)`, [user.username, user.id, user.avatar || '', user.display_name || user.username]); }
   getUser(username: string) { if (!this.db) return null; try { const result = this.db.getAllSync(`SELECT * FROM users WHERE username = ?`, [username]); return result.length > 0 ? result[0] : null; } catch (e) { return null; } }
 }

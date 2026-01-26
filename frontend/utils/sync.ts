@@ -8,6 +8,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getSecure } from './storage';
 
 const LAST_SYNC_TS_KEY = 'connect_last_sync_ts_v1';
+const TOMBSTONE_MARKER = "__TOMBSTONE__"; 
 
 interface InboxChat {
   conversation_id: string;
@@ -18,19 +19,20 @@ interface InboxChat {
 
 let isSyncingMessages = false;
 
-// 1. GLOBAL SYNC
+// 1. GLOBAL SYNC (Background "Postman" fetch)
 export const syncPendingMessages = async () => {
   if (isSyncingMessages) return;
 
   try {
     isSyncingMessages = true; 
+
     const token = await getSecure('accessToken');
     const currentUser = await getSecure('username'); 
     
-    // ✅ GUARD CLAUSE: Ensures currentUser is string
     if (!token || !currentUser) return;
 
     const lastSyncTime = await AsyncStorage.getItem(LAST_SYNC_TS_KEY);
+
     const url = lastSyncTime 
         ? `/chat/sync/?last_sync=${encodeURIComponent(lastSyncTime)}` 
         : `/chat/sync/`;
@@ -42,31 +44,15 @@ export const syncPendingMessages = async () => {
     if (!messages || count === 0) return;
 
     console.log(`📥 Downloading ${count} new messages...`);
+
     let newestTimestamp = lastSyncTime; 
 
     for (const msg of messages) {
       const sender = msg.sender_username || msg.sender || "";
-      const receiver = msg.receiver_username || msg.receiver || currentUser;
+      const receiver = msg.receiver_username || msg.recipient_id || msg.receiver || currentUser;
       const validConversationId = getConversationId(sender, receiver);
 
-      // ✅ CRITICAL: Anti-Resurrection (Save Tombstone)
-      if (msg.status === 'deleted' || msg.deleted_globally) {
-          saveMessage({
-              id: msg.id.toString(),
-              client_id: msg.client_id || msg.id.toString(),
-              conversation_id: validConversationId, 
-              sender: sender, 
-              recipient_id: currentUser, 
-              content: "", 
-              media: null, 
-              media_type: "none",
-              status: 'deleted',
-              timestamp: msg.timestamp,
-              locally_deleted: true 
-          });
-          continue; 
-      }
-
+      // Attempt Decryption
       let plainText = "";
       try {
         const content = msg.encrypted_content || msg.ciphertext || msg.content;
@@ -75,19 +61,37 @@ export const syncPendingMessages = async () => {
         plainText = "Encrypted message";
       }
 
-      saveMessage({
-        id: msg.id.toString(),
-        client_id: msg.client_id || msg.id.toString(),
-        conversation_id: validConversationId,
-        sender: sender,
-        recipient_id: currentUser, // Safe because of guard clause
-        content: plainText,
-        status: msg.status || 'delivered',
-        timestamp: msg.timestamp,
-        media: msg.media,
-        media_type: msg.media_type
-      });
+      // HANDLE MESSAGE DATA
+      if (msg.status === 'deleted' || msg.deleted_globally || plainText === TOMBSTONE_MARKER) {
+          saveMessage({
+              id: msg.id.toString(),
+              client_id: msg.client_id || msg.id.toString(),
+              conversation_id: validConversationId,
+              sender: sender, 
+              recipient_id: currentUser, 
+              content: "__DELETED__", 
+              media: null, 
+              media_type: "none",
+              status: 'deleted',
+              timestamp: msg.timestamp,
+              locally_deleted: true 
+          });
+      } else {
+          saveMessage({
+            id: msg.id.toString(),
+            client_id: msg.client_id || msg.id.toString(),
+            conversation_id: validConversationId,
+            sender: sender,
+            recipient_id: receiver,
+            content: plainText,
+            status: msg.status || 'delivered',
+            timestamp: msg.timestamp,
+            media: msg.media,
+            media_type: msg.media_type
+          });
+      }
 
+      // FIX: Update cursor even for tombstones so we don't refetch them
       if (!newestTimestamp || new Date(msg.timestamp) > new Date(newestTimestamp)) {
         newestTimestamp = msg.timestamp;
       }
@@ -98,7 +102,7 @@ export const syncPendingMessages = async () => {
     }
 
     DeviceEventEmitter.emit('new_message', { count });
-    console.log("✅ Sync complete.");
+    console.log(" Sync complete.");
 
   } catch (error) {
     console.error("❌ Sync Failed (Network):", error);
@@ -110,7 +114,6 @@ export const syncPendingMessages = async () => {
 export const syncChatMessages = async (username: string) => {
   try {
     const currentUser = await getSecure('username'); 
-    // ✅ GUARD CLAUSE
     if (!currentUser) return false;
 
     let targetUser = username;
@@ -127,26 +130,8 @@ export const syncChatMessages = async (username: string) => {
 
     for (const msg of messages) {
       const sender = msg.sender_username || msg.sender || "unknown";
-      const receiver = msg.receiver_username || msg.receiver || currentUser;
+      const receiver = msg.receiver_username || msg.recipient_id || msg.receiver || currentUser;
       const conversationId = getConversationId(sender, receiver);
-
-      // ✅ CRITICAL: Anti-Resurrection
-      if (msg.status === 'deleted' || msg.deleted_globally) {
-          saveMessage({
-              id: msg.id.toString(),
-              client_id: msg.client_id || msg.id.toString(),
-              conversation_id: conversationId,
-              sender: sender, 
-              recipient_id: currentUser,
-              content: "",
-              media: null,
-              media_type: "none",
-              status: 'deleted',
-              timestamp: msg.timestamp,
-              locally_deleted: true 
-          });
-          continue;
-      }
 
       let plainText = "";
       try {
@@ -156,20 +141,36 @@ export const syncChatMessages = async (username: string) => {
         plainText = "Encrypted message";
       }
 
-      saveMessage({
-        id: msg.id.toString(),
-        client_id: msg.client_id || msg.id.toString(),
-        conversation_id: conversationId, 
-        sender: sender,
-        recipient_id: currentUser, // Safe because of guard clause
-        content: plainText,
-        status: msg.status || 'read', 
-        timestamp: msg.timestamp,
-        media: msg.media,
-        media_type: msg.media_type
-      });
+      if (msg.status === 'deleted' || msg.deleted_globally || plainText === TOMBSTONE_MARKER) {
+          saveMessage({
+              id: msg.id.toString(),
+              client_id: msg.client_id || msg.id.toString(),
+              conversation_id: conversationId,
+              sender: sender, 
+              recipient_id: currentUser,
+              content: "__DELETED__",
+              media: null,
+              media_type: "none",
+              status: 'deleted',
+              timestamp: msg.timestamp,
+              locally_deleted: true 
+          });
+      } else {
+          saveMessage({
+            id: msg.id.toString(),
+            client_id: msg.client_id || msg.id.toString(),
+            conversation_id: conversationId, 
+            sender: sender,
+            recipient_id: receiver,
+            content: plainText,
+            status: msg.status || 'read', 
+            timestamp: msg.timestamp,
+            media: msg.media,
+            media_type: msg.media_type
+          });
+      }
     }
-    console.log(`✅ History synced for ${targetUser}`);
+    console.log(`History synced for ${targetUser}`);
     return true;
   } catch (error) {
     console.error(`❌ Failed to sync history for ${username}:`, error);
@@ -186,7 +187,10 @@ export const syncServerInbox = async () => {
     return serverInbox.map((entry: any) => {
       let plainText = "";
       if (entry.last_message) {
-        try { plainText = decryptMessage(entry.last_message); } 
+        try { 
+          plainText = decryptMessage(entry.last_message);
+          if (plainText === TOMBSTONE_MARKER) plainText = "Message deleted";
+        } 
         catch (e) { plainText = "Encrypted message"; }
       }
       return { ...entry, content: plainText, timestamp: entry.last_message_time };
