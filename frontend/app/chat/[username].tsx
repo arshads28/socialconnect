@@ -146,8 +146,9 @@ export default function ChatScreen() {
       
       const net = await NetInfo.fetch();
       if (isMounted) setIsConnected(net.isConnected ?? false);
-      if (net.isConnected) {
-        const synced = await syncChatMessages(targetUsername);
+      if (net.isConnected && user?.username) {
+        console.log("🔄 Triggering Chat Sync...");
+        const synced = await syncChatMessages(targetUsername, user.username);
         if (isMounted && synced) loadLocalMessages();
       }
       markChatAsRead(conversationId, user?.username || '');
@@ -158,7 +159,7 @@ export default function ChatScreen() {
       if (isMounted) setIsConnected(state.isConnected ?? false);
     });
     return () => { isMounted = false; unsubscribeNet(); };
-  }, [targetUsername, conversationId]);
+  }, [targetUsername, conversationId, user]);
 
   // WebSockets
   useEffect(() => {
