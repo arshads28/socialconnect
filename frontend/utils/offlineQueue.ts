@@ -23,7 +23,6 @@ export const processOfflineQueue = async () => {
   try {
       isProcessingQueue = true; 
 
-      // 1. NETWORK CHECK
       const netState = await NetInfo.fetch();
       if (!netState.isConnected || !netState.isInternetReachable) {
           console.log("Queue paused: Waiting for Internet...");
@@ -33,7 +32,6 @@ export const processOfflineQueue = async () => {
 
       UploadManager.resume();
 
-      // 2. AUTH CHECK
       const token = await getSecure('accessToken');
       if (!token) {
           isProcessingQueue = false;
@@ -50,7 +48,6 @@ export const processOfflineQueue = async () => {
       console.log(`🔄 Processing batch of ${batch.length}...`);
 
       for (const task of batch) {
-        
         if (task.retries >= MAX_RETRIES) {
             console.warn(`☠️ Task ${task.id} failed too many times. Dropping.`);
             removeFromQueue(task.id);
@@ -76,6 +73,17 @@ export const processOfflineQueue = async () => {
             case 'SEND_MESSAGE': 
                 success = await processSendMessage(payload); 
                 break;
+            
+            // ✅ ADDED: Offline Delete Support
+            case 'DELETE_MESSAGE':
+                try {
+                    const endpoint = payload.scope === 'global' ? '/chat/delete/global/' : '/chat/delete/self/';
+                    await api.post(endpoint, { client_ids: payload.client_ids });
+                    success = true;
+                } catch(e) {
+                    console.error("Delete sync failed", e);
+                }
+                break;
           }
 
           if (success) {
@@ -90,18 +98,13 @@ export const processOfflineQueue = async () => {
               isProcessingQueue = false;
               return; 
           }
-          if (!error.response) {
-              isProcessingQueue = false; 
-              return; 
-          }
           incrementRetryCount(task.id);
         }
       }
 
       const remaining = getQueue() as QueueTask[];
       if (remaining.length > 0) {
-          isProcessingQueue = false; 
-          setTimeout(() => processOfflineQueue(), 1000);
+          setTimeout(() => { isProcessingQueue = false; processOfflineQueue(); }, 1000);
       } else {
           isProcessingQueue = false; 
       }
@@ -154,7 +157,6 @@ const processSendMessage = async (data: any) => {
         if (response.status === 200 || response.status === 201) {
             if (data.client_id) {
                 updateMessageStatus(data.client_id, 'sent');
-                
                 DeviceEventEmitter.emit('message_status_changed', { 
                     client_id: data.client_id, 
                     status: 'sent' 
@@ -167,7 +169,6 @@ const processSendMessage = async (data: any) => {
     } catch (e: any) { 
         if (e.response?.status === 401) throw e;
         if (!e.response) throw e; 
-        console.error("Msg Sync Error:", e.response?.data || e.message);
         return false; 
     }
 };

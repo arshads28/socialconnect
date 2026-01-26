@@ -1,6 +1,6 @@
 import { 
   View, Text, FlatList, TextInput, TouchableOpacity, StyleSheet, 
-  Platform, DeviceEventEmitter, Image, Alert, ActivityIndicator, BackHandler
+  Platform, DeviceEventEmitter, Image, Alert, ActivityIndicator, BackHandler, Animated
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -15,8 +15,9 @@ import {
   saveMessage, getMessagesForChat, markChatAsRead, 
   deleteLocalChat, generateUUID, addToQueue,
   getUser, saveUser, getConversationId, Message,
-  deleteMessagesByClientIds // ✅ Use Soft Delete
+  deleteMessagesByClientIds 
 } from '../../utils/db'; 
+
 import { useAuth } from '../../context/AuthContext';
 import { syncChatMessages } from '../../utils/sync';
 import NetInfo from '@react-native-community/netinfo';
@@ -42,6 +43,17 @@ export default function ChatScreen() {
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const dragSelecting = useRef(false);
+
+  // 1️⃣ REFS FOR SAFE UNDO & UNMOUNT TRAPS
+  const [undoState, setUndoState] = useState<{ visible: boolean, ids: string[], scope: 'self' | 'global' | null, timer: any }>({
+    visible: false, ids: [], scope: null, timer: null
+  });
+  const slideAnim = useRef(new Animated.Value(100)).current; 
+  
+  // Cache deleted messages so Undo doesn't jump the scroll view
+  const deletedCacheRef = useRef<Message[]>([]);
+  // Trap pending deletes in case user leaves the screen
+  const pendingDeleteRef = useRef<{ ids: string[], scope: 'self' | 'global' } | null>(null);
 
   const targetUsername = useMemo(() => {
      if (rawParam.includes('__') && user?.username) {
@@ -77,6 +89,44 @@ export default function ChatScreen() {
     return () => setActiveConversationId(null);
   }, [conversationId]);
 
+  // CRITICAL FIX: The "Exit Trap" for unmounting
+  useEffect(() => {
+    return () => {
+      // If user leaves screen while timer is running, commit instantly
+      if (pendingDeleteRef.current) {
+        console.log("Navigating away - forcing delete commit for:", pendingDeleteRef.current.ids);
+        commitDelete(pendingDeleteRef.current.ids, pendingDeleteRef.current.scope);
+      }
+    };
+  }, []);
+
+  // Hardware Back Button
+  useEffect(() => {
+    const backAction = () => {
+      if (selectionMode) {
+        clearSelection();
+        return true;
+      }
+      return false;
+    };
+    const backHandler = BackHandler.addEventListener('hardwareBackPress', backAction);
+    return () => backHandler.remove();
+  }, [selectionMode]);
+
+  useEffect(() => {
+    const deleteListener = DeviceEventEmitter.addListener('messages_deleted_event', (deletedIds: string[]) => {
+      setMessages(prev => prev.filter(msg => !deletedIds.includes(msg.client_id)));
+      if (selectionMode) {
+        const remainingSelection = new Set(selectedIds);
+        deletedIds.forEach(id => remainingSelection.delete(id));
+        setSelectedIds(remainingSelection);
+        if (remainingSelection.size === 0) setSelectionMode(false);
+      }
+    });
+    return () => deleteListener.remove();
+  }, [selectionMode, selectedIds]); 
+
+  // Init
   useEffect(() => {
     let isMounted = true;
     setMessages([]); 
@@ -103,6 +153,7 @@ export default function ChatScreen() {
     return () => { isMounted = false; unsubscribeNet(); };
   }, [targetUsername, conversationId]);
 
+  // WebSockets
   useEffect(() => {
     if (!ws || ws.readyState !== WebSocket.OPEN || !targetProfile?.id) return;
     if (isConnected) ws.send(JSON.stringify({ command: 'join_room', recipient_id: targetProfile.id}));
@@ -128,19 +179,6 @@ export default function ChatScreen() {
     });
     return () => { msgListener.remove(); statusListener.remove(); typingListener.remove(); presenceListener.remove(); };
   }, [targetUsername, targetProfile, conversationId]);
-
-  // Handle Hardware Back Button
-  useEffect(() => {
-    const backAction = () => {
-      if (selectionMode) {
-        clearSelection();
-        return true;
-      }
-      return false;
-    };
-    const backHandler = BackHandler.addEventListener('hardwareBackPress', backAction);
-    return () => backHandler.remove();
-  }, [selectionMode]);
 
   const fetchTargetProfile = async () => {
     try {
@@ -179,55 +217,99 @@ export default function ChatScreen() {
     setSelectedIds(new Set());
   };
 
-  // ✅ UPDATED: Delete Logic (Soft Delete Locally)
+  // TELEGRAM DELETE LOGIC
   const handleDeleteSelected = () => {
     const selectedMsgs = messages.filter(m => selectedIds.has(m.client_id));
     const clientIds = selectedMsgs.map(m => m.client_id);
 
     const isMe = (m: Message) => m.sender === user?.username;
-    const isRecent = (m: Message) => {
+    const canDeleteForEveryone = selectedMsgs.every(m => {
         const sentTime = new Date(m.timestamp).getTime();
         const sixHoursAgo = Date.now() - (6 * 60 * 60 * 1000);
-        return sentTime > sixHoursAgo;
-    };
+        return isMe(m) && (sentTime > sixHoursAgo);
+    });
 
-    const canDeleteForEveryone = selectedMsgs.every(m => isMe(m) && isRecent(m));
-
-    const performLocalDelete = () => {
-        deleteMessagesByClientIds(clientIds); // Soft Delete
-        setMessages(prev => prev.filter(m => !selectedIds.has(m.client_id))); // Update UI
+    const triggerUndoSnackbar = (scope: 'self' | 'global') => {
+        // Cache messages for smooth undo
+        deletedCacheRef.current = selectedMsgs; 
+        
+        // Optimistic UI Removal
+        setMessages(prev => prev.filter(m => !selectedIds.has(m.client_id))); 
         clearSelection();
+
+        // Safe Reset
+        if (undoState.timer) clearTimeout(undoState.timer);
+
+        //EXIT TRAP: Assign to ref
+        pendingDeleteRef.current = { ids: clientIds, scope };
+
+        Animated.timing(slideAnim, { toValue: 0, duration: 300, useNativeDriver: true }).start();
+
+        const timer = setTimeout(() => {
+            commitDelete(clientIds, scope);
+            hideUndoSnackbar();
+        }, 6000);
+
+        setUndoState({ visible: true, ids: clientIds, scope, timer });
     };
 
     const buttons: any[] = [
         { text: "Cancel", style: "cancel" },
-        { 
-            text: "Delete for Me", 
-            onPress: async () => {
-                performLocalDelete();
-                api.post('/chat/delete/self/', { client_ids: clientIds }).catch(() => {});
-            }
-        }
+        { text: "Delete for Me", onPress: () => triggerUndoSnackbar('self') }
     ];
 
     if (canDeleteForEveryone) {
         buttons.push({
             text: "Delete for Everyone",
             style: 'destructive',
-            onPress: async () => {
-                performLocalDelete(); 
-                api.post('/chat/delete/global/', { client_ids: clientIds }).catch(() => {});
-            }
+            onPress: () => triggerUndoSnackbar('global')
         });
     }
 
-    Alert.alert("Delete Message?", canDeleteForEveryone ? "You can delete this for everyone or just yourself." : "This will delete the message from your device only.", buttons);
+    Alert.alert(
+      "Delete Message?", 
+      canDeleteForEveryone ? "You can delete this for everyone or just yourself." : "This will delete the message from your device only.", 
+      buttons
+    );
   };
 
+  //CRITICAL FIX: DB operations ONLY happen here, not during Undo window
+  const commitDelete = (ids: string[], scope: 'self' | 'global') => {
+    deleteMessagesByClientIds(ids); 
+    addToQueue('DELETE_MESSAGE', { client_ids: ids, scope }); 
+    
+    // Clear refs
+    pendingDeleteRef.current = null;
+    deletedCacheRef.current = [];
+  };
+
+  // CRITICAL FIX: Restore from Cache (No Scroll Jump)
+  const handleUndo = () => {
+    if (undoState.timer) clearTimeout(undoState.timer);
+    pendingDeleteRef.current = null; // Cancel commit trap
+
+    setMessages(prev => {
+        const combined = [...prev, ...deletedCacheRef.current];
+        return combined.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    });
+
+    deletedCacheRef.current = [];
+    hideUndoSnackbar();
+  };
+
+  const hideUndoSnackbar = () => {
+    Animated.timing(slideAnim, { toValue: 100, duration: 300, useNativeDriver: true }).start(() => {
+        setUndoState({ visible: false, ids: [], scope: null, timer: null });
+    });
+  };
+
+  //  SECURE FORWARDING
   const handleForwardSelected = () => {
-    const selectedMessages = messages.filter(m => selectedIds.has(m.client_id));
-    const imageUrls = selectedMessages.filter(m => m.media_type === 'image').map(m => m.media as string);
-    const textMessages = selectedMessages.filter(m => !m.media_type).map(m => m.content);
+    // CRITICAL FIX: Do not forward deleted tombstones
+    const validMessages = messages.filter(m => selectedIds.has(m.client_id) && !m.locally_deleted && m.content !== "__DELETED__");
+    
+    const imageUrls = validMessages.filter(m => m.media_type === 'image').map(m => m.media as string);
+    const textMessages = validMessages.filter(m => !m.media_type).map(m => m.content);
   
     if (imageUrls.length > 0) {
       setViewerImages(imageUrls.map(u => ({ uri: u })));
@@ -252,6 +334,7 @@ export default function ChatScreen() {
     }
   };
 
+  // ORIGINAL FORWARD
   const handleForwardMedia = async (imageUris: string[], targetUsers: string[]) => {
       try {
           let successCount = 0;
@@ -265,9 +348,8 @@ export default function ChatScreen() {
 
               let targetId = null;
               const userObj = getUser(cleanTarget) as any;
-              if (userObj?.id) {
-                  targetId = userObj.id;
-              } else {
+              if (userObj?.id) { targetId = userObj.id; } 
+              else {
                   try {
                       const res = await api.get(`/auth/api/profile/${cleanTarget}/`);
                       targetId = res.data?.id;
@@ -305,6 +387,10 @@ export default function ChatScreen() {
 
   const handleSendMedia = async (assets: ImagePicker.ImagePickerAsset[]) => {
     if (!targetProfile?.id) return;
+
+    // TYPED ALBUM ID GENERATION
+    const albumId = assets.length > 1 ? generateUUID() : undefined;
+
     for (const asset of assets) {
         const processed = await processMedia(asset.uri, 'image');
         const clientId = generateUUID();
@@ -315,6 +401,7 @@ export default function ChatScreen() {
             id: null, client_id: clientId, conversation_id: conversationId, recipient_id: recipientId,
             sender: user?.username || '', content: processed.uri, status: 'uploading', 
             timestamp: new Date().toISOString(), media: processed.uri, media_type: 'image',
+            album_id: albumId, // ✅ Properly typed
             // @ts-ignore
             media_progress: 0, media_failed: false
         };
@@ -325,13 +412,14 @@ export default function ChatScreen() {
         UploadManager.add({
             id: clientId, files: [{ uri: processed.uri, type: 'image' }], 
             endpoint: `${BASE_URL}/chat/upload/`, headers: { 'Authorization': `Bearer ${token}` },
-            additionalData: { id: clientId, recipient_id: recipientId },
+            additionalData: { id: clientId, recipient_id: recipientId, album_id: albumId }, 
         }, {
             onProgress: (p) => setMessages(prev => prev.map(m => m.client_id === clientId ? { ...m, media_progress: p } : m)),
             onSuccess: (res) => {
                 const remoteUrl = res.media_url || res.url;
                 const ciphertext = encryptMessage(remoteUrl);
-                sendMessage(recipientId, ciphertext, clientId); 
+                // 5️⃣ CRITICAL FIX: Send album_id to WebSocket
+                sendMessage(recipientId, ciphertext, clientId, albumId); 
                 saveMessage({ ...optimisticMsg, content: remoteUrl, media: remoteUrl, status: 'sent' });
                 setMessages(prev => prev.map(m => m.client_id === clientId ? { ...m, content: remoteUrl, media: remoteUrl, status: 'sent', media_progress: 100 } : m));
             },
@@ -345,8 +433,11 @@ export default function ChatScreen() {
 
   const openImage = (url: string) => {
     const images = messages
-      .filter(m => m.media_type === 'image')
-      .map(m => ({ uri: m.media!.startsWith('http') ? m.media! : `${BASE_URL}${m.media}` }));
+      .filter(m => m.media_type === 'image' && (m.media || m.content))
+      .map(m => {
+        const rawUrl = m.media || m.content || ""; // Fallback to content
+        return { uri: rawUrl.startsWith('http') ? rawUrl : `${BASE_URL}${rawUrl}` };
+      });
 
     const index = images.findIndex(i => i.uri === url);
     setViewerImages(images);
@@ -384,27 +475,40 @@ export default function ChatScreen() {
       ]);
   };
 
+  //  STABLE ALBUM GROUPING USING album_id
   const groupedMessages = useMemo(() => {
     const groups: any[] = [];
+    const albums = new Map<string, Message[]>();
     let buffer: any[] = [];
+
     messages.forEach(msg => {
-      if (msg.media_type === 'image') { buffer.push(msg); } 
-      else {
+      if (msg.album_id) {
+        if (!albums.has(msg.album_id)) albums.set(msg.album_id, []);
+        albums.get(msg.album_id)!.push(msg);
+      } else if (msg.media_type === 'image') {
+        buffer.push(msg); 
+      } else {
         if (buffer.length) { groups.push([...buffer]); buffer = []; }
         groups.push([msg]);
       }
     });
     if (buffer.length) groups.push(buffer);
-    return groups;
+    albums.forEach(v => groups.push(v));
+
+    return groups.sort((a, b) => new Date(a[0].timestamp).getTime() - new Date(b[0].timestamp).getTime());
   }, [messages]);
 
   const renderSingleMessage = (item: any) => {
     const isMe = item.sender === user?.username;
     const isSelected = selectedIds.has(item.client_id);
     
+    if (item.content === "__DELETED__") return null;
+
     let mediaUri = item.media || item.content;
     if (!mediaUri || typeof mediaUri !== 'string') mediaUri = "";
     if (mediaUri.startsWith('/media/')) { mediaUri = `${BASE_URL}${mediaUri}`; }
+
+    if (!mediaUri && item.media_type === 'image') return null;
 
     const isMedia = item.media_type === 'image' || mediaUri.startsWith('file://') || /\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(mediaUri);
 
@@ -433,7 +537,7 @@ export default function ChatScreen() {
           >
             {isMedia ? (
                <View>
-                  <TouchableOpacity onPress={() => openImage(mediaUri)}>
+                  <TouchableOpacity onPress={() => selectionMode ? toggleSelect(item.client_id) : openImage(mediaUri)}>
                       <Image source={{ uri: mediaUri }} style={styles.mediaImage} resizeMode="cover"/>
                   </TouchableOpacity>
                   {item.status === 'uploading' && <View style={styles.mediaOverlay}><ActivityIndicator color="#fff" size="small" /></View>}
@@ -457,21 +561,52 @@ export default function ChatScreen() {
   };
 
   const renderMessage = ({ item }: { item: Message[] }) => {
+    // Check if it's a multi-image album
     if (item.length > 1 && item[0].media_type === 'image') {
+      const isMe = item[0].sender === user?.username;
+      
+      // TELEGRAM LOGIC: Max 4 photos visible.
+      const DISPLAY_LIMIT = 4;
+      const visibleItems = item.slice(0, DISPLAY_LIMIT);
+      const overflowCount = item.length - DISPLAY_LIMIT;
+
       return (
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginBottom: 12, justifyContent: item[0].sender === user?.username ? 'flex-end' : 'flex-start' }}>
-          {item.map((m, i) => {
+        <View style={[
+          styles.albumContainer, 
+          isMe ? { alignSelf: 'flex-end', marginRight: 12 } : { alignSelf: 'flex-start', marginLeft: 12 }
+        ]}>
+          {visibleItems.map((m, i) => {
             const isSelected = selectedIds.has(m.client_id);
+            const isLastVisible = i === DISPLAY_LIMIT - 1;
+            
+            const rawUrl = m.media || m.content || "";
+            const fullUrl = rawUrl.startsWith('http') ? rawUrl : `${BASE_URL}${rawUrl}`;
+
+            // Dynamic grid sizing (2x2 style)
+            const isLarge = item.length === 3 && i === 0; // If 3 images, make the first one take full width
+
             return (
               <TouchableOpacity 
                 key={i} 
-                onPress={() => openImage(m.media!)}
+                onPress={() => selectionMode ? toggleSelect(m.client_id) : openImage(fullUrl)}
                 onLongPress={() => { setSelectionMode(true); toggleSelect(m.client_id); }}
                 onPressIn={() => { if (selectionMode && !dragSelecting.current) { dragSelecting.current = true; toggleSelect(m.client_id); } }}
                 onPressOut={() => { dragSelecting.current = false; }}
-                style={{ position: 'relative' }} 
+                style={[
+                  styles.albumImageWrapper,
+                  isLarge ? { width: '100%', height: 160 } : { width: '49%', height: 120 },
+                  isSelected && { borderWidth: 2, borderColor: colors.tint }
+                ]} 
               >
-                <Image source={{ uri: m.media! }} style={[styles.mediaImage, { width: 100, height: 100, margin: 2 }, isSelected && { borderWidth: 2, borderColor: colors.tint }]} />
+                <Image source={{ uri: fullUrl }} style={styles.albumImage} />
+                
+                {/* 🔢 TELEGRAM-STYLE COUNT OVERLAY */}
+                {(isLastVisible && overflowCount > 0) && (
+                  <View style={styles.overflowOverlay}>
+                    <Text style={styles.overflowText}>+{overflowCount}</Text>
+                  </View>
+                )}
+
                 {isSelected && <View style={styles.selectionTickContainer}><Ionicons name="checkmark-circle" size={20} color={colors.tint} /></View>}
               </TouchableOpacity>
             )
@@ -481,6 +616,9 @@ export default function ChatScreen() {
     }
     return renderSingleMessage(item[0]);
   };
+
+  //  DYNAMIC INSETS FOR LAYOUT COLLISION (Keyboard vs Undo Bar)
+  const safeBottom = useSafeAreaInsets().bottom;
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top', 'left', 'right']}>
@@ -522,6 +660,19 @@ export default function ChatScreen() {
         </View>
       </KeyboardWrapper>
       <ImageViewer visible={viewerVisible} images={viewerImages} index={viewerIndex} onClose={() => setViewerVisible(false)} onForward={handleForwardMedia} />
+
+      {/* Undo Snackbar with Safe Area layout protection */}
+      {undoState.visible && (
+        <Animated.View style={[styles.undoSnackbar, { bottom: 20 + (safeBottom > 0 ? safeBottom : 60), transform: [{ translateY: slideAnim }] }]}>
+          <Text style={styles.undoText}>
+            {undoState.ids.length} message{undoState.ids.length > 1 ? 's' : ''} deleted
+          </Text>
+          <TouchableOpacity onPress={handleUndo} style={styles.undoButton}>
+            <Text style={styles.undoButtonText}>UNDO (6s)</Text>
+          </TouchableOpacity>
+        </Animated.View>
+      )}
+
     </SafeAreaView>
   );
 }
@@ -548,4 +699,56 @@ const styles = StyleSheet.create({
   mediaImage: { width: 200, height: 200, borderRadius: 10 },
   mediaOverlay: { position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', borderRadius: 10 },
   selectionTickContainer: { position: 'absolute', bottom: 4, right: 4, backgroundColor: '#fff', borderRadius: 12, zIndex: 10, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.2, shadowRadius: 1, elevation: 2 },
+  
+  undoSnackbar: {
+    position: 'absolute',
+    left: 20,
+    right: 20,
+    backgroundColor: '#323232',
+    borderRadius: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 5,
+    zIndex: 999
+  },
+  undoText: { color: '#fff', fontSize: 14, fontWeight: '500' },
+  undoButton: { padding: 4 },
+  undoButtonText: { color: '#4dabf7', fontWeight: 'bold', fontSize: 14 },
+  
+  albumContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    width: 250, // Fixed width to force the grid shape
+    borderRadius: 16,
+    overflow: 'hidden',
+    marginBottom: 12,
+    gap: 2, // Space between images
+  },
+  albumImageWrapper: {
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  albumImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
+  overflowOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  overflowText: {
+    color: '#fff',
+    fontSize: 24,
+    fontWeight: 'bold',
+  },
 });

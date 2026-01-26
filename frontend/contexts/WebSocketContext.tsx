@@ -21,7 +21,7 @@ import { registerForPushNotificationsAsync } from '../utils/pushNotifications';
 interface WebSocketContextType {
   ws: WebSocket | null;
   isConnected: boolean;
-  sendMessage: (targetId: string, ciphertext: string, clientId: string) => void;
+  sendMessage: (targetId: string, ciphertext: string, clientId: string, albumId?: string) => void;
   sendReadSignal: (targetUser: string) => void;
   sendTypingSignal: (targetUser: string) => void;
   setActiveConversationId: (id: string | null) => void;
@@ -248,13 +248,14 @@ export const WebSocketProvider = ({ children }: { children: React.ReactNode }) =
     };
   };
 
-  const sendMessage = (targetId: string, ciphertext: string, clientId: string) => {
+  const sendMessage = (targetId: string, ciphertext: string, clientId: string, albumId?: string) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({
         command: 'send_message',
         recipient_id: targetId, 
         ciphertext: ciphertext,
-        client_id: clientId
+        client_id: clientId,
+        album_id: albumId 
       }));
     }
   };
