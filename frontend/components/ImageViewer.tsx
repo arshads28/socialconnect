@@ -7,7 +7,7 @@ import ImageViewing from 'react-native-image-viewing';
 import { Ionicons } from '@expo/vector-icons';
 import * as Sharing from 'expo-sharing';
 import { getLocalInbox } from '../utils/db';
-import { useAuth } from '../context/AuthContext'; 
+import { useAuth } from '../context/AuthContext';
 import { getCachedFile, saveToGallery } from '../utils/mediaCache';
 
 interface Props {
@@ -19,10 +19,9 @@ interface Props {
 }
 
 export default function ImageViewer({ visible, images, index, onClose, onForward }: Props) {
-  const { user } = useAuth();
+  const { user } = useAuth(); 
   const [currentIndex, setCurrentIndex] = useState(index);
   
-  // States
   const [forwardMode, setForwardMode] = useState(false);
   const [selectedImages, setSelectedImages] = useState<Set<number>>(new Set());
   const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set());
@@ -30,7 +29,7 @@ export default function ImageViewer({ visible, images, index, onClose, onForward
   const [recentUsers, setRecentUsers] = useState<any[]>([]);
   const [downloading, setDownloading] = useState(false);
 
-  // ✅ Helper to clean display names in the UI list
+  // Helper: Clean IDs for display
   const cleanUsername = (id: string) => {
       if (id.includes('__') && user?.username) {
           return id.split('__').find(p => p !== user.username) || id;
@@ -49,19 +48,13 @@ export default function ImageViewer({ visible, images, index, onClose, onForward
     }
   }, [showUserModal]);
 
-  /* ---------------- ACTIONS ---------------- */
-
   const handleDownload = async (uri: string) => {
     try {
       setDownloading(true);
-      // 1. Download to local cache
       const localUri = await getCachedFile(uri);
-      // 2. Save to "Connect" Album
       await saveToGallery(localUri);
-      
       Alert.alert('Saved', 'Image saved to "Connect" album');
     } catch (e) {
-      console.log(e);
       Alert.alert('Error', 'Failed to save image');
     } finally {
       setDownloading(false);
@@ -73,15 +66,9 @@ export default function ImageViewer({ visible, images, index, onClose, onForward
       if (await Sharing.isAvailableAsync()) {
         const localUri = await getCachedFile(uri);
         await Sharing.shareAsync(localUri);
-      } else {
-        Alert.alert('Sharing not available');
       }
-    } catch (e) {
-      console.log(e);
-    }
+    } catch (e) {}
   };
-
-  /* ---------------- LOGIC ---------------- */
 
   const toggleImageSelect = (idx: number) => {
     setSelectedImages((prev) => {
@@ -91,10 +78,10 @@ export default function ImageViewer({ visible, images, index, onClose, onForward
     });
   };
 
-  const toggleUserSelect = (userId: string) => {
+  const toggleUserSelect = (id: string) => {
     setSelectedUsers((prev) => {
       const next = new Set(prev);
-      next.has(userId) ? next.delete(userId) : next.add(userId);
+      next.has(id) ? next.delete(id) : next.add(id);
       return next;
     });
   };
@@ -111,34 +98,27 @@ export default function ImageViewer({ visible, images, index, onClose, onForward
 
   const performSend = () => {
     if (selectedUsers.size === 0) return;
-    const imagesToSend = Array.from(selectedImages).map(i => images[i].uri);
-    const usersRecipients = Array.from(selectedUsers); // Pass IDs to parent
-    onForward(imagesToSend, usersRecipients);
+    const imgs = Array.from(selectedImages).map(i => images[i].uri);
+    const users = Array.from(selectedUsers);
+    
+    // Pass RAW IDs to parent (Parent handles cleaning logic)
+    onForward(imgs, users);
+    
     setShowUserModal(false);
     setForwardMode(false);
     setSelectedImages(new Set());
     setSelectedUsers(new Set());
   };
 
-  /* ---------------- UI ---------------- */
-
   const Header = ({ imageIndex }: { imageIndex: number }) => (
     <SafeAreaView style={styles.headerContainer}>
       <View style={styles.headerContent}>
-        <TouchableOpacity 
-            onPress={() => {
-                if(forwardMode) {
-                    setForwardMode(false);
-                    setSelectedImages(new Set());
-                } else {
-                    onClose();
-                }
-            }} 
-            style={styles.iconBtn}
-        >
+        <TouchableOpacity onPress={() => {
+            if(forwardMode) { setForwardMode(false); setSelectedImages(new Set()); } 
+            else { onClose(); }
+        }} style={styles.iconBtn}>
           <Ionicons name={forwardMode ? "arrow-back" : "close"} size={26} color="#fff" />
         </TouchableOpacity>
-
         <View style={styles.rightActions}>
           {forwardMode ? (
             <TouchableOpacity onPress={openUserPicker} style={[styles.nextBtn, selectedImages.size === 0 && { opacity: 0.5 }]} disabled={selectedImages.size === 0}>
@@ -177,34 +157,16 @@ export default function ImageViewer({ visible, images, index, onClose, onForward
 
   return (
     <>
-      <ImageViewing
-        images={images}
-        imageIndex={currentIndex}
-        visible={visible}
-        onRequestClose={onClose}
-        onImageIndexChange={setCurrentIndex}
-        HeaderComponent={Header}
-        FooterComponent={Footer}
-        presentationStyle="overFullScreen"
-        animationType="fade"
-        doubleTapToZoomEnabled={!forwardMode} 
-        swipeToCloseEnabled={!forwardMode}
-      />
-
-      {/* USER MODAL */}
+      <ImageViewing images={images} imageIndex={currentIndex} visible={visible} onRequestClose={onClose} onImageIndexChange={setCurrentIndex} HeaderComponent={Header} FooterComponent={Footer} presentationStyle="overFullScreen" />
       <Modal visible={showUserModal} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowUserModal(false)}>
         <SafeAreaView style={styles.modalContainer}>
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>Send to...</Text>
             <TouchableOpacity onPress={() => setShowUserModal(false)}><Ionicons name="close" size={28} color="#000" /></TouchableOpacity>
           </View>
-          <FlatList
-            data={recentUsers}
-            keyExtractor={(i) => i.conversation_id}
-            renderItem={({ item }) => {
+          <FlatList data={recentUsers} keyExtractor={(i) => i.conversation_id} renderItem={({ item }) => {
               const isSelected = selectedUsers.has(item.conversation_id);
-              // ✅ CLEAN NAME FOR UI
-              const displayName = cleanUsername(item.conversation_id); 
+              const displayName = cleanUsername(item.conversation_id);
               return (
                 <TouchableOpacity style={[styles.userRow, isSelected && { backgroundColor: '#f0f8ff' }]} onPress={() => toggleUserSelect(item.conversation_id)}>
                   <View style={styles.avatarPlaceholder}><Ionicons name="person" size={24} color="#888" /></View>
@@ -214,8 +176,8 @@ export default function ImageViewer({ visible, images, index, onClose, onForward
                   </View>
                 </TouchableOpacity>
               );
-            }}
-            ListEmptyComponent={<Text style={styles.emptyText}>No recent chats found.</Text>}
+            }} 
+            ListEmptyComponent={<Text style={styles.emptyText}>No recent chats.</Text>}
           />
           <View style={styles.modalFooter}>
             <TouchableOpacity style={[styles.sendBtn, selectedUsers.size === 0 && { backgroundColor: '#ccc' }]} disabled={selectedUsers.size === 0} onPress={performSend}>
@@ -224,7 +186,6 @@ export default function ImageViewer({ visible, images, index, onClose, onForward
           </View>
         </SafeAreaView>
       </Modal>
-
       {downloading && <View style={styles.loadingOverlay}><ActivityIndicator size="large" color="#fff" /><Text style={{ color: '#fff', marginTop: 10 }}>Saving...</Text></View>}
     </>
   );

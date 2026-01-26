@@ -161,20 +161,23 @@ export default function ChatScreen() {
     }
   };
 
-  // ✅ FIXED: Instant UI Update + Correct Media Type
+  // ✅ FIXED: Forwarding Logic using WebSocket
   const handleForwardMedia = async (imageUris: string[], targetUsers: string[]) => {
       try {
           let successCount = 0;
 
-          for (const rawTarget of targetUsers) {
-              // 1. Clean Name
+          // Loop through each target user (C, D, etc.)
+          for (let i = 0; i < targetUsers.length; i++) {
+              const rawTarget = targetUsers[i];
+              
+              // 1. Get the REAL recipient ID (User C)
               let cleanTarget = rawTarget;
               if (rawTarget.includes('__') && user?.username) {
                   const parts = rawTarget.split('__');
                   cleanTarget = parts.find(p => p !== user.username) || rawTarget;
               }
 
-              // 2. Resolve ID
+              // Resolve ID for User C
               let targetId = null;
               const userObj = getUser(cleanTarget) as any;
               
@@ -192,41 +195,34 @@ export default function ChatScreen() {
 
               if (!targetId) continue;
 
-              // 3. Send Images
+              // 2. Loop through images and send to User C
               for (const imgUrl of imageUris) {
-                  // Ensure Full URL
+                  // Ensure we have a full URL
                   const cleanUrl = imgUrl.startsWith('http') ? imgUrl : `${BASE_URL}${imgUrl}`;
                   const ciphertext = encryptMessage(cleanUrl);
-                  
-                  // A. API Call (Background)
-                  api.post(`/chat/send/`, {
-                      recipient_id: targetId,
-                      ciphertext: ciphertext,
-                      media: cleanUrl,
-                      media_type: 'image',
-                      client_id: generateUUID()
-                  });
+                  const clientId = generateUUID();
 
-                  // B. ✅ INSTANT UI UPDATE (Optimistic)
-                  // Only if we are forwarding TO the current active chat
+                  // USE WEBSOCKET: Sends directly to targetId (User C)
+                  sendMessage(targetId, ciphertext, clientId);
+
+                  // 3. Optimistic Update (Only show in chat if we are currently looking at User C)
                   if (cleanTarget === targetUsername) {
                       const optimisticMsg: Message = {
                           id: null,
-                          client_id: generateUUID(),
+                          client_id: clientId,
                           conversation_id: conversationId,
                           recipient_id: targetId,
                           sender: user?.username || '',
                           content: cleanUrl, 
                           status: 'sending',
                           timestamp: new Date().toISOString(),
-                          media: cleanUrl,       // ✅ Set this so it displays as image
-                          media_type: 'image',   // ✅ Set this so it displays as image
+                          media: cleanUrl,       
+                          media_type: 'image',   // Force type to image
                           // @ts-ignore
                           media_progress: 100, 
                           // @ts-ignore
                           media_failed: false
                       };
-                      
                       saveMessage(optimisticMsg);
                       setMessages(prev => [...prev, optimisticMsg]);
                   }
@@ -324,17 +320,14 @@ export default function ChatScreen() {
   const renderMessage = ({ item }: { item: any }) => {
     const isMe = item.sender === user?.username;
     
-    // Normalize Media URL
+    // Normalize URL
     let mediaUri = item.media || item.content;
     if (!mediaUri || typeof mediaUri !== 'string') mediaUri = "";
     if (mediaUri.startsWith('/media/')) {
         mediaUri = `${BASE_URL}${mediaUri}`;
     }
 
-    // ✅ FIXED: Better Image Detection
-    // 1. Explicit type check
-    // 2. File protocol check
-    // 3. Extension check (jpg, png, etc.)
+    // ✅ FIXED: Auto-detect image URL (jpg, png, etc)
     const isMedia = 
         item.media_type === 'image' || 
         mediaUri.startsWith('file://') ||

@@ -1,22 +1,17 @@
 import * as FileSystem from 'expo-file-system';
 import * as MediaLibrary from 'expo-media-library';
-import { Platform } from 'react-native';
 
-// ⚠️ Force cast to avoid TS errors
+// Expo typings workaround
 const FS: any = FileSystem;
-
-/* ------------------------------------------------------------------ */
-/* CONFIG & HELPERS */
-/* ------------------------------------------------------------------ */
 
 const MAX_CACHE_SIZE = 200 * 1024 * 1024; // 200 MB
 const MAX_FILE_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
-// ✅ FIX: Get directory at runtime to prevent "Storage unavailable" crash on startup
+// FIX: Runtime directory generation (prevents "Storage unavailable" crash)
 const getCacheDir = () => {
   const base = FS.cacheDirectory || FS.documentDirectory;
   if (!base) throw new Error('Storage unavailable');
-  return base + 'connect_cache/'; 
+  return base + 'connect_cache/';
 };
 
 const hashString = (str: string) => {
@@ -37,10 +32,6 @@ const ensureDir = async () => {
   return dir;
 };
 
-/* ------------------------------------------------------------------ */
-/* CACHE CLEANUP */
-/* ------------------------------------------------------------------ */
-
 export const cleanupCache = async () => {
   try {
     const dir = getCacheDir();
@@ -53,17 +44,11 @@ export const cleanupCache = async () => {
         const info = await FileSystem.getInfoAsync(uri);
         if (!info.exists) return null;
         totalSize += info.size ?? 0;
-        return {
-          uri,
-          size: info.size ?? 0,
-          mtime: info.modificationTime ?? 0,
-        };
+        return { uri, size: info.size ?? 0, mtime: info.modificationTime ?? 0 };
       })
     );
 
     const now = Date.now();
-
-    // 1. Remove old files
     for (const f of stats) {
       if (!f) continue;
       if (now - f.mtime * 1000 > MAX_FILE_AGE_MS) {
@@ -72,7 +57,6 @@ export const cleanupCache = async () => {
       }
     }
 
-    // 2. LRU Eviction (Remove oldest if over size limit)
     if (totalSize > MAX_CACHE_SIZE) {
       const sorted = stats
         .filter((f): f is { uri: string; size: number; mtime: number } => f !== null)
@@ -85,7 +69,7 @@ export const cleanupCache = async () => {
       }
     }
   } catch (e) {
-    // Silent fail is okay for background cleanup
+    // Silent fail
   }
 };
 
@@ -93,40 +77,44 @@ export const cleanupCache = async () => {
 /* PUBLIC API */
 /* ------------------------------------------------------------------ */
 
-// 1. Download & Cache File
 export const getCachedFile = async (uri: string): Promise<string> => {
   if (!uri.startsWith('http')) return uri;
 
   const dir = await ensureDir();
-  const ext = uri.split('.').pop()?.split('?')[0] || 'jpg';
-  const filename = `${hashString(uri)}.${ext}`;
+  
+  // FIX 1: Encode URI (Fixes "Failed to download" if spaces exist)
+  const safeUri = encodeURI(uri);
+
+  // FIX 2: CDN Token Support (Handle urls like image.jpg?token=123)
+  // We strip query params ONLY for generating the extension/filename,
+  // but we use the FULL URL for downloading.
+  const urlWithoutQuery = safeUri.split('?')[0];
+  const ext = urlWithoutQuery.split('.').pop()?.substring(0, 4) || 'jpg';
+  
+  // Create deterministic filename based on full URL (so tokens don't cause redownload if url is same)
+  const filename = `${hashString(urlWithoutQuery)}.${ext}`;
   const fileUri = dir + filename;
 
   const info = await FileSystem.getInfoAsync(fileUri);
   if (info.exists) return fileUri;
 
   // Use Resumable Download (Stable API)
-  const downloadResumable = FileSystem.createDownloadResumable(uri, fileUri, {});
+  const downloadResumable = FileSystem.createDownloadResumable(safeUri, fileUri, {});
   const result = await downloadResumable.downloadAsync();
   
-  // Trigger cleanup in background
   cleanupCache().catch(() => {});
 
   if (!result || !result.uri) throw new Error("Download failed");
   return result.uri;
 };
 
-// 2. Save to "Connect" Album
 export const saveToGallery = async (localUri: string) => {
   try {
     const { status } = await MediaLibrary.requestPermissionsAsync();
     if (status !== 'granted') throw new Error('Permission denied');
 
-    // 1. Create Asset
     const asset = await MediaLibrary.createAssetAsync(localUri);
-
-    // 2. Check/Create Album "Connect"
-    const albumName = "Connect"; 
+    const albumName = "Connect"; // ✅ Album Name
     const album = await MediaLibrary.getAlbumAsync(albumName);
 
     if (album) {
@@ -134,7 +122,6 @@ export const saveToGallery = async (localUri: string) => {
     } else {
       await MediaLibrary.createAlbumAsync(albumName, asset, false);
     }
-    
     return true;
   } catch (e) {
     console.error("Save to gallery failed:", e);

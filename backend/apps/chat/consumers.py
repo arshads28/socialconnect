@@ -165,77 +165,91 @@ class UnifiedConsumer(AsyncWebsocketConsumer):
         ciphertext = data.get("ciphertext")
         recipient_id = data.get("recipient_id")
 
-        if not client_id or not ciphertext: return
+        if not client_id or not ciphertext:
+            return
 
-        # 1. Resolve Receiver
-        target_user = self.other_user_in_room
-        if not target_user and recipient_id:
+        # RESOLVE RECEIVER (EXPLICIT RECIPIENT ALWAYS WINS)
+        target_user = None
+
+        # ✅ IMPORTANT FIX:
+        # If recipient_id is provided, NEVER use self.other_user_in_room.
+        # This fixes the A → B → C forwarding bug.
+        if recipient_id:
             try:
-                # Try ID first, then Username
-                if isinstance(recipient_id, int) or (isinstance(recipient_id, str) and recipient_id.isdigit()):
-                     target_user = await self.get_user_by_id(recipient_id)
+                # Try numeric ID
+                if isinstance(recipient_id, int) or (
+                    isinstance(recipient_id, str) and recipient_id.isdigit()
+                ):
+                    target_user = await self.get_user_by_id(recipient_id)
+
+                # Try UUID or username
                 elif isinstance(recipient_id, str):
-                     # If it's a UUID string, try ID, otherwise try Username
-                     try:
-                         uuid.UUID(recipient_id)
-                         target_user = await self.get_user_by_id(recipient_id)
-                     except ValueError:
-                         target_user = await self.get_user_optimized(recipient_id)
+                    try:
+                        uuid.UUID(recipient_id)
+                        target_user = await self.get_user_by_id(recipient_id)
+                    except ValueError:
+                        target_user = await self.get_user_optimized(recipient_id)
+
             except ObjectDoesNotExist:
                 print(f"❌ Target user {recipient_id} not found")
                 return
 
-        if not target_user: return
+        # Fallback ONLY for normal chat (no explicit recipient)
+        elif self.other_user_in_room:
+            target_user = self.other_user_in_room
+
+        if not target_user:
+            return
 
         await self.update_user_status(True)
 
-        # 2. Database Handling (Idempotency)
-        msg_instance = None
+        # DATABASE HANDLING (IDEMPOTENT)
+
         if await self.message_exists(client_id):
             msg_instance = await self.get_full_message_by_client_id(client_id)
-            # If content changed (e.g. media upload finished), update it
+
+            # Update content if changed (e.g. upload finished → URL)
             if msg_instance.encrypted_content != ciphertext:
                 await self.update_message_content(msg_instance, ciphertext)
         else:
             msg_instance = await self.create_message(client_id, ciphertext, target_user)
-        
-        # 3. 🛡️ CALCULATE CANONICAL CONVERSATION ID (Frontend Fix)
-        # Sort usernames alphabetically: "arsh" + "asdf" -> "arsh__asdf"
+
+        # CANONICAL CONVERSATION ID (FRONTEND EXPECTATION)
+
         users_list = sorted([self.user.username, target_user.username])
         conversation_id = f"{users_list[0]}__{users_list[1]}"
 
-        # 4. Construct Payload
         payload = {
             "type": "chat_message",
             "ciphertext": ciphertext,
             "sender": self.user.username,
             "sender_id": str(self.user.id),
-            "recipient_id": target_user.username, 
-            "conversation_id": conversation_id,   
+            "recipient_id": target_user.username,
+            "conversation_id": conversation_id,
             "id": str(msg_instance.id),
             "client_id": str(msg_instance.client_id),
             "timestamp": msg_instance.timestamp.isoformat(),
-            "media_type": msg_instance.media_type 
+            "media_type": msg_instance.media_type,
         }
 
-        # 5. Routing Logic
+        #  ROUTING LOGIC (ROOM VS PERSONAL DELIVERY)
+
         presence = await sync_to_async(cache.get)(f"presence_room_{target_user.id}")
-        
-        # Determine the shared room ID (Backend internal room name)
+
         user_ids = sorted([str(self.user.id), str(target_user.id)])
         target_room_group = f"chat_{user_ids[0]}_{user_ids[1]}"
 
         if presence == target_room_group:
-            # Target is IN THE ROOM -> Deliver via Room Group
+            # Target is actively in the same room
             await self.channel_layer.group_send(target_room_group, payload)
             await self.mark_message_delivered(msg_instance)
             await self.send_ack(client_id, msg_instance.id, "delivered")
         else:
-            # Target is ELSEWHERE -> Send to Personal Group + Push
+            # Target elsewhere → personal group + push
             await self.send_ack(client_id, msg_instance.id, "sent")
             await self.channel_layer.group_send(f"user_{target_user.id}", payload)
-            
-            # Send Notification with conversation_id
+
+            # Background notification
             asyncio.create_task(self.handle_notifications(target_user, conversation_id))
 
     async def handle_notifications(self, receiver, conversation_id):
