@@ -3,12 +3,12 @@
     "name": "Connect",
     "slug": "connect",
     "scheme": "connect",
-    "version": "2.3.5",
+    "version": "2.3.8",
+
     "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
 
     "jsEngine": "jsc",
-
-    "userInterfaceStyle": "automatic",
 
     "assetBundlePatterns": [
       "**/*"
@@ -24,8 +24,8 @@
       "bundleIdentifier": "com.connect.app",
       "bitcode": false,
       "infoPlist": {
-        "NSCameraUsageDescription": "Connect needs access to your camera for video calls.",
-        "NSMicrophoneUsageDescription": "Connect needs access to your microphone to let you make voice and video calls.",
+        "NSCameraUsageDescription": "Connect needs access to your camera for calls.",
+        "NSMicrophoneUsageDescription": "Connect needs access to your microphone for calls.",
         "UIBackgroundModes": [
           "audio",
           "fetch",
@@ -88,14 +88,14 @@
         "expo-build-properties",
         {
           "android": {
-            "newArchEnabled": false,
+            "newArchEnabled": true,
             "extraProguardRules": "-keep class io.wazo.callkeep.** { *; }",
             "manifestPlaceholders": {
               "foregroundServiceType": "camera|microphone|phoneCall"
             }
           },
           "ios": {
-            "newArchEnabled": false
+            "newArchEnabled": true
           }
         }
       ],
@@ -126,6 +126,7 @@
         }
       ]
     ],
+
     "owner": "arsh2128"
   }
 }
