@@ -1,11 +1,11 @@
 // socialconnect/frontend/index.js
 
+// 1. Crypto-safe randomness
 import 'react-native-get-random-values';
 
-// Standard Node Polyfill
+// 2. Buffer for Signal
 const { Buffer } = require('buffer');
 global.Buffer = Buffer;
 
-// JSC has a working TextEncoder/Decoder, so we don't need fast-text-encoding anymore.
-
+// 3. Start app LAST
 import 'expo-router/entry';
