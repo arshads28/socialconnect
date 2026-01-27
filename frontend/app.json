@@ -5,18 +5,24 @@
     "scheme": "connect",
     "version": "2.3.5",
     "orientation": "portrait",
+
     "jsEngine": "jsc",
+
     "userInterfaceStyle": "automatic",
+
     "assetBundlePatterns": [
       "**/*"
     ],
+
     "notification": {
       "icon": "./assets/images/icon.png",
       "color": "#0095f6"
     },
+
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.connect.app",
+      "bitcode": false,
       "infoPlist": {
         "NSCameraUsageDescription": "Connect needs access to your camera for video calls.",
         "NSMicrophoneUsageDescription": "Connect needs access to your microphone to let you make voice and video calls.",
@@ -26,14 +32,14 @@
           "remote-notification",
           "voip"
         ]
-      },
-      "bitcode": false
+      }
     },
+
     "android": {
       "package": "com.connect.app",
       "softwareKeyboardLayoutMode": "resize",
       "googleServicesFile": "./google-services.json",
-      
+
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO",
@@ -43,49 +49,57 @@
         "android.permission.POST_NOTIFICATIONS",
         "android.permission.WAKE_LOCK",
         "android.permission.VIBRATE",
+
         "android.permission.FOREGROUND_SERVICE",
         "android.permission.FOREGROUND_SERVICE_CAMERA",
         "android.permission.FOREGROUND_SERVICE_MICROPHONE",
         "android.permission.FOREGROUND_SERVICE_PHONE_CALL",
+
         "android.permission.MANAGE_OWN_CALLS",
         "android.permission.USE_FULL_SCREEN_INTENT",
         "android.permission.READ_PHONE_STATE",
         "android.permission.BIND_TELECOM_CONNECTION_SERVICE",
         "android.permission.READ_PHONE_NUMBERS",
-        "android.permission.RECEIVE_BOOT_COMPLETED" 
+        "android.permission.RECEIVE_BOOT_COMPLETED"
       ]
     },
+
+    "web": {
+      "bundler": "metro"
+    },
+
     "extra": {
       "vapidPublicKey": "BNiug5Sm-HTCeXav2TwHe-ciE7ORzGLTud4meHEtRjHKIBSeIAnvOt1Lh3_QKb3sOu-opZuDfXqqjK2_3OSazHM",
       "eas": {
         "projectId": "a4844a00-642a-4045-9d32-ace3e35e22ce"
       }
     },
-    "web": {
-      "bundler": "metro"
-    },
+
     "plugins": [
-      "./plugins/withAndroidPermissions", 
+      "./plugins/withAndroidPermissions",
+
       "expo-notifications",
       "expo-sqlite",
       "expo-secure-store",
-      "expo-task-manager", 
-      "expo-background-fetch", 
+      "expo-task-manager",
+      "expo-background-fetch",
+
       [
         "expo-build-properties",
         {
           "android": {
-            "newArchEnabled": true, 
+            "newArchEnabled": false,
             "extraProguardRules": "-keep class io.wazo.callkeep.** { *; }",
             "manifestPlaceholders": {
-               "foregroundServiceType": "camera|microphone|phoneCall"
+              "foregroundServiceType": "camera|microphone|phoneCall"
             }
           },
           "ios": {
-            "newArchEnabled": true
+            "newArchEnabled": false
           }
         }
       ],
+
       [
         "expo-camera",
         {
@@ -93,6 +107,7 @@
           "microphonePermission": "Allow Connect to access your microphone"
         }
       ],
+
       [
         "@config-plugins/react-native-webrtc",
         {
@@ -100,6 +115,7 @@
           "microphonePermission": "Allow Connect to access your microphone for calls"
         }
       ],
+
       [
         "@config-plugins/react-native-callkeep",
         {
