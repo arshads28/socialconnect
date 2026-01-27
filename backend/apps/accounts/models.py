@@ -59,8 +59,12 @@ class PushDevice(models.Model):
     last_seen_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        # One token per Installation ID per User
-        unique_together = ('user', 'device_id') 
+        constraints = [
+            models.UniqueConstraint(
+                fields=['user', 'device_id'],
+                name='unique_user_device'
+            )
+        ]
         indexes = [
             models.Index(fields=['user', 'last_seen_at']),
         ]

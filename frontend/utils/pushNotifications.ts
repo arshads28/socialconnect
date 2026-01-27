@@ -3,6 +3,7 @@ import * as Device from 'expo-device';
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
 import api from './api'; 
+import { getDeviceId } from './deviceId';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // 1. CONFIG
@@ -92,20 +93,16 @@ export async function registerForPushNotificationsAsync() {
 // 3. API CALL
 export async function sendPushTokenToBackend(pushToken: string) {
   try {
-    let deviceId = await AsyncStorage.getItem('device_installation_id');
-    if (!deviceId) {
-        deviceId = Math.random().toString(36).substring(7);
-        await AsyncStorage.setItem('device_installation_id', deviceId);
-    }
+    const deviceId = await getDeviceId();
 
     await api.post('/auth/api/push/register/', { 
-        token: pushToken, 
-        platform: Platform.OS,
-        device_id: deviceId,
-        device_name: Device.modelName || 'Unknown Device'
+      token: pushToken, 
+      platform: Platform.OS,
+      device_id: deviceId,
+      device_name: Device.modelName || 'Unknown Device'
     });
-    console.log("✅ Push token registered with Backend!");
 
+    console.log("✅ Push token registered with Backend!");
   } catch (error) {
     console.error('❌ Failed to register push token:', error);
   }

@@ -104,6 +104,7 @@ def login_view(request):
 
 @login_required
 def logout_view(request):
+    print("logout called now")
     if request.method == "POST":
         logout(request)
         return redirect("login")
@@ -317,31 +318,35 @@ def register_push_device(request):
     user = request.user
     data = request.data
 
-    # Debug Print to confirm it's hitting the server
-    print(f"📲 Registering Push Device for {user.username}: {data.get('device_name')}")
-
     token = data.get('token')
     device_id = data.get('device_id')
     platform = data.get('platform')
-    device_name = data.get('device_name', 'Unknown Device')
+    device_name = data.get('device_name')
 
-    if not all([token, device_id, platform]):
+    if not token or not device_id or not platform:
         return Response({'error': 'Invalid payload'}, status=400)
 
-    # Smart Update
-    obj, created = PushDevice.objects.update_or_create(
+    # Deactivate token elsewhere
+    PushDevice.objects.filter(token=token).exclude(
+        user=user,
+        device_id=device_id
+    ).update(is_active=False)
+
+    device, created = PushDevice.objects.update_or_create(
         user=user,
         device_id=device_id,
         defaults={
             'token': token,
             'platform': platform,
             'device_name': device_name,
-            'is_active': True
+            'is_active': True,
         }
     )
 
-    return Response({'status': 'registered', 'action': 'created' if created else 'updated'})
-
+    return Response({
+        'status': 'ok',
+        'action': 'created' if created else 'updated'
+    })
 
 
 # class ConnectionViewSet(ModelViewSet):
