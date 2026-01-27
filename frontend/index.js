@@ -1,11 +1,15 @@
 // socialconnect/frontend/index.js
 
-// 1. Crypto-safe randomness
+// 1. Install Quick Crypto Polyfill (MUST BE FIRST)
+import { install } from 'react-native-quick-crypto';
+install();
+
+// 2. Crypto-safe randomness (Still good to keep for other libs)
 import 'react-native-get-random-values';
 
-// 2. Buffer for Signal
+// 3. Buffer for Signal (Standard Requirement)
 const { Buffer } = require('buffer');
 global.Buffer = Buffer;
 
-// 3. Start app LAST
+// 4. Start app
 import 'expo-router/entry';

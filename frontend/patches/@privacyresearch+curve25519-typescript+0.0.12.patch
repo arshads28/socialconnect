@@ -1,0 +1,13 @@
+diff --git a/node_modules/@privacyresearch/curve25519-typescript/lib/built/curveasm.js b/node_modules/@privacyresearch/curve25519-typescript/lib/built/curveasm.js
+index 99d5e70..2eb614a 100644
+--- a/node_modules/@privacyresearch/curve25519-typescript/lib/built/curveasm.js
++++ b/node_modules/@privacyresearch/curve25519-typescript/lib/built/curveasm.js
+@@ -12457,7 +12457,7 @@ var Module = (function () {
+         }
+         // Given a pointer 'ptr' to a null-terminated UTF16LE-encoded string in the emscripten HEAP, returns
+         // a copy of that string as a Javascript String object.
+-        var UTF16Decoder = typeof TextDecoder !== 'undefined' ? new TextDecoder('utf-16le') : undefined;
++        var UTF16Decoder = typeof TextDecoder !== 'undefined' ? new TextDecoder('utf-8') : undefined;
+         function UTF16ToString(ptr, maxBytesToRead) {
+             var endPtr = ptr;
+             // TextDecoder needs to know the byte length in advance, it doesn't stop on null terminator by itself.

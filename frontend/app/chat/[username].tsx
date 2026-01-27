@@ -589,10 +589,21 @@ export default function ChatScreen() {
     try {
        // NEW E2EE ENCRYPTION
        ciphertext = await EncryptionService.encrypt(text, targetUsername);
-    } catch (e) {
-       Alert.alert("Encryption Error", "Could not encrypt message. Are keys exchanged?");
+    } catch (e: any) {
+       console.error("Encrypt failed:", e);
+       
+       // Check if it was a key fetching error
+       if (e.message.includes('404') || e.message.includes('fetch keys')) {
+           Alert.alert(
+               "User not ready", 
+               `${targetUsername} hasn't set up encryption yet. They need to log in to the app once.`
+           );
+       } else {
+           Alert.alert("Encryption Error", "Could not encrypt message.");
+       }
        return;
     }
+    
 
     const recipientId = targetProfile.id; 
 

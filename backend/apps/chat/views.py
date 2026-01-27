@@ -742,7 +742,7 @@ class FetchKeyBundleView(APIView):
                     "publicKey": one_time_key.public_key
                 }
                 # DELETE IT immediately so no one else uses it (Forward Secrecy property)
-                one_time_key.delete()
+                # one_time_key.delete()
 
         return Response({
             "identityKey": device.identity_key,
