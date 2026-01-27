@@ -74,7 +74,6 @@
     "react-native-web": "~0.21.0",
     "react-native-webrtc": "^124.0.7",
     "react-native-worklets": "0.5.1",
-    "text-encoding": "^0.7.0",
     "three": "^0.166.1",
     "uuid": "^13.0.0"
   },

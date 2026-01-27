@@ -5,6 +5,7 @@
     "scheme": "connect",
     "version": "2.3.5",
     "orientation": "portrait",
+    "jsEngine": "jsc",
     "userInterfaceStyle": "automatic",
     "assetBundlePatterns": [
       "**/*"
