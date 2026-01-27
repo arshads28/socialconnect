@@ -1,6 +1,6 @@
 from django.http import JsonResponse
 from django.contrib.auth.decorators import login_required
-from .models import Message
+from .models import Message, Device, SignedPreKey, OneTimePreKey
 from django.db.models import Count, OuterRef, Subquery, Q, Max
 # from django.shortcuts import render
 from django.contrib.auth import get_user_model
@@ -13,7 +13,7 @@ from rest_framework import viewsets, mixins
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.decorators import api_view
-from .serializers import InboxSerializer, MessageSerializer
+from .serializers import InboxSerializer, MessageSerializer, KeyBundleUploadSerializer
 from django.utils.dateparse import parse_datetime
 from django.db import IntegrityError, transaction
 
@@ -629,3 +629,129 @@ def delete_for_everyone(request):
         "status": "ok",
         "deleted_count": updated_count
     })
+
+
+
+
+
+
+
+
+
+
+class UploadKeysView(APIView):
+    """
+    Frontend POSTs the huge bundle of keys here on startup.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = KeyBundleUploadSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        data = serializer.validated_data
+        user = request.user
+        
+        # Hardcoded to device_id=1 for now (Phase 1)
+        # In Phase 2, you'd generate this ID on the frontend and send it.
+        device_id = 1 
+
+        with transaction.atomic():
+            # 1. Register/Update Device Identity
+            device, created = Device.objects.update_or_create(
+                user=user,
+                device_id=device_id,
+                defaults={
+                    'registration_id': data['registrationId'],
+                    'identity_key': data['identityKey']
+                }
+            )
+            
+            # Prevent silent identity key replacement
+            if not created and device.identity_key != data['identityKey']:
+                return Response(
+                    {"error": "Identity key mismatch. Reinstall required."},
+                    status=status.HTTP_409_CONFLICT
+                )
+
+            # Registration ID *can* change safely
+            device.registration_id = data['registrationId']
+            device.save(update_fields=["registration_id"])
+
+            # 2. Store Signed PreKey (Replace old one if ID matches)
+            spk_data = data['signedPreKey']
+            SignedPreKey.objects.update_or_create(
+                device=device,
+                key_id=spk_data['keyId'],
+                defaults={
+                    'public_key': spk_data['publicKey'],
+                    'signature': spk_data['signature']
+                }
+            )
+
+            # 3. Batch Create One-Time PreKeys
+            # We wipe old ones to prevent ID collisions in this simple implementation
+            # In production, you'd only append new ones.
+            OneTimePreKey.objects.filter(device=device).delete()
+            
+            prekeys_batch = [
+                OneTimePreKey(
+                    device=device,
+                    key_id=pk['keyId'],
+                    public_key=pk['publicKey']
+                ) for pk in data['preKeys']
+            ]
+            OneTimePreKey.objects.bulk_create(prekeys_batch)
+
+        return Response({"status": "keys_uploaded", "count": len(prekeys_batch)}, status=200)
+
+
+class FetchKeyBundleView(APIView):
+    """
+    Sender calls this to get keys for a Recipient.
+    Logic:
+    1. Find recipient's device.
+    2. Grab their Identity Key + Signed PreKey.
+    3. Grab ONE One-Time PreKey (and delete it from DB so it's never reused).
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, username):
+        try:
+            target_user = User.objects.get(username=username)
+            # Assuming single device (id=1) for now
+            device = Device.objects.get(user=target_user, device_id=1)
+        except (User.DoesNotExist, Device.DoesNotExist):
+            return Response({"error": "User or device not found/registered"}, status=404)
+
+        # Get the active Signed PreKey
+        # (Just taking the latest one)
+        signed_pre_key = device.signed_prekeys.last()
+        if not signed_pre_key:
+             return Response({"error": "No signed prekey available"}, status=500)
+
+        # ⚡ CRITICAL: Consume a One-Time PreKey
+        # We perform an atomic pop: select one and delete it.
+        with transaction.atomic():
+            one_time_key = OneTimePreKey.objects.filter(device=device).first()
+            otk_data = None
+            if one_time_key:
+                otk_data = {
+                    "keyId": one_time_key.key_id,
+                    "publicKey": one_time_key.public_key
+                }
+                # DELETE IT immediately so no one else uses it (Forward Secrecy property)
+                one_time_key.delete()
+
+        return Response({
+            "identityKey": device.identity_key,
+            "registrationId": device.registration_id,
+            "signedPreKey": {
+                "keyId": signed_pre_key.key_id,
+                "publicKey": signed_pre_key.public_key,
+                "signature": signed_pre_key.signature
+            },
+            # If we ran out of one-time keys, the client will fallback to just SignedPreKey (allowed by Signal spec)
+            "preKey": otk_data 
+        })

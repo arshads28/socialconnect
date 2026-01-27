@@ -98,3 +98,49 @@ class Message(models.Model):
                     thread_pool_executor.submit(process_chat_image_background, self.id)  
 
                 transaction.on_commit(run_after_commit)
+
+
+
+class Device(models.Model):
+    """
+    Represents a user's physical device (Phone, Desktop, etc).
+    Signal identifies users by (UserId + DeviceId).
+    """
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="devices")
+    device_id = models.IntegerField(default=1) # Frontend currently hardcodes 1
+    registration_id = models.IntegerField(help_text="Signal Registration ID")
+    
+    # The long-term Identity Key (Public)
+    identity_key = models.TextField() 
+    
+    last_seen = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('user', 'device_id')
+
+class SignedPreKey(models.Model):
+    """
+    Medium-term key, rotated periodically (e.g., weekly).
+    Has a signature verifying it belongs to the Identity Key.
+    """
+    device = models.ForeignKey(Device, on_delete=models.CASCADE, related_name="signed_prekeys")
+    key_id = models.IntegerField()
+    public_key = models.TextField()
+    signature = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('device', 'key_id')
+        ordering = ['-created_at']
+
+class OneTimePreKey(models.Model):
+    """
+    Single-use keys. We store ~100 of these per user.
+    Once fetched by a sender, it is DELETED from the server.
+    """
+    device = models.ForeignKey(Device, on_delete=models.CASCADE, related_name="onetime_prekeys")
+    key_id = models.IntegerField()
+    public_key = models.TextField()
+
+    class Meta:
+        unique_together = ('device', 'key_id')

@@ -85,6 +85,36 @@ class NativeDatabaseAdapter {
                 username TEXT PRIMARY KEY, id TEXT, avatar TEXT, display_name TEXT
             );
         `);
+        this.db.execSync(`
+          CREATE TABLE IF NOT EXISTS signal_sessions (
+            id TEXT PRIMARY KEY, -- format: "recipient_id:device_id"
+            record TEXT          -- Serialized session JSON
+          );
+        `);
+
+        // 2. PreKeys: Your one-time tickets waiting to be used
+        this.db.execSync(`
+          CREATE TABLE IF NOT EXISTS signal_prekeys (
+            key_id INTEGER PRIMARY KEY,
+            record TEXT          -- Serialized key pair
+          );
+        `);
+        
+        // 3. Signed PreKeys: Your signature verification key
+        this.db.execSync(`
+          CREATE TABLE IF NOT EXISTS signal_signed_prekeys (
+            key_id INTEGER PRIMARY KEY,
+            record TEXT
+          );
+        `);
+        
+        // 4. Identity Keys: Public keys of people you chat with (Trust on First Use)
+        this.db.execSync(`
+          CREATE TABLE IF NOT EXISTS signal_identities (
+            address TEXT PRIMARY KEY, -- format: "username.deviceid"
+            key TEXT
+          );
+        `);
         
         // --- SAFE MIGRATIONS ---
         this._runMigrations();
@@ -330,6 +360,10 @@ class NativeDatabaseAdapter {
         this.db.runSync(`INSERT OR REPLACE INTO users (username, id, avatar, display_name) VALUES (?, ?, ?, ?)`, [user.username, user.id, user.avatar || '', user.display_name || user.username]); 
       } catch(e) {}
   }
+  public getRawDB() {
+      return this.db;
+  }
+  
   getUser(username: string) { if (!this.db) return null; try { const result = this.db.getAllSync(`SELECT * FROM users WHERE username = ?`, [username]); return result.length > 0 ? result[0] : null; } catch (e) { return null; } }
 }
 

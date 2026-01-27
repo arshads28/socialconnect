@@ -13,7 +13,9 @@ import NetInfo from '@react-native-community/netinfo';
 import { registerBackgroundFetchAsync } from '../utils/backgroundTasks';
 import { processOfflineQueue } from '../utils/offlineQueue';
 import { syncPendingMessages, resendStuckMessages } from '../utils/sync'; 
-import { purgeOldMessages } from '../utils/db'; 
+import { purgeOldMessages } from '../utils/db';
+import api from '../utils/api';
+import { generateIdentity } from '../utils/SignalManager';
 import { WebRTCProvider } from '../contexts/WebRTCContext';
 import { CallOverlay } from '../contexts/CallComponent';
 import Toast from 'react-native-toast-message';
@@ -54,7 +56,7 @@ function RootLayoutNav() {
       if (state.isConnected && state.isInternetReachable) {
         clearTimeout(timeout);
         timeout = setTimeout(() => {
-            console.log("📶 Connection restored. Running global sync...");
+            console.log(" Connection restored. Running global sync...");
             
             processOfflineQueue();
             syncPendingMessages();
@@ -77,6 +79,34 @@ function RootLayoutNav() {
     });
     return () => subscription.remove();
   }, []);
+
+  // 4. Initialize E2EE Identity
+  useEffect(() => {
+    if (!userToken) return;
+
+    const setupEncryption = async () => {
+      try {
+        const bundle = await generateIdentity();
+        
+        if (bundle) {
+          console.log("🚀 Uploading Public Keys to Server...");
+          
+          try {
+              await api.post('/chat/e2ee/keys/', bundle);
+              console.log("Keys uploaded successfully!");
+          } catch (uploadError) {
+              console.error("❌ Key Upload Failed. You will not be able to receive messages.", uploadError);
+              // TODO: Implement a retry mechanism or alert the user
+          }
+        } 
+      } catch (e) {
+        console.error("❌ E2EE Setup Failed:", e);
+      }
+    };
+    
+    setupEncryption();
+  }, [userToken]);
+
 
   if (isLoading) {
     return (

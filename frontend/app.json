@@ -3,7 +3,7 @@
     "name": "Connect",
     "slug": "connect",
     "scheme": "connect",
-    "version": "2.1.9",
+    "version": "2.3.5",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "assetBundlePatterns": [

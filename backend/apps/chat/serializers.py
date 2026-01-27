@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
-from .models import Message
+from .models import Message, Device, SignedPreKey, OneTimePreKey
 
 User = get_user_model()
 
@@ -66,3 +66,20 @@ class MessageSerializer(serializers.ModelSerializer):
             data['status'] = "deleted"
         
         return data
+    
+
+
+class SignedPreKeySerializer(serializers.Serializer):
+    keyId = serializers.IntegerField()
+    publicKey = serializers.CharField()
+    signature = serializers.CharField()
+
+class PreKeySerializer(serializers.Serializer):
+    keyId = serializers.IntegerField()
+    publicKey = serializers.CharField()
+
+class KeyBundleUploadSerializer(serializers.Serializer):
+    registrationId = serializers.IntegerField()
+    identityKey = serializers.CharField()
+    signedPreKey = SignedPreKeySerializer()
+    preKeys = PreKeySerializer(many=True)

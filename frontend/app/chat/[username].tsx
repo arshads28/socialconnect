@@ -12,7 +12,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { WaveformLive, AudioPlayerBubble } from '../../components/AudioComponents';
 import { useAudioRecorder } from '../../utils/useAudioRecorder';
 import { useWebSocket } from '../../contexts/WebSocketContext';
-import { encryptMessage } from '../../utils/crypto';
+import EncryptionService from '../../utils/EncryptionService';
 import { 
   saveMessage, getMessagesForChat, markChatAsRead, 
   deleteLocalChat, generateUUID, addToQueue,
@@ -315,7 +315,7 @@ export default function ChatScreen() {
       sender: user?.username || '', 
       content: recordedUri, 
       status: 'uploading',
-      timestamp: Date.now(), // ✅ Fixed: number
+      timestamp: Date.now(), 
       media: recordedUri, 
       media_type: 'audio', 
     };
@@ -326,17 +326,25 @@ export default function ChatScreen() {
 
     UploadManager.add({
       id: clientId, 
-      // ✅ Fixed: Cast 'audio' to any to bypass strict type check
       files: [{ uri: recordedUri, type: 'audio' as any }], 
       endpoint: `${BASE_URL}/chat/upload/`,
       headers: { Authorization: `Bearer ${token}` }, 
       additionalData: { id: clientId, recipient_id: recipientId },
     }, {
-      onSuccess: (res) => {
+      onSuccess: async (res) => {
         const remoteUrl = res.media_url;
-        const ciphertext = encryptMessage(remoteUrl);
-        sendMessage(recipientId, ciphertext, clientId);
-        saveMessage({ ...optimisticMsg, content: remoteUrl, media: remoteUrl, status: 'sent' });
+        
+        try {
+            // Use EncryptionService with USERNAME
+            const ciphertext = await EncryptionService.encrypt(remoteUrl, targetUsername);
+            
+            sendMessage(recipientId, ciphertext, clientId);
+            saveMessage({ ...optimisticMsg, content: remoteUrl, media: remoteUrl, status: 'sent' });
+        } catch (e) {
+            console.error("Audio encryption failed:", e);
+            // Optionally mark message as failed if encryption dies
+            saveMessage({ ...optimisticMsg, status: 'failed' });
+        }
       },
       onError: () => { saveMessage({ ...optimisticMsg, status: 'failed' }); }
     });
@@ -455,9 +463,17 @@ export default function ChatScreen() {
 
               for (const imgUrl of imageUris) {
                   const cleanUrl = imgUrl.startsWith('http') ? imgUrl : `${BASE_URL}${imgUrl}`;
-                  const ciphertext = encryptMessage(cleanUrl);
-                  const clientId = generateUUID();
+                  
+                  // EncryptionService
+                  let ciphertext = "";
+                  try {
+                     ciphertext = await EncryptionService.encrypt(cleanUrl, cleanTarget);
+                  } catch (e) {
+                     console.error("Forward encryption failed", e);
+                     continue; 
+                  }
 
+                  const clientId = generateUUID();
                   sendMessage(targetId, ciphertext, clientId);
 
                   if (cleanTarget === targetUsername) {
@@ -469,7 +485,7 @@ export default function ChatScreen() {
                           sender: user?.username || '', 
                           content: cleanUrl, 
                           status: 'sending',
-                          timestamp: Date.now(), // ✅ Fixed: number
+                          timestamp: Date.now(), 
                           media: cleanUrl, 
                           media_type: 'image',
                           // @ts-ignore
@@ -505,7 +521,7 @@ export default function ChatScreen() {
             sender: user?.username || '', 
             content: processed.uri, 
             status: 'uploading', 
-            timestamp: Date.now(), // ✅ Fixed: number
+            timestamp: Date.now(), 
             media: processed.uri, 
             media_type: 'image', 
             album_id: albumId, 
@@ -520,19 +536,29 @@ export default function ChatScreen() {
 
         UploadManager.add({
             id: clientId, 
-            // ✅ Fixed: Cast 'image' to any if UploadManager is strict
             files: [{ uri: processed.uri, type: 'image' as any }], 
             endpoint: `${BASE_URL}/chat/upload/`, 
             headers: { 'Authorization': `Bearer ${token}` },
             additionalData: { id: clientId, recipient_id: recipientId, album_id: albumId }, 
         }, {
             onProgress: (p) => setMessages(prev => prev.map(m => m.client_id === clientId ? { ...m, media_progress: p } : m)),
-            onSuccess: (res) => {
+            
+            //  Mark ASYNC
+            onSuccess: async (res) => {
                 const remoteUrl = res.media_url || res.url;
-                const ciphertext = encryptMessage(remoteUrl);
-                sendMessage(recipientId, ciphertext, clientId, albumId); 
-                saveMessage({ ...optimisticMsg, content: remoteUrl, media: remoteUrl, status: 'sent' });
-                setMessages(prev => prev.map(m => m.client_id === clientId ? { ...m, content: remoteUrl, media: remoteUrl, status: 'sent', media_progress: 100 } : m));
+                
+                try {
+                    //Encrypt using Service
+                    const ciphertext = await EncryptionService.encrypt(remoteUrl, targetUsername);
+                    
+                    sendMessage(recipientId, ciphertext, clientId, albumId); 
+                    saveMessage({ ...optimisticMsg, content: remoteUrl, media: remoteUrl, status: 'sent' });
+                    setMessages(prev => prev.map(m => m.client_id === clientId ? { ...m, content: remoteUrl, media: remoteUrl, status: 'sent', media_progress: 100 } : m));
+                } catch (e) {
+                    console.error("Image encryption failed:", e);
+                    setMessages(prev => prev.map(m => m.client_id === clientId ? { ...m, media_failed: true, status: 'failed' } : m));
+                    saveMessage({ ...optimisticMsg, status: 'failed' });
+                }
             },
             onError: () => {
                 setMessages(prev => prev.map(m => m.client_id === clientId ? { ...m, media_failed: true, status: 'failed' } : m));
@@ -556,8 +582,18 @@ export default function ChatScreen() {
   const handleSend = async () => {
     if (!text.trim()) return;
     if (!targetProfile?.id) return;
+    
     const clientId = generateUUID();
-    const ciphertext = encryptMessage(text);
+    let ciphertext = "";
+
+    try {
+       // NEW E2EE ENCRYPTION
+       ciphertext = await EncryptionService.encrypt(text, targetUsername);
+    } catch (e) {
+       Alert.alert("Encryption Error", "Could not encrypt message. Are keys exchanged?");
+       return;
+    }
+
     const recipientId = targetProfile.id; 
 
     const msg: Message = {
@@ -570,6 +606,7 @@ export default function ChatScreen() {
       status: 'sending', 
       timestamp: Date.now(), 
     };
+    
     saveMessage(msg); 
     loadLocalMessages(); 
     setText('');
@@ -578,6 +615,7 @@ export default function ChatScreen() {
     if (!net.isConnected || ws?.readyState !== WebSocket.OPEN) {
         addToQueue('SEND_MESSAGE', { conversation_id: conversationId, recipient_id: recipientId, ciphertext, client_id: clientId });
     } else {
+        // Send the SIGNAL CIPHERTEXT over WebSocket
         sendMessage(recipientId, ciphertext, clientId);
     }
   };
@@ -591,12 +629,10 @@ export default function ChatScreen() {
       ]);
   };
 
-  // ✅ OPTIMIZED: Memoized Grouping (No Sort inside)
   const groupedMessages = useMemo(() => {
     const groups: any[] = [];
     let buffer: Message[] = [];
 
-    // NOTE: DB already returns sorted messages. Trust it.
     messages.forEach(msg => {
       if (msg.media_type === 'image') {
         if (buffer.length > 0) {
@@ -622,7 +658,7 @@ export default function ChatScreen() {
 
 
 
-  // ✅ MEMOIZED RENDERER
+  // MEMOIZED RENDERER
   const renderMessage = useCallback(({ item }: { item: Message[] }) => {
     if (item.length > 1 && item[0].media_type === 'image') {
       const isMe = item[0].sender === user?.username;
@@ -712,7 +748,7 @@ export default function ChatScreen() {
       </View>
 
       <KeyboardWrapper headerHeight={HEADER_HEIGHT}>
-        {/* 🧱 MEMOIZED LIST */}
+        {/* MEMOIZED LIST */}
         <ChatMessageList 
           groupedMessages={groupedMessages} 
           renderMessage={renderMessage} 

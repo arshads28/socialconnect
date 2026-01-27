@@ -10,6 +10,8 @@ from .views import (
     ChatUploadAPIView,
     delete_for_me,
     delete_for_everyone,
+    UploadKeysView,
+    FetchKeyBundleView
 )
 
 
@@ -29,4 +31,7 @@ urlpatterns = [
 
     path('delete/self/', delete_for_me, name='delete_for_me'),
     path('delete/global/', delete_for_everyone, name='delete_for_everyone'),
+
+    path('e2ee/keys/', UploadKeysView.as_view(), name='upload_keys'),
+    path('e2ee/keys/<str:username>/', FetchKeyBundleView.as_view(), name='fetch_keys'),
 ]

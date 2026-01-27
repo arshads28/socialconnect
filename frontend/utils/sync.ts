@@ -4,15 +4,15 @@ import {
   addToQueue, 
   getMessagesForChat, 
   getLocalInbox, 
-  saveMessage, // Still needed for single updates
-  saveMessagesBatch, // ✅ NEW: Import this
+  saveMessage, 
+  saveMessagesBatch, 
   Message, 
   getConversationId, 
 } from './db';
-import { decryptMessage } from './crypto';
 import { DeviceEventEmitter } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getSecure } from './storage';
+import EncryptionService from './EncryptionService';
 
 const LAST_SYNC_TS_KEY = 'connect_last_sync_ts_v1';
 const TOMBSTONE_MARKER = '__TOMBSTONE__';
@@ -25,10 +25,6 @@ interface InboxChat {
 
 let isSyncingMessages = false;
 
-/* ------------------------------------------------------------------ */
-/* 🧠 UTILITIES                                                       */
-/* ------------------------------------------------------------------ */
-
 // Helper to ensure we always work with Epoch Integers
 const toEpoch = (ts: string | number | null | undefined): number => {
   if (!ts) return 0;
@@ -37,20 +33,18 @@ const toEpoch = (ts: string | number | null | undefined): number => {
   return isNaN(parsed) ? 0 : parsed;
 };
 
-// Helper to safely decrypt and check for tombstones
-const safeDecrypt = (cipher?: string): string => {
+//  2. ASYNC DECRYPTION HELPER
+const safeDecrypt = async (cipher: string, sender: string): Promise<string> => {
   if (!cipher) return '';
   try {
-    const text = decryptMessage(cipher);
+    // Attempt Signal Decryption
+    const text = await EncryptionService.decrypt(cipher, sender);
     return text === TOMBSTONE_MARKER ? '__DELETED__' : text;
   } catch {
-    return 'Encrypted message';
+    // If it fails (e.g., pre-E2EE message), return raw or placeholder
+    return '🔒 Encrypted Message';
   }
 };
-
-/* ------------------------------------------------------------------ */
-/* 🌍 GLOBAL SYNC (BACKGROUND)                                        */
-/* ------------------------------------------------------------------ */
 
 export const syncPendingMessages = async () => {
   if (isSyncingMessages) return;
@@ -78,6 +72,7 @@ export const syncPendingMessages = async () => {
     const batch: Message[] = [];
     let newestTimestamp = lastSyncTs;
 
+    // Process sequentially to maintain Ratchet order stability
     for (const msg of messages) {
       const sender = msg.sender_username || msg.sender || '';
       const receiver = msg.receiver_username || msg.recipient_id || msg.receiver || currentUser;
@@ -85,14 +80,22 @@ export const syncPendingMessages = async () => {
       const conversationId = getConversationId(sender, receiver);
       const timestamp = toEpoch(msg.timestamp);
 
-      const plainText = safeDecrypt(msg.encrypted_content || msg.ciphertext || msg.content);
+      //  DECRYPT CONTENT
+      const rawContent = msg.encrypted_content || msg.ciphertext || msg.content;
+      // We only try to decrypt if WE are the receiver. 
+      // If we sent it, we already have the plaintext locally (usually).
+      // But for sync, we might be restoring a backup, so logic depends on use case.
+      // For now: Always decrypt incoming.
+      const plainText = (sender !== currentUser) 
+         ? await safeDecrypt(rawContent, sender)
+         : rawContent; // If we sent it, assume it's synced back as ciphertext or ignored
 
       const isDeleted = 
         msg.status === 'deleted' || 
         msg.deleted_globally || 
         plainText === '__DELETED__';
 
-      // Push to array instead of saving immediately
+      // Push to array
       batch.push({
         id: String(msg.id),
         client_id: msg.client_id || String(msg.id),
@@ -101,11 +104,11 @@ export const syncPendingMessages = async () => {
         recipient_id: receiver,
         content: isDeleted ? '' : plainText,
         status: isDeleted ? 'deleted' : (msg.status || 'delivered'),
-        timestamp, // Integers now
+        timestamp, 
         media: isDeleted ? null : msg.media,
         media_type: msg.media_type,
         locally_deleted: isDeleted,
-        album_id: msg.album_id || null // Ensure album ID is preserved
+        album_id: msg.album_id || null 
       });
 
       // Track newest timestamp
@@ -114,7 +117,7 @@ export const syncPendingMessages = async () => {
       }
     }
 
-    // 3. 🚀 ONE DB TRANSACTION (50x Faster)
+    // 3. ONE DB TRANSACTION
     if (batch.length > 0) {
         saveMessagesBatch(batch);
     }
@@ -133,9 +136,6 @@ export const syncPendingMessages = async () => {
   }
 };
 
-/* ------------------------------------------------------------------ */
-/* 💬 PER-CHAT HISTORY SYNC                                           */
-/* ------------------------------------------------------------------ */
 
 export const syncChatMessages = async (targetUsername: string, currentUsername?: string) => {
   try {
@@ -151,7 +151,7 @@ export const syncChatMessages = async (targetUsername: string, currentUsername?:
     const messages = response.data;
     if (!Array.isArray(messages)) return false;
 
-    // 🚀 Prepare Batch
+    // Prepare Batch
     const batch: Message[] = [];
 
     for (const msg of messages) {
@@ -161,7 +161,16 @@ export const syncChatMessages = async (targetUsername: string, currentUsername?:
       const conversationId = getConversationId(sender, receiver);
       const timestamp = toEpoch(msg.timestamp);
 
-      const plainText = safeDecrypt(msg.encrypted_content || msg.ciphertext || msg.content);
+      //  DECRYPT
+      const rawContent = msg.encrypted_content || msg.ciphertext || msg.content;
+      // Note: If we are the sender, the server sends back ciphertext we cannot decrypt 
+      // (unless we store the plaintext session, which we don't for self).
+      // Standard Signal: You can't decrypt your own sent messages from another device 
+      // unless you implement "Note to Self" style syncing. 
+      // For now, we assume incoming messages are what we care about.
+      const plainText = (sender !== currentUser) 
+          ? await safeDecrypt(rawContent, sender) 
+          : "Message sent"; // Placeholder or original text if local
 
       const isDeleted = 
         msg.status === 'deleted' || 
@@ -184,7 +193,7 @@ export const syncChatMessages = async (targetUsername: string, currentUsername?:
       });
     }
 
-    // 🚀 Execute Batch
+    // Execute Batch
     if (batch.length > 0) {
         saveMessagesBatch(batch);
     }
@@ -202,22 +211,25 @@ export const syncServerInbox = async () => {
     const serverInbox = Array.isArray(response.data) ? response.data : response.data.results; 
     if (!serverInbox) return [];
 
-    return serverInbox.map((entry: any) => {
+    const processedInbox = [];
+
+    for (const entry of serverInbox) {
       let plainText = "";
       if (entry.last_message) {
-        try { 
-          plainText = decryptMessage(entry.last_message);
-          if (plainText === TOMBSTONE_MARKER) plainText = "Message deleted";
-        } 
-        catch (e) { plainText = "Encrypted message"; }
+          // Assuming entry.partner_username is available or can be derived
+          const partner = entry.partner_username || "unknown"; 
+          plainText = await safeDecrypt(entry.last_message, partner);
       }
-      return { ...entry, content: plainText, timestamp: entry.last_message_time };
-    });
+      processedInbox.push({ ...entry, content: plainText, timestamp: entry.last_message_time });
+    }
+    
+    return processedInbox;
   } catch (error) {
     console.error("Inbox Sync Failed:", error);
     return [];
   }
 };
+
 let isCheckingStuck = false;
 
 export const resendStuckMessages = async () => {
@@ -229,12 +241,11 @@ export const resendStuckMessages = async () => {
         if (!token || !currentUser) return;
 
         const inbox = getLocalInbox(currentUser) as InboxChat[];
-        const cutoff = Date.now() - (2 * 60 * 1000); // 2 mins ago (integer math)
+        const cutoff = Date.now() - (2 * 60 * 1000); // 2 mins ago
 
         for (const chat of inbox) {
             const messages = getMessagesForChat(chat.conversation_id) as Message[];
             
-            // Fix: Ensure comparison logic matches Integer timestamps
             const stuckMessages = messages.filter((m) => 
                 m.status === 'sending' && 
                 m.sender === currentUser && 
@@ -244,10 +255,24 @@ export const resendStuckMessages = async () => {
             for (const msg of stuckMessages) {
                 if (msg.media || (msg.content && msg.content.startsWith('file://'))) continue;
                 
+                // E2EE: We must ENCRYPT the plaintext content again
+                // The 'msg.content' in DB is plaintext (saved by ChatScreen)
+                let ciphertext = "";
+                try {
+                    // Extract recipient username from conversation ID or msg
+                    const parts = chat.conversation_id.split('__');
+                    const recipientUsername = parts.find(u => u !== currentUser) || "unknown";
+                    
+                    ciphertext = await EncryptionService.encrypt(msg.content, recipientUsername);
+                } catch (e) {
+                    console.log("Resend encryption failed, skipping", e);
+                    continue; 
+                }
+
                 addToQueue('SEND_MESSAGE', {
                     conversation_id: chat.conversation_id,
                     recipient_id: msg.recipient_id, 
-                    ciphertext: msg.content, 
+                    ciphertext: ciphertext, 
                     client_id: msg.client_id
                 });
             }
