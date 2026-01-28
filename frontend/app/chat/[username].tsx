@@ -30,9 +30,7 @@ import { Colors } from '../../constants/Colors';
 import { processMedia } from '../../utils/mediaProcessor';
 import UploadManager from '../../utils/UploadManager';
 import ImageViewer from '../../components/ImageViewer'; 
-
-// 👇 IMPORT COMPONENTS & STYLES
-import { MessageBubble, ChatMessageList, AlbumMessage } from './ChatComponents';
+import { MessageBubble, ChatMessageList, AlbumMessage, AlbumDetailModal } from './ChatComponents';
 import { createStyles } from './Chat.styles';
 
 export default function ChatScreen() {
@@ -44,7 +42,6 @@ export default function ChatScreen() {
   const insets = useSafeAreaInsets(); 
   const { isDark } = useTheme();
   
-  // Generate Styles
   const colors = isDark ? Colors.dark : Colors.light;
   const extendedColors = useMemo(() => ({ ...colors, isDark }), [colors, isDark]);
   const styles = useMemo(() => createStyles(colors, insets), [colors, insets]);
@@ -79,10 +76,15 @@ export default function ChatScreen() {
   const [isUserOnline, setIsUserOnline] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
   
-  // Viewer State
+  // Viewer States
   const [viewerVisible, setViewerVisible] = useState(false);
   const [viewerImages, setViewerImages] = useState<{uri:string}[]>([]);
   const [viewerIndex, setViewerIndex] = useState(0);
+
+  //lbum Feed States (Level 2)
+  const [albumModalVisible, setAlbumModalVisible] = useState(false);
+  const [albumImages, setAlbumImages] = useState<{uri:string}[]>([]);
+  const [albumInitialIndex, setAlbumInitialIndex] = useState(0);
 
   const flatListRef = useRef<FlatList>(null);
   const typingTimeout = useRef<any>(null);
@@ -111,11 +113,12 @@ export default function ChatScreen() {
   useEffect(() => {
     const backAction = () => {
       if (selectionMode) { clearSelection(); return true; }
+      if (albumModalVisible) { setAlbumModalVisible(false); return true; }
       return false;
     };
     const backHandler = BackHandler.addEventListener('hardwareBackPress', backAction);
     return () => backHandler.remove();
-  }, [selectionMode]);
+  }, [selectionMode, albumModalVisible]);
 
   useEffect(() => {
     const deleteListener = DeviceEventEmitter.addListener('messages_deleted_event', (deletedIds: string[]) => {
@@ -221,7 +224,6 @@ export default function ChatScreen() {
     const clientId = generateUUID();
     const recipientId = targetProfile.id;
     const token = await getSecure('accessToken');
-
     const optimisticMsg: Message = {
       id: null, client_id: clientId, conversation_id: conversationId, recipient_id: recipientId,
       sender: user?.username || '', content: recordedUri, status: 'uploading',
@@ -247,16 +249,10 @@ export default function ChatScreen() {
   };
 
   const triggerUndoSequence = (ids: string[], scope: 'self' | 'global') => {
-      const msgsToDelete = messages.filter(m => ids.includes(m.client_id));
-      deletedCacheRef.current = msgsToDelete;
-      setMessages(prev => prev.filter(m => !ids.includes(m.client_id))); 
-      clearSelection();
-
-      if (undoState.timer) clearTimeout(undoState.timer);
-      pendingDeleteRef.current = { ids, scope };
-      
+      const msgsToDelete = messages.filter(m => ids.includes(m.client_id)); deletedCacheRef.current = msgsToDelete;
+      setMessages(prev => prev.filter(m => !ids.includes(m.client_id))); clearSelection();
+      if (undoState.timer) clearTimeout(undoState.timer); pendingDeleteRef.current = { ids, scope };
       const timer = setTimeout(() => { commitDelete(ids, scope); }, 4000);
-
       setUndoState({ visible: true, ids, scope, timer });
       Animated.parallel([
         Animated.timing(slideAnimX, { toValue: 0, duration: 300, useNativeDriver: true }),
@@ -331,7 +327,12 @@ export default function ChatScreen() {
   };
 
   const pickMedia = async () => {
-    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsMultipleSelection: true, selectionLimit: 10, quality: 0.8 });
+    const result = await ImagePicker.launchImageLibraryAsync({ 
+      mediaTypes: ['images'] as any, 
+      allowsMultipleSelection: true, 
+      selectionLimit: 10, 
+      quality: 0.8 
+    });
     if (!result.canceled) handleSendMedia(result.assets);
   };
 
@@ -409,19 +410,27 @@ export default function ChatScreen() {
     }
   };
 
-  // ✅ Open Full Screen Viewer Logic
-  const openImage = useCallback((url: string) => {
-    const images = messages
-      .filter(m => m.media_type === 'image' && (m.media || m.content))
-      .map(m => {
+  const openAlbumViewer = useCallback((images: Message[], clickedIndex: number) => {
+    const formattedImages = images.map(m => {
         const rawUrl = m.media || m.content || "";
+        if(!rawUrl) return null;
         return { uri: rawUrl.startsWith('http') ? rawUrl : `${BASE_URL}${rawUrl}` };
-    });
-    const index = images.findIndex(i => i.uri === url);
-    setViewerImages(images);
-    setViewerIndex(index === -1 ? 0 : index);
+    }).filter(i => i !== null) as {uri: string}[];
+
+    if (formattedImages.length > 0) {
+        setAlbumImages(formattedImages);
+        setAlbumInitialIndex(clickedIndex);
+        setAlbumModalVisible(true);
+    }
+  }, []);
+
+  const openSingleImage = useCallback((url: string) => {
+    if (!url) return;
+    const rawUrl = url.startsWith('http') ? url : `${BASE_URL}${url}`;
+    setViewerImages([{ uri: rawUrl }]);
+    setViewerIndex(0);
     setViewerVisible(true);
-  }, [messages]);
+  }, []);
 
   const handleSend = async () => {
     if (!text.trim()) return;
@@ -454,20 +463,14 @@ export default function ChatScreen() {
   };
 
   const groupedMessages = useMemo(() => {
-    const groups: any[] = [];
-    let buffer: Message[] = [];
+    const groups: any[] = []; let buffer: Message[] = [];
     messages.forEach(msg => {
       if (msg.media_type === 'image') {
         if (buffer.length > 0) {
           const lastMsg = buffer[0];
-          if ((msg.album_id && lastMsg.album_id === msg.album_id) || (!msg.album_id && !lastMsg.album_id && lastMsg.media_type === 'image')) {
-            buffer.push(msg);
-          } else { groups.push(buffer); buffer = [msg]; }
+          if ((msg.album_id && lastMsg.album_id === msg.album_id) || (!msg.album_id && !lastMsg.album_id && lastMsg.media_type === 'image')) { buffer.push(msg); } else { groups.push(buffer); buffer = [msg]; }
         } else { buffer.push(msg); }
-      } else {
-        if (buffer.length > 0) { groups.push(buffer); buffer = []; }
-        groups.push([msg]);
-      }
+      } else { if (buffer.length > 0) { groups.push(buffer); buffer = []; } groups.push([msg]); }
     });
     if (buffer.length > 0) groups.push(buffer);
     return groups;
@@ -481,7 +484,7 @@ export default function ChatScreen() {
           isMe={item[0].sender === user?.username}
           selectedIds={selectedIds}
           toggleSelect={toggleSelect}
-          openImage={openImage}
+          onOpenAlbum={(index: number) => openAlbumViewer(item, index)} 
           selectionMode={selectionMode}
           dragSelectingRef={dragSelecting}
           styles={styles}
@@ -495,14 +498,14 @@ export default function ChatScreen() {
         isMe={item[0].sender === user?.username}
         isSelected={selectedIds.has(item[0].client_id)}
         toggleSelect={toggleSelect}
-        openImage={openImage}
+        openImage={openSingleImage} 
         selectionMode={selectionMode}
         handleSendMedia={handleSendMedia}
         styles={styles}
         colors={extendedColors}
       />
     );
-  }, [user?.username, selectedIds, selectionMode, extendedColors, styles, toggleSelect, openImage, handleSendMedia]);
+  }, [user?.username, selectedIds, selectionMode, extendedColors, styles, toggleSelect, openAlbumViewer, openSingleImage, handleSendMedia]);
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
@@ -536,68 +539,56 @@ export default function ChatScreen() {
       </View>
 
       <KeyboardWrapper headerHeight={HEADER_HEIGHT}>
-        <ChatMessageList 
-          groupedMessages={groupedMessages} 
-          renderMessage={renderMessage} 
-          flatListRef={flatListRef} 
-          styles={styles}
-        />
+        <ChatMessageList groupedMessages={groupedMessages} renderMessage={renderMessage} flatListRef={flatListRef} styles={styles} />
         
-        {/* Input Area */}
+        {/* Input */}
         <View style={styles.inputContainer}>
           {recordedUri ? (
             <View style={styles.recordingRow}>
-              <TouchableOpacity onPress={cancelRecording} style={styles.cancelRecButton}>
-                <Ionicons name="trash" size={22} color={colors.danger} />
-              </TouchableOpacity>
-              <WaveformLive active={false} color={colors.tint} />
-              <Text style={styles.recTimer}>{Math.floor(recordDuration / 60)}:{String(recordDuration % 60).padStart(2, '0')}</Text>
-              <TouchableOpacity onPress={sendVoiceMessage} style={styles.sendRecButton}>
-                <Ionicons name="send" size={22} color="#fff" />
-              </TouchableOpacity>
+              <TouchableOpacity onPress={cancelRecording} style={styles.cancelRecButton}><Ionicons name="trash" size={22} color={colors.danger} /></TouchableOpacity>
+              <WaveformLive active={false} color={colors.tint} /><Text style={styles.recTimer}>{Math.floor(recordDuration / 60)}:{String(recordDuration % 60).padStart(2, '0')}</Text>
+              <TouchableOpacity onPress={sendVoiceMessage} style={styles.sendRecButton}><Ionicons name="send" size={22} color="#fff" /></TouchableOpacity>
             </View>
           ) : isRecording ? (
             <View style={styles.recordingRow}>
-              <WaveformLive active={true} color={colors.danger} />
-              <Text style={[styles.recTimer, { color: colors.danger }]}>{Math.floor(recordDuration / 60)}:{String(recordDuration % 60).padStart(2, '0')}</Text>
+              <WaveformLive active={true} color={colors.danger} /><Text style={[styles.recTimer, { color: colors.danger }]}>{Math.floor(recordDuration / 60)}:{String(recordDuration % 60).padStart(2, '0')}</Text>
               <Text style={{ color: colors.subText, fontStyle: 'italic', flex: 1, textAlign: 'center' }}>← Swipe to cancel</Text>
-              <View onStartShouldSetResponder={() => true} onResponderRelease={stopRecording} onResponderMove={onMicMove} style={styles.recordingMicPulse}>
-                <Ionicons name="mic" size={26} color="#fff" />
-              </View>
+              <View onStartShouldSetResponder={() => true} onResponderRelease={stopRecording} onResponderMove={onMicMove} style={styles.recordingMicPulse}><Ionicons name="mic" size={26} color="#fff" /></View>
             </View>
           ) : (
             <>
               <TouchableOpacity onPress={pickMedia} style={{ padding: 8, marginRight: 4 }}><Ionicons name="add-circle-outline" size={28} color={colors.tint} /></TouchableOpacity>
               <TextInput style={styles.input} placeholder="Message..." placeholderTextColor={colors.subText} value={text} onChangeText={handleTyping} multiline textAlignVertical="center" />
-              {text.trim() ? (
-                <TouchableOpacity onPress={handleSend} style={styles.sendBtn}><Ionicons name="send" size={24} color={colors.tint} /></TouchableOpacity>
-              ) : (
-                <View onStartShouldSetResponder={() => true} onResponderGrant={onMicPressIn} onResponderRelease={stopRecording} onResponderMove={onMicMove} style={styles.sendBtn}>
-                  <Ionicons name="mic-outline" size={26} color={colors.tint} />
-                </View>
-              )}
+              {text.trim() ? ( <TouchableOpacity onPress={handleSend} style={styles.sendBtn}><Ionicons name="send" size={24} color={colors.tint} /></TouchableOpacity> ) : ( <View onStartShouldSetResponder={() => true} onResponderGrant={onMicPressIn} onResponderRelease={stopRecording} onResponderMove={onMicMove} style={styles.sendBtn}><Ionicons name="mic-outline" size={26} color={colors.tint} /></View> )}
             </>
           )}
         </View>
       </KeyboardWrapper>
-      <ImageViewer visible={viewerVisible} images={viewerImages} index={viewerIndex} onClose={() => setViewerVisible(false)} onForward={handleForwardMedia} />
+      
+      <AlbumDetailModal 
+        visible={albumModalVisible} 
+        onClose={() => setAlbumModalVisible(false)} 
+        images={albumImages} 
+        initialIndex={albumInitialIndex} 
+        onImagePress={openSingleImage} 
+        styles={styles} 
+      />
 
-      {/* Undo Snackbar */}
+      <ImageViewer 
+        visible={viewerVisible} 
+        images={viewerImages} 
+        index={viewerIndex} 
+        onClose={() => setViewerVisible(false)} 
+        onForward={handleForwardMedia} 
+      />
+
       {undoState.visible && (
-        <Animated.View style={[
-          styles.undoSnackbar, 
-          { top: insets.top + 12, left: 12, right: undefined, transform: [{ translateX: slideAnimX }, { translateY: slideAnimY }] }
-        ]}>
+        <Animated.View style={[ styles.undoSnackbar, { top: insets.top + 12, left: 12, right: undefined, transform: [{ translateX: slideAnimX }, { translateY: slideAnimY }] } ]}>
           <Text style={styles.undoText}>{undoState.ids.length} message{undoState.ids.length > 1 ? 's' : ''} deleted</Text>
-          <TouchableOpacity onPress={handleUndo} style={styles.undoButton}>
-            <Text style={styles.undoButtonText}>UNDO</Text>
-          </TouchableOpacity>
-          <Animated.View 
-            style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(255,255,255,0.1)', width: undoProgress.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] }) }]} 
-          />
+          <TouchableOpacity onPress={handleUndo} style={{ padding: 4 }}><Text style={styles.undoButtonText}>UNDO</Text></TouchableOpacity>
+          <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(255,255,255,0.1)', width: undoProgress.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] }) }]} />
         </Animated.View>
       )}
-
     </SafeAreaView>
   );
 }
