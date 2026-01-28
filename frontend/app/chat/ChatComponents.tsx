@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { 
-  View, Text, FlatList, TouchableOpacity, Image, ActivityIndicator, Modal, StatusBar 
+  View, Text, FlatList, TouchableOpacity, Image, ActivityIndicator, Modal, StatusBar, Linking 
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { BASE_URL } from '../../utils/api'; 
@@ -13,7 +13,32 @@ const getMediaUri = (uri: string | null | undefined) => {
     return `${BASE_URL}${uri}`; 
 };
 
-//  LEVEL 2: ALBUM DETAIL MODAL (Vertical Feed)
+//  HELPER: Parse Text & Make Links Clickable
+const renderTextWithLinks = (text: string, color: string) => {
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    const parts = text.split(urlRegex);
+
+    return (
+        <Text style={{ fontSize: 15, marginBottom: 4, lineHeight: 20, color }}>
+            {parts.map((part, index) => {
+                if (part.match(urlRegex)) {
+                    return (
+                        <Text
+                            key={index}
+                            style={{ color: '#4dabf7', textDecorationLine: 'underline' }} // Link Style
+                            onPress={() => Linking.openURL(part).catch(err => console.error("Couldn't load page", err))}
+                        >
+                            {part}
+                        </Text>
+                    );
+                }
+                return part;
+            })}
+        </Text>
+    );
+};
+
+// ALBUM DETAIL MODAL
 export const AlbumDetailModal = ({ visible, onClose, images, initialIndex, onImagePress, styles }: any) => {
     const listRef = useRef<FlatList>(null);
 
@@ -36,6 +61,7 @@ export const AlbumDetailModal = ({ visible, onClose, images, initialIndex, onIma
                         <Ionicons name="arrow-back" size={28} color="#fff" />
                     </TouchableOpacity>
                 </View>
+
                 <FlatList
                     ref={listRef}
                     data={images}
@@ -44,7 +70,7 @@ export const AlbumDetailModal = ({ visible, onClose, images, initialIndex, onIma
                     getItemLayout={(_, index) => ({ length: styles.albumFeedImage.height + 20, offset: (styles.albumFeedImage.height + 20) * index, index })}
                     renderItem={({ item, index }) => (
                         <TouchableOpacity 
-                            activeOpacity={1}
+                            activeOpacity={1} 
                             style={styles.albumFeedItem} 
                             onPress={() => onImagePress(item.uri)} 
                         >
@@ -96,7 +122,6 @@ export const AlbumMessage = React.memo(({ item, isMe, selectedIds, toggleSelect,
                         style={[ itemStyle, { position: 'relative' }, isSelected && { borderWidth: 3, borderColor: colors.tint, borderRadius: 8 } ]} 
                     >
                         <Image source={{ uri: fullUrl }} style={styles.albumImage} />
-                        
                         {(i === DISPLAY_LIMIT - 1 && overflowCount > 0) && (
                             <View style={styles.overflowOverlay}><Text style={styles.overflowText}>+{overflowCount}</Text></View>
                         )}
@@ -129,6 +154,7 @@ export const MessageBubble = React.memo(({ item, isMe, isSelected, toggleSelect,
         activeOpacity={0.9}
         onLongPress={() => toggleSelect(item.client_id)}
         onPress={() => selectionMode ? toggleSelect(item.client_id) : null}
+        delayPressIn={100} // slight delay to prevent accidental selection when scrolling
       >
         <View style={[
             styles.bubble, 
@@ -157,7 +183,9 @@ export const MessageBubble = React.memo(({ item, isMe, isSelected, toggleSelect,
                   </TouchableOpacity>
                 )}
              </View>
-          ) : ( <Text style={[styles.messageText, { color: isMe ? '#fff' : colors.text }]}>{item.content}</Text> )}
+          ) : ( 
+            renderTextWithLinks(item.content, isMe ? '#fff' : colors.text)
+          )}
           
           <View style={[styles.metaRow, isMedia && { position: 'absolute', bottom: 8, right: 8, backgroundColor: 'rgba(0,0,0,0.4)', borderRadius: 10, paddingHorizontal: 6, paddingVertical: 2 }]}>
             <Text style={[styles.timestamp, { color: (isMe || isMedia) ? 'rgba(255,255,255,0.9)' : colors.subText }]}>{new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>

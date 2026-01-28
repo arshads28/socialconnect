@@ -8,6 +8,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import api, { BASE_URL } from '../../utils/api'; 
 import * as ImagePicker from 'expo-image-picker'; 
+import * as Clipboard from 'expo-clipboard';
 
 import { WaveformLive } from '../../components/AudioComponents';
 import { useAudioRecorder } from '../../utils/useAudioRecorder';
@@ -229,20 +230,14 @@ export default function ChatScreen() {
       sender: user?.username || '', content: recordedUri, status: 'uploading',
       timestamp: Date.now(), media: recordedUri, media_type: 'audio', 
     };
-    saveMessage(optimisticMsg);
-    setMessages(prev => [...prev, optimisticMsg]);
-    setRecordedUri(null);
-
+    saveMessage(optimisticMsg); setMessages(prev => [...prev, optimisticMsg]); setRecordedUri(null);
     UploadManager.add({
       id: clientId, files: [{ uri: recordedUri, type: 'audio' as any }], 
-      endpoint: `${BASE_URL}/chat/upload/`, headers: { Authorization: `Bearer ${token}` }, 
-      additionalData: { id: clientId, recipient_id: recipientId },
+      endpoint: `${BASE_URL}/chat/upload/`, headers: { Authorization: `Bearer ${token}` }, additionalData: { id: clientId, recipient_id: recipientId },
     }, {
       onSuccess: (res) => {
-        const remoteUrl = res.media_url;
-        const ciphertext = encryptMessage(remoteUrl);
-        sendMessage(recipientId, ciphertext, clientId);
-        saveMessage({ ...optimisticMsg, content: remoteUrl, media: remoteUrl, status: 'sent' });
+        const remoteUrl = res.media_url; const ciphertext = encryptMessage(remoteUrl);
+        sendMessage(recipientId, ciphertext, clientId); saveMessage({ ...optimisticMsg, content: remoteUrl, media: remoteUrl, status: 'sent' });
       },
       onError: () => { saveMessage({ ...optimisticMsg, status: 'failed' }); }
     });
@@ -262,58 +257,31 @@ export default function ChatScreen() {
   };
 
   const handleDeleteSelected = () => {
-    const selectedMsgs = messages.filter(m => selectedIds.has(m.client_id));
-    const clientIds = selectedMsgs.map(m => m.client_id);
-    const isMe = (m: Message) => m.sender === user?.username;
-    
+    const selectedMsgs = messages.filter(m => selectedIds.has(m.client_id)); const clientIds = selectedMsgs.map(m => m.client_id); const isMe = (m: Message) => m.sender === user?.username;
     const canDeleteForEveryone = selectedMsgs.every(m => {
-        const sentTime = new Date(m.timestamp).getTime();
-        const sixHoursAgo = Date.now() - (6 * 60 * 60 * 1000);
+        const sentTime = new Date(m.timestamp).getTime(); const sixHoursAgo = Date.now() - (6 * 60 * 60 * 1000);
         return isMe(m) && (sentTime > sixHoursAgo);
     });
-
-    const buttons: any[] = [
-        { text: "Cancel", style: "cancel" },
-        { text: "Delete for Me", onPress: () => triggerUndoSequence(clientIds, 'self') }
-    ];
-    if (canDeleteForEveryone) {
-        buttons.push({ text: "Delete for Everyone", style: 'destructive', onPress: () => triggerUndoSequence(clientIds, 'global') });
-    }
+    const buttons: any[] = [{ text: "Cancel", style: "cancel" }, { text: "Delete for Me", onPress: () => triggerUndoSequence(clientIds, 'self') }];
+    if (canDeleteForEveryone) { buttons.push({ text: "Delete for Everyone", style: 'destructive', onPress: () => triggerUndoSequence(clientIds, 'global') }); }
     Alert.alert("Delete Message?", canDeleteForEveryone ? "Delete for everyone or just you?" : "Delete for you only?", buttons);
   };
 
   const commitDelete = useCallback((ids: string[], scope: 'self' | 'global') => {
       deleteMessagesByClientIds(ids); 
-      if (scope === 'self') {
-          api.post('/chat/delete/self/', { client_ids: ids }).catch(err => console.log("Delete Self Error", err));
-      } else {
-          api.post('/chat/delete/global/', { client_ids: ids }).catch(err => console.log("Delete Global Error", err));
-      }
-      pendingDeleteRef.current = null;
-      deletedCacheRef.current = [];
-      hideUndoSnackbar();
+      if (scope === 'self') api.post('/chat/delete/self/', { client_ids: ids }).catch(console.log); else api.post('/chat/delete/global/', { client_ids: ids }).catch(console.log);
+      pendingDeleteRef.current = null; deletedCacheRef.current = []; hideUndoSnackbar();
   }, []);
 
   const handleUndo = () => {
-    if (undoState.timer) clearTimeout(undoState.timer);
-    pendingDeleteRef.current = null; 
-    undoProgress.stopAnimation();
-    undoProgress.setValue(0);
-    setMessages(prev => {
-        const combined = [...prev, ...deletedCacheRef.current];
-        return combined.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-    });
-    deletedCacheRef.current = [];
-    hideUndoSnackbar();
+    if (undoState.timer) clearTimeout(undoState.timer); pendingDeleteRef.current = null; undoProgress.stopAnimation(); undoProgress.setValue(0);
+    setMessages(prev => { const combined = [...prev, ...deletedCacheRef.current]; return combined.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()); });
+    deletedCacheRef.current = []; hideUndoSnackbar();
   };
 
   const hideUndoSnackbar = () => {
-    Animated.parallel([
-      Animated.timing(slideAnimX, { toValue: -150, duration: 300, useNativeDriver: true }),
-      Animated.timing(slideAnimY, { toValue: -80, duration: 300, useNativeDriver: true })
-    ]).start(() => {
-        setUndoState({ visible: false, ids: [], scope: null, timer: null });
-        undoProgress.setValue(0);
+    Animated.parallel([ Animated.timing(slideAnimX, { toValue: -150, duration: 300, useNativeDriver: true }), Animated.timing(slideAnimY, { toValue: -80, duration: 300, useNativeDriver: true }) ]).start(() => {
+        setUndoState({ visible: false, ids: [], scope: null, timer: null }); undoProgress.setValue(0);
     });
   };
 
@@ -324,6 +292,19 @@ export default function ChatScreen() {
     if (imageUrls.length > 0) { setViewerImages(imageUrls.map(u => ({ uri: u }))); setViewerVisible(true); }
     if (textMessages.length > 0) { Alert.alert("Forward text?", `${textMessages.length} text messages selected`, [{ text: "OK" }]); }
     clearSelection();
+  };
+
+  // COPY FUNCTION
+  const handleCopySelected = async () => {
+      const selectedMsgs = messages.filter(m => selectedIds.has(m.client_id) && !m.media_type && m.content !== "__DELETED__");
+      if (selectedMsgs.length === 0) return;
+
+      const textToCopy = selectedMsgs.map(m => m.content).join('\n');
+      await Clipboard.setStringAsync(textToCopy);
+      
+      // Optional: Give feedback (Toast or simple Alert if no toast library)
+      // Alert.alert("Copied", "Text copied to clipboard");
+      clearSelection();
   };
 
   const pickMedia = async () => {
@@ -378,34 +359,20 @@ export default function ChatScreen() {
     if (!targetProfile?.id) return;
     const albumId = assets.length > 1 ? generateUUID() : undefined;
     for (const asset of assets) {
-        const processed = await processMedia(asset.uri, 'image');
-        const clientId = generateUUID();
-        const recipientId = targetProfile.id;
-        const token = await getSecure('accessToken');
+        const processed = await processMedia(asset.uri, 'image'); const clientId = generateUUID(); const recipientId = targetProfile.id; const token = await getSecure('accessToken');
         const optimisticMsg: Message = {
-            id: null, client_id: clientId, conversation_id: conversationId, recipient_id: recipientId,
-            sender: user?.username || '', content: processed.uri, status: 'uploading', 
-            timestamp: Date.now(), media: processed.uri, media_type: 'image', album_id: albumId, 
+            id: null, client_id: clientId, conversation_id: conversationId, recipient_id: recipientId, sender: user?.username || '', content: processed.uri, status: 'uploading', timestamp: Date.now(), media: processed.uri, media_type: 'image', album_id: albumId, 
         };
-        saveMessage(optimisticMsg); 
-        setMessages(prev => [...prev, optimisticMsg]);
+        saveMessage(optimisticMsg); setMessages(prev => [...prev, optimisticMsg]);
         UploadManager.add({
-            id: clientId, files: [{ uri: processed.uri, type: 'image' as any }], 
-            endpoint: `${BASE_URL}/chat/upload/`, headers: { 'Authorization': `Bearer ${token}` },
-            additionalData: { id: clientId, recipient_id: recipientId, album_id: albumId }, 
+            id: clientId, files: [{ uri: processed.uri, type: 'image' as any }], endpoint: `${BASE_URL}/chat/upload/`, headers: { 'Authorization': `Bearer ${token}` }, additionalData: { id: clientId, recipient_id: recipientId, album_id: albumId }, 
         }, {
             onProgress: (p) => setMessages(prev => prev.map(m => m.client_id === clientId ? { ...m, media_progress: p } : m)),
             onSuccess: (res) => {
-                const remoteUrl = res.media_url || res.url;
-                const ciphertext = encryptMessage(remoteUrl);
-                sendMessage(recipientId, ciphertext, clientId, albumId); 
-                saveMessage({ ...optimisticMsg, content: remoteUrl, media: remoteUrl, status: 'sent' });
-                setMessages(prev => prev.map(m => m.client_id === clientId ? { ...m, content: remoteUrl, media: remoteUrl, status: 'sent', media_progress: 100 } : m));
+                const remoteUrl = res.media_url || res.url; const ciphertext = encryptMessage(remoteUrl); sendMessage(recipientId, ciphertext, clientId, albumId); 
+                saveMessage({ ...optimisticMsg, content: remoteUrl, media: remoteUrl, status: 'sent' }); setMessages(prev => prev.map(m => m.client_id === clientId ? { ...m, content: remoteUrl, media: remoteUrl, status: 'sent', media_progress: 100 } : m));
             },
-            onError: () => {
-                setMessages(prev => prev.map(m => m.client_id === clientId ? { ...m, media_failed: true, status: 'failed' } : m));
-                saveMessage({ ...optimisticMsg, status: 'failed' });
-            }
+            onError: () => { setMessages(prev => prev.map(m => m.client_id === clientId ? { ...m, media_failed: true, status: 'failed' } : m)); saveMessage({ ...optimisticMsg, status: 'failed' }); }
         });
     }
   };
@@ -433,34 +400,15 @@ export default function ChatScreen() {
   }, []);
 
   const handleSend = async () => {
-    if (!text.trim()) return;
-    if (!targetProfile?.id) return;
-    const clientId = generateUUID();
-    const ciphertext = encryptMessage(text);
-    const recipientId = targetProfile.id; 
-    const msg: Message = {
-      id: null, client_id: clientId, conversation_id: conversationId, recipient_id: recipientId, 
-      sender: user?.username || '', content: text, status: 'sending', timestamp: Date.now(), 
-    };
-    saveMessage(msg); 
-    loadLocalMessages(); 
-    setText('');
+    if (!text.trim()) return; if (!targetProfile?.id) return;
+    const clientId = generateUUID(); const ciphertext = encryptMessage(text); const recipientId = targetProfile.id; 
+    const msg: Message = { id: null, client_id: clientId, conversation_id: conversationId, recipient_id: recipientId, sender: user?.username || '', content: text, status: 'sending', timestamp: Date.now(), };
+    saveMessage(msg); loadLocalMessages(); setText('');
     const net = await NetInfo.fetch();
-    if (!net.isConnected || ws?.readyState !== WebSocket.OPEN) {
-        addToQueue('SEND_MESSAGE', { conversation_id: conversationId, recipient_id: recipientId, ciphertext, client_id: clientId });
-    } else {
-        sendMessage(recipientId, ciphertext, clientId);
-    }
+    if (!net.isConnected || ws?.readyState !== WebSocket.OPEN) { addToQueue('SEND_MESSAGE', { conversation_id: conversationId, recipient_id: recipientId, ciphertext, client_id: clientId }); } else { sendMessage(recipientId, ciphertext, clientId); }
   };
 
-  const handleClearChat = () => {
-      Alert.alert("Clear Chat?", "Delete local history?", [
-          { text: "Cancel", style: "cancel" },
-          { text: "Delete", style: "destructive", onPress: async () => {
-              deleteLocalChat(conversationId); setMessages([]); api.post(`/chat/clear/${targetUsername}/`).catch(() => {}); } 
-          }
-      ]);
-  };
+  const handleClearChat = () => { Alert.alert("Clear Chat?", "Delete local history?", [{ text: "Cancel", style: "cancel" }, { text: "Delete", style: "destructive", onPress: async () => { deleteLocalChat(conversationId); setMessages([]); api.post(`/chat/clear/${targetUsername}/`).catch(() => {}); } }]); };
 
   const groupedMessages = useMemo(() => {
     const groups: any[] = []; let buffer: Message[] = [];
@@ -515,7 +463,9 @@ export default function ChatScreen() {
           <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
             <TouchableOpacity onPress={clearSelection}><Ionicons name="close" size={24} color={colors.text} /></TouchableOpacity>
             <Text style={{ marginLeft: 12, fontWeight: 'bold', color: colors.text, fontSize: 18 }}>{selectedIds.size}</Text>
+            
             <View style={{ flexDirection: 'row', marginLeft: 'auto', gap: 18 }}>
+              <TouchableOpacity onPress={handleCopySelected}><Ionicons name="copy-outline" size={22} color={colors.text} /></TouchableOpacity>
               <TouchableOpacity onPress={handleForwardSelected}><Ionicons name="arrow-redo-outline" size={22} color={colors.text} /></TouchableOpacity>
               <TouchableOpacity onPress={handleDeleteSelected}><Ionicons name="trash-outline" size={22} color={colors.danger} /></TouchableOpacity>
             </View>
