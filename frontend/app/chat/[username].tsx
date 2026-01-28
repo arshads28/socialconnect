@@ -188,7 +188,12 @@ export default function ChatScreen() {
   // EXIT TRAP
   useEffect(() => {
     return () => {
-      if (pendingDeleteRef.current) commitDelete(pendingDeleteRef.current.ids, pendingDeleteRef.current.scope);
+      if (pendingDeleteRef.current) {
+        const { ids, scope } = pendingDeleteRef.current;
+        deleteMessagesByClientIds(ids); 
+        const endpoint = scope === 'self' ? '/chat/delete/self/' : '/chat/delete/global/';
+        api.post(endpoint, { client_ids: ids }).catch(() => {});
+      }
       cancelRecording(); 
     };
   }, []);
@@ -342,55 +347,98 @@ export default function ChatScreen() {
     });
   };
 
+//  START UNDO SEQUENCE: Hides message & Starts 4s Timer
+  const triggerUndoSequence = (ids: string[], scope: 'self' | 'global') => {
+      // 1. Save messages to cache (in case of Undo)
+      const msgsToDelete = messages.filter(m => ids.includes(m.client_id));
+      deletedCacheRef.current = msgsToDelete;
+
+      // 2. Visually remove from UI immediately
+      setMessages(prev => prev.filter(m => !ids.includes(m.client_id))); 
+      
+      // 3. Clear Selection Mode
+      clearSelection();
+
+      // 4. Clear any existing timer if user deletes rapidly
+      if (undoState.timer) clearTimeout(undoState.timer);
+      
+      // 5. Set "Pending Delete" Ref (For safety if user leaves screen)
+      pendingDeleteRef.current = { ids, scope };
+      
+      // 6. Start 4-Second Timer
+      const timer = setTimeout(() => {
+          commitDelete(ids, scope);
+      }, 4000); // 👈 4 Seconds
+
+      // 7. Show Undo Snackbar
+      setUndoState({ visible: true, ids, scope, timer });
+
+      // 8. Run Animation
+      Animated.parallel([
+        Animated.timing(slideAnimX, { toValue: 0, duration: 300, useNativeDriver: true }),
+        Animated.timing(slideAnimY, { toValue: 0, duration: 300, useNativeDriver: true }),
+        Animated.timing(undoProgress, { toValue: 1, duration: 4000, easing: Easing.linear, useNativeDriver: false }) // Sync with timer
+      ]).start();
+  };
+
+  // HANDLE DELETE BUTTON PRESS
   const handleDeleteSelected = () => {
     const selectedMsgs = messages.filter(m => selectedIds.has(m.client_id));
     const clientIds = selectedMsgs.map(m => m.client_id);
 
     const isMe = (m: Message) => m.sender === user?.username;
+    
+    // Check constraints (e.g. 6 hour limit for global delete)
     const canDeleteForEveryone = selectedMsgs.every(m => {
         const sentTime = new Date(m.timestamp).getTime();
         const sixHoursAgo = Date.now() - (6 * 60 * 60 * 1000);
         return isMe(m) && (sentTime > sixHoursAgo);
     });
 
-    const triggerUndoSnackbar = (scope: 'self' | 'global') => {
-        deletedCacheRef.current = selectedMsgs; 
-        setMessages(prev => prev.filter(m => !selectedIds.has(m.client_id))); 
-        clearSelection();
-        if (undoState.timer) clearTimeout(undoState.timer);
-        
-        pendingDeleteRef.current = { ids: clientIds, scope };
-        
-        // ✅ NEW ANIMATION: Slide In from Top Left
-        Animated.parallel([
-          Animated.timing(slideAnimX, { toValue: 0, duration: 300, useNativeDriver: true }),
-          Animated.timing(slideAnimY, { toValue: 0, duration: 300, useNativeDriver: true }),
-          Animated.timing(undoProgress, { toValue: 1, duration: 6000, easing: Easing.linear, useNativeDriver: false })
-        ]).start();
-
-        const timer = setTimeout(() => {
-            commitDelete(clientIds, scope);
-            hideUndoSnackbar();
-        }, 6000);
-
-        setUndoState({ visible: true, ids: clientIds, scope, timer });
-    };
-
     const buttons: any[] = [
         { text: "Cancel", style: "cancel" },
-        { text: "Delete for Me", onPress: () => triggerUndoSnackbar('self') }
+        { 
+            text: "Delete for Me", 
+            onPress: () => triggerUndoSequence(clientIds, 'self') 
+        }
     ];
 
-    if (canDeleteForEveryone) buttons.push({ text: "Delete for Everyone", style: 'destructive', onPress: () => triggerUndoSnackbar('global') });
-    Alert.alert("Delete?", canDeleteForEveryone ? "Delete for everyone or just you?" : "Delete for you only?", buttons);
+    if (canDeleteForEveryone) {
+        buttons.push({ 
+            text: "Delete for Everyone", 
+            style: 'destructive', 
+            onPress: () => triggerUndoSequence(clientIds, 'global') 
+        });
+    }
+
+    Alert.alert(
+      "Delete Message?", 
+      canDeleteForEveryone ? "Delete for everyone or just you?" : "Delete for you only?", 
+      buttons
+    );
   };
 
-  const commitDelete = (ids: string[], scope: 'self' | 'global') => {
-    deleteMessagesByClientIds(ids); 
-    addToQueue('DELETE_MESSAGE', { client_ids: ids, scope }); 
-    pendingDeleteRef.current = null;
-    deletedCacheRef.current = [];
-  };
+  //COMMIT DELETE: The actual execution after the timer finishes
+  const commitDelete = useCallback((ids: string[], scope: 'self' | 'global') => {
+      console.log("⏳ Timer finished. Deleting from DB and Backend...");
+
+      // 1. Delete from Local SQLite DB (Permanently)
+      deleteMessagesByClientIds(ids); 
+
+      // 2. Delete from Backend API
+      if (scope === 'self') {
+          api.post('/chat/delete/self/', { client_ids: ids }).catch(err => console.log("Delete Self Error", err));
+      } else {
+          api.post('/chat/delete/global/', { client_ids: ids }).catch(err => console.log("Delete Global Error", err));
+      }
+
+      // 3. Cleanup State
+      pendingDeleteRef.current = null;
+      deletedCacheRef.current = [];
+      
+      // 4. Hide Snackbar
+      hideUndoSnackbar();
+  }, []);
 
   const handleUndo = () => {
     if (undoState.timer) clearTimeout(undoState.timer);
