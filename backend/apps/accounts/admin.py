@@ -6,7 +6,7 @@ from django.contrib.auth.forms import UserChangeForm, UserCreationForm
 from django.utils.translation import gettext_lazy as _
 from django.utils.html import format_html
 
-from .models import User,PushDevice
+from .models import User, Device, UserDevice
 
 
 # ============================
@@ -32,9 +32,6 @@ class CustomUserAdmin(UserAdmin):
     form = CustomUserChangeForm
     add_form = CustomUserCreationForm
 
-    # ======================
-    # LIST VIEW
-    # ======================
     list_display = (
         "avatar_preview",
         "username",
@@ -44,18 +41,17 @@ class CustomUserAdmin(UserAdmin):
         "last_seen",
         "date_joined",
     )
+
     list_filter = (
         "is_staff",
         "is_superuser",
         "is_active",
         "groups",
     )
+
     search_fields = ("username", "email")
     ordering = ("-date_joined",)
 
-    # ======================
-    # FIELDSETS
-    # ======================
     fieldsets = (
         (None, {"fields": ("username", "password")}),
         (_("Personal info"), {
@@ -91,9 +87,6 @@ class CustomUserAdmin(UserAdmin):
         }),
     )
 
-    # ======================
-    # ADD USER
-    # ======================
     add_fieldsets = (
         (
             None,
@@ -111,16 +104,11 @@ class CustomUserAdmin(UserAdmin):
         ),
     )
 
-    # ======================
-    # MANY TO MANY UX
-    # ======================
     filter_horizontal = (
         "groups",
         "user_permissions",
         "blocking",
     )
-
-    # 🚫 DO NOT use raw_id_fields for blocking (UUID problem)
 
     readonly_fields = (
         "avatar_preview",
@@ -128,9 +116,6 @@ class CustomUserAdmin(UserAdmin):
         "last_login",
     )
 
-    # ======================
-    # AVATAR PREVIEW
-    # ======================
     def avatar_preview(self, obj):
         if obj.pk and obj.avatar:
             return format_html(
@@ -142,9 +127,6 @@ class CustomUserAdmin(UserAdmin):
 
     avatar_preview.short_description = "Avatar"
 
-    # ======================
-    # PREVENT SELF-BLOCKING
-    # ======================
     def formfield_for_manytomany(self, db_field, request, **kwargs):
         if db_field.name == "blocking":
             object_id = request.resolver_match.kwargs.get("object_id")
@@ -155,41 +137,113 @@ class CustomUserAdmin(UserAdmin):
 
 
 
+@admin.register(Device)
+class DeviceAdmin(admin.ModelAdmin):
+    list_display = (
+        "platform",
+        "device_name",
+        "device_id",
+        "hardware_id",
+        "last_seen_at",
+        "created_at",
+    )
 
+    list_filter = (
+        "platform",
+        "created_at",
+    )
 
-# admin.site.register(Connection)
+    search_fields = (
+        "device_name",
+        "device_id",
+        "hardware_id",
+    )
 
+    readonly_fields = (
+        "created_at",
+        "last_seen_at",
+    )
 
-
-
-
-
-
-
-
-
-
-
-
-@admin.register(PushDevice)
-class PushDeviceAdmin(admin.ModelAdmin):
-    list_display = ('user', 'device_name', 'platform', 'is_active', 'last_seen_at', 'created_at')
-    list_filter = ('platform', 'is_active', 'created_at')
-    search_fields = ('user__username', 'user__email', 'device_name', 'device_id')
-    readonly_fields = ('created_at', 'last_seen_at')
-    
     fieldsets = (
         (None, {
-            'fields': ('user', 'is_active')
+            "fields": (
+                "platform",
+                "device_name",
+            )
         }),
-        ('Device Info', {
-            'fields': ('device_name', 'platform', 'device_id', 'token')
+        ("Identifiers", {
+            "fields": (
+                "device_id",
+                "hardware_id",
+            )
         }),
-        ('Timestamps', {
-            'fields': ('last_seen_at', 'created_at')
+        ("Timestamps", {
+            "fields": (
+                "last_seen_at",
+                "created_at",
+            )
         }),
     )
 
+
+@admin.register(UserDevice)
+class UserDeviceAdmin(admin.ModelAdmin):
+    list_display = (
+        "user",
+        "device",
+        "short_token",
+        "is_active",
+        "last_seen_at",
+        "created_at",
+    )
+
+    list_filter = (
+        "is_active",
+        "created_at",
+        "device__platform",
+    )
+
+    search_fields = (
+        "user__username",
+        "user__email",
+        "token",
+        "device__device_id",
+        "device__hardware_id",
+    )
+
+    readonly_fields = (
+        "created_at",
+        "last_seen_at",
+    )
+
+    fieldsets = (
+        (None, {
+            "fields": (
+                "user",
+                "device",
+                "is_active",
+            )
+        }),
+        ("Push Token", {
+            "fields": (
+                "token",
+            )
+        }),
+        ("Timestamps", {
+            "fields": (
+                "last_seen_at",
+                "created_at",
+            )
+        }),
+    )
+
+    def short_token(self, obj):
+        return f"{obj.token[:25]}..." if obj.token else "—"
+
+    short_token.short_description = "Token"
+
     def get_queryset(self, request):
-        # Optimization: Prefetch user to avoid N+1 queries in the list view
-        return super().get_queryset(request).select_related('user')
+        return super().get_queryset(request).select_related(
+            "user",
+            "device"
+        )

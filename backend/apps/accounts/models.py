@@ -37,41 +37,66 @@ class User(AbstractUser):
 
 
 
-class PushDevice(models.Model):
+class Device(models.Model):
     PLATFORM_CHOICES = (
         ('ios', 'iOS'),
         ('android', 'Android'),
         ('web', 'Web'),
     )
 
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='push_devices')
-    
-    # device_id comes from our frontend utils/deviceId.ts (the UUID)
-    device_id = models.CharField(max_length=255) 
+    device_id = models.CharField(max_length=255)
+    hardware_id = models.CharField(max_length=255)
     platform = models.CharField(max_length=10, choices=PLATFORM_CHOICES)
-    
-    # The actual address for the notification
-    token = models.CharField(max_length=1024) 
-    device_name = models.CharField(max_length=255, blank=True, null=True)
+    device_name = models.CharField(max_length=255, null=True, blank=True)
 
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_seen_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        # This already creates an index internally
+        constraints = [
+            models.UniqueConstraint(
+                fields=['platform', 'hardware_id'],
+                name='unique_physical_device'
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.platform} - {self.device_name or self.device_id}"
+
+
+class UserDevice(models.Model):
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='user_devices',
+        db_index=True
+    )
+    device = models.ForeignKey(
+        Device,
+        on_delete=models.CASCADE,
+        related_name='user_devices'
+    )
+
+    token = models.CharField(max_length=1024)
     is_active = models.BooleanField(default=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
     last_seen_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=['user', 'device_id'],
+                fields=['user', 'device'],
                 name='unique_user_device'
             )
         ]
         indexes = [
-            models.Index(fields=['user', 'last_seen_at']),
+            models.Index(fields=['token']),
         ]
 
     def __str__(self):
-        return f"{self.user.username} - {self.device_name}"
-
+        return f"{self.user.username} → {self.device}"
 
 
 

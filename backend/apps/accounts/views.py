@@ -3,7 +3,7 @@ from django.contrib.auth import login,  logout
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import UserCreationForm, AuthenticationForm
 
-from django.db.models import Exists, OuterRef, Value, BooleanField
+from django.db.models import Exists, OuterRef, Value, BooleanField,Q
 from django.db.models.functions import Coalesce
 
 from rest_framework.viewsets import ModelViewSet
@@ -14,7 +14,7 @@ from .serializers import ProfileSerializer, ProfileUpdateSerializer, LoginSerial
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework import status
 from django import forms
-from .models import PushDevice
+from .models import Device, UserDevice
 
 # from .models import Connection
 from django.contrib.auth import get_user_model
@@ -320,26 +320,36 @@ def register_push_device(request):
 
     token = data.get('token')
     device_id = data.get('device_id')
+    hardware_id = data.get('hardware_id')
     platform = data.get('platform')
     device_name = data.get('device_name')
 
-    if not token or not device_id or not platform:
+    if not token or not device_id or not platform or not hardware_id:
         return Response({'error': 'Invalid payload'}, status=400)
 
-    # Deactivate token elsewhere
-    PushDevice.objects.filter(token=token).exclude(
+    # Resolve physical device ONLY by hardware_id
+    device, _ = Device.objects.update_or_create(
+        platform=platform,
+        hardware_id=hardware_id,
+        defaults={
+            'device_id': device_id,
+            'device_name': device_name,
+        }
+    )
+
+    # Deactivate same token elsewhere
+    UserDevice.objects.filter(token=token).exclude(
         user=user,
-        device_id=device_id
+        device=device
     ).update(is_active=False)
 
-    device, created = PushDevice.objects.update_or_create(
+    # Register user - device
+    user_device, created = UserDevice.objects.update_or_create(
         user=user,
-        device_id=device_id,
+        device=device,
         defaults={
             'token': token,
-            'platform': platform,
-            'device_name': device_name,
-            'is_active': True,
+            'is_active': True
         }
     )
 

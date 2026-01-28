@@ -8,7 +8,7 @@ from django.utils.decorators import method_decorator
 
 # Models
 from apps.chat.models import Message
-from apps.accounts.models import PushDevice
+from apps.accounts.models import Device, UserDevice
 
 # Get the secret
 CRON_SECRET = getattr(settings, "CRON_SECRET", None)
@@ -48,37 +48,41 @@ async def system_health_check(request):
 # ----------------------------------------------------------------
 # 2. ASYNC CLEANUP JOB
 # ----------------------------------------------------------------
+
 @csrf_exempt
 async def run_cleanup_job(request):
-    """
-    Pure Async Cleanup.
-    Deletes data using .adelete() so the server stays responsive.
-    """
     if request.method != 'POST':
-        return JsonResponse({"error": "Method Not Allowed (Use POST)"}, status=405)
+        return JsonResponse({"error": "Method Not Allowed"}, status=405)
 
-    # 1. Server Config Check
     if not CRON_SECRET:
-        return JsonResponse({"error": "Server misconfiguration: CRON_SECRET missing"}, status=500)
+        return JsonResponse({"error": "CRON_SECRET missing"}, status=500)
 
-    # 2. Security Check
-    incoming_secret = request.headers.get("X-Cron-Secret")
-    if incoming_secret != CRON_SECRET:
+    if request.headers.get("X-Cron-Secret") != CRON_SECRET:
         return JsonResponse({"error": "Unauthorized"}, status=401)
 
     try:
-        # --- TASK 1: Clean Messages (Async) ---
+        # Clean old messages
         msg_cutoff = timezone.now() - timedelta(hours=24)
-        deleted_msgs_info = await Message.objects.filter(timestamp__lt=msg_cutoff).adelete()
-        
-        # --- TASK 2: Clean Devices (Async) ---
-        device_cutoff = timezone.now() - timedelta(days=60)
-        deleted_devices_info = await PushDevice.objects.filter(last_seen_at__lt=device_cutoff).adelete()
+        deleted_msgs = await Message.objects.filter(
+            timestamp__lt=msg_cutoff
+        ).adelete()
+
+        # Clean inactive user-device mappings
+        ud_cutoff = timezone.now() - timedelta(days=60)
+        deleted_user_devices = await UserDevice.objects.filter(
+            last_seen_at__lt=ud_cutoff
+        ).adelete()
+
+        # Clean orphaned devices
+        deleted_devices = await Device.objects.filter(
+            user_devices__isnull=True
+        ).adelete()
 
         return JsonResponse({
-            "status": "success", 
-            "deleted_messages": deleted_msgs_info[0], 
-            "deleted_devices": deleted_devices_info[0],
+            "status": "success",
+            "deleted_messages": deleted_msgs[0],
+            "deleted_user_devices": deleted_user_devices[0],
+            "deleted_devices": deleted_devices[0],
             "timestamp": timezone.now().isoformat()
         })
 

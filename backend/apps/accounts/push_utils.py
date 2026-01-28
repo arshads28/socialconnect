@@ -5,69 +5,58 @@ from exponent_server_sdk import (
     DeviceNotRegisteredError
 )
 from requests.exceptions import ConnectionError, HTTPError
-from .models import PushDevice
+
+from .models import UserDevice
+
 
 def send_push_notification(user, title, body, data=None):
     """
-    Sends a push notification to ALL active devices belonging to a specific user.
+    Send push notification to ALL active devices for a user.
     """
-    devices = user.push_devices.filter(is_active=True)
-    
-    if not devices.exists():
+    user_devices = UserDevice.objects.filter(
+        user=user,
+        is_active=True
+    )
+
+    if not user_devices.exists():
         return
 
     messages = []
-    
-    for device in devices:
+
+    for ud in user_devices:
         try:
-            message = PushMessage(
-                to=device.token,
-                title=title,
-                body=body,
-                data=data,
-                sound="default",
-                priority="high",
-                channel_id="social_alerts" 
+            messages.append(
+                PushMessage(
+                    to=ud.token,
+                    title=title,
+                    body=body,
+                    data=data,
+                    sound="default",
+                    priority="high",
+                    channel_id="social_alerts"
+                )
             )
-            messages.append(message)
         except Exception as e:
-            print(f"⚠️ Error creating push message for {device.token}: {e}")
+            print(f"⚠️ Push message error: {e}")
 
     if messages:
-        send_push_notifications_batch(messages)
+        _send_push_batch(messages)
 
 
-def send_push_notifications_batch(messages):
-    """
-    Takes a list of PushMessage objects and sends them in a single batch (max 100).
-    """
-    if not messages:
-        return
-
+def _send_push_batch(messages):
     try:
         responses = PushClient().publish_multiple(messages)
-        
+
         for response in responses:
             try:
                 response.validate_response()
             except DeviceNotRegisteredError:
-                PushDevice.objects.filter(token=response.push_message.to).update(is_active=False)
-                print(f"⚠️ Device marked inactive: {response.push_message.to}")
+                UserDevice.objects.filter(
+                    token=response.push_message.to
+                ).update(is_active=False)
+
             except PushServerError as exc:
-                print(f"⚠️ Push Server Error: {exc.errors}")
-                
+                print(f"⚠️ Push server error: {exc.errors}")
+
     except (ConnectionError, HTTPError) as exc:
-        print(f"❌ Network Error sending push batch: {exc}")
-
-
-def verify_delivery_receipts(receipt_ids):
-    if not receipt_ids: return
-    try:
-        client = PushClient()
-        receipts = client.get_push_notification_receipts(receipt_ids)
-        for receipt_id, status in receipts.items():
-            if status.get('status') == 'error':
-                 if status.get('details', {}).get('error') == 'DeviceNotRegistered':
-                     PushDevice.objects.filter(id=receipt_id).update(is_active=False)
-    except Exception as e:
-        print(f"Error verifying receipts: {e}")
+        print(f"❌ Push network error: {exc}")

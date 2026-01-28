@@ -3,7 +3,7 @@ import * as Device from 'expo-device';
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
 import api from './api'; 
-import { getDeviceId } from './deviceId';
+import { getDeviceId, getHardwareId } from './deviceId';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // 1. CONFIG
@@ -94,11 +94,14 @@ export async function registerForPushNotificationsAsync() {
 export async function sendPushTokenToBackend(pushToken: string) {
   try {
     const deviceId = await getDeviceId();
+    const hardware_id = await getHardwareId();
+
 
     await api.post('/auth/api/push/register/', { 
       token: pushToken, 
       platform: Platform.OS,
       device_id: deviceId,
+      hardware_id,
       device_name: Device.modelName || 'Unknown Device'
     });
 
