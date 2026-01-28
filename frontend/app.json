@@ -3,7 +3,7 @@
     "name": "Connect",
     "slug": "connect",
     "scheme": "connect",
-    "version": "2.1.9",
+    "version": "2.7.1",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "assetBundlePatterns": [
@@ -19,6 +19,8 @@
       "infoPlist": {
         "NSCameraUsageDescription": "Connect needs access to your camera for video calls.",
         "NSMicrophoneUsageDescription": "Connect needs access to your microphone to let you make voice and video calls.",
+        "NSPhotoLibraryAddUsageDescription": "Connect needs permission to save images to your gallery.", 
+        "NSPhotoLibraryUsageDescription": "Connect needs access to your photos to let you share them.",
         "UIBackgroundModes": [
           "audio",
           "fetch",
@@ -48,9 +50,9 @@
         "android.permission.FOREGROUND_SERVICE_PHONE_CALL",
         "android.permission.MANAGE_OWN_CALLS",
         "android.permission.USE_FULL_SCREEN_INTENT",
-        "android.permission.READ_PHONE_STATE",
-        "android.permission.BIND_TELECOM_CONNECTION_SERVICE",
-        "android.permission.READ_PHONE_NUMBERS",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_MEDIA_VIDEO",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
         "android.permission.RECEIVE_BOOT_COMPLETED" 
       ]
     },
@@ -69,7 +71,16 @@
       "expo-sqlite",
       "expo-secure-store",
       "expo-task-manager", 
-      "expo-background-fetch", 
+      "expo-background-fetch",
+      "expo-file-system", 
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Allow Connect to access your photos.",
+          "savePhotosPermission": "Allow Connect to save photos to your gallery.",
+          "isAccessMediaLocationEnabled": true
+        }
+      ],
       [
         "expo-build-properties",
         {

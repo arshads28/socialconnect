@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { 
   View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, 
-  DeviceEventEmitter, Image, Alert, BackHandler, Animated, Easing
+  DeviceEventEmitter, Image, Alert, BackHandler, Animated, Easing, Platform
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -9,6 +9,9 @@ import { Ionicons } from '@expo/vector-icons';
 import api, { BASE_URL } from '../../utils/api'; 
 import * as ImagePicker from 'expo-image-picker'; 
 import * as Clipboard from 'expo-clipboard';
+
+import { saveToGallery, getCachedFile } from '../../utils/mediaCache';
+import { processMedia } from '../../utils/mediaProcessor';
 
 import { WaveformLive } from '../../components/AudioComponents';
 import { useAudioRecorder } from '../../utils/useAudioRecorder';
@@ -28,7 +31,6 @@ import KeyboardWrapper from '../../components/KeyboardWrapper';
 import { getSecure } from '../../utils/storage'; 
 import { useTheme } from '../../context/ThemeContext';
 import { Colors } from '../../constants/Colors';
-import { processMedia } from '../../utils/mediaProcessor';
 import UploadManager from '../../utils/UploadManager';
 import ImageViewer from '../../components/ImageViewer'; 
 import { MessageBubble, ChatMessageList, AlbumMessage, AlbumDetailModal } from './ChatComponents';
@@ -84,7 +86,7 @@ export default function ChatScreen() {
 
   //lbum Feed States (Level 2)
   const [albumModalVisible, setAlbumModalVisible] = useState(false);
-  const [albumImages, setAlbumImages] = useState<{uri:string}[]>([]);
+  const [albumImages, setAlbumImages] = useState<any[]>([]); 
   const [albumInitialIndex, setAlbumInitialIndex] = useState(0);
 
   const flatListRef = useRef<FlatList>(null);
@@ -215,11 +217,21 @@ export default function ChatScreen() {
     });
   }, []);
 
+  const handleSelectGroup = useCallback((group: Message[]) => {
+    setSelectionMode(true);
+    setSelectedIds(prev => {
+        const next = new Set(prev);
+        group.forEach(msg => next.add(msg.client_id));
+        return next;
+    });
+  }, []);
+
   const clearSelection = useCallback(() => {
     setSelectionMode(false);
     setSelectedIds(new Set());
   }, []);
 
+  // ... [Keep existing recording/undo functions] ...
   const sendVoiceMessage = async () => {
     if (!recordedUri || !targetProfile?.id) return;
     const clientId = generateUUID();
@@ -294,17 +306,42 @@ export default function ChatScreen() {
     clearSelection();
   };
 
-  // COPY FUNCTION
   const handleCopySelected = async () => {
       const selectedMsgs = messages.filter(m => selectedIds.has(m.client_id) && !m.media_type && m.content !== "__DELETED__");
       if (selectedMsgs.length === 0) return;
-
       const textToCopy = selectedMsgs.map(m => m.content).join('\n');
       await Clipboard.setStringAsync(textToCopy);
-      
-      // Optional: Give feedback (Toast or simple Alert if no toast library)
-      // Alert.alert("Copied", "Text copied to clipboard");
       clearSelection();
+  };
+
+  const handleDownloadSelected = async () => {
+    const selectedMsgs = messages.filter(m => selectedIds.has(m.client_id) && (m.media_type === 'image' || m.media_type === 'video'));
+    if (selectedMsgs.length === 0) return;
+
+    let successCount = 0;
+    for (const msg of selectedMsgs) {
+        const uri = msg.media || msg.content;
+        if (!uri) continue;
+        
+        try {
+            // 1. Download/Cache it locally first
+            // This handles permissions and caching logic internally inside mediaCache.ts
+            const localUri = await getCachedFile(uri);
+            
+            // 2. Save to Gallery
+            await saveToGallery(localUri);
+            successCount++;
+        } catch (e) {
+            console.error("Download failed for item:", e);
+        }
+    }
+
+    if (successCount > 0) {
+        Alert.alert("Saved!", `${successCount} items saved to 'Connect' album.`);
+    } else {
+        Alert.alert("Error", "Could not save items. Check permissions.");
+    }
+    clearSelection();
   };
 
   const pickMedia = async () => {
@@ -381,8 +418,9 @@ export default function ChatScreen() {
     const formattedImages = images.map(m => {
         const rawUrl = m.media || m.content || "";
         if(!rawUrl) return null;
-        return { uri: rawUrl.startsWith('http') ? rawUrl : `${BASE_URL}${rawUrl}` };
-    }).filter(i => i !== null) as {uri: string}[];
+        const uri = rawUrl.startsWith('http') ? rawUrl : `${BASE_URL}${rawUrl}`;
+        return { uri, client_id: m.client_id };
+    }).filter(i => i !== null) as any[];
 
     if (formattedImages.length > 0) {
         setAlbumImages(formattedImages);
@@ -410,6 +448,7 @@ export default function ChatScreen() {
 
   const handleClearChat = () => { Alert.alert("Clear Chat?", "Delete local history?", [{ text: "Cancel", style: "cancel" }, { text: "Delete", style: "destructive", onPress: async () => { deleteLocalChat(conversationId); setMessages([]); api.post(`/chat/clear/${targetUsername}/`).catch(() => {}); } }]); };
 
+  // ... (Grouping & Rendering logic) ...
   const groupedMessages = useMemo(() => {
     const groups: any[] = []; let buffer: Message[] = [];
     messages.forEach(msg => {
@@ -432,6 +471,7 @@ export default function ChatScreen() {
           isMe={item[0].sender === user?.username}
           selectedIds={selectedIds}
           toggleSelect={toggleSelect}
+          onSelectGroup={handleSelectGroup} 
           onOpenAlbum={(index: number) => openAlbumViewer(item, index)} 
           selectionMode={selectionMode}
           dragSelectingRef={dragSelecting}
@@ -453,7 +493,12 @@ export default function ChatScreen() {
         colors={extendedColors}
       />
     );
-  }, [user?.username, selectedIds, selectionMode, extendedColors, styles, toggleSelect, openAlbumViewer, openSingleImage, handleSendMedia]);
+  }, [user?.username, selectedIds, selectionMode, extendedColors, styles, toggleSelect, openAlbumViewer, openSingleImage, handleSendMedia, handleSelectGroup]);
+
+  // Check if any media is selected
+  const hasMediaSelected = useMemo(() => {
+      return messages.some(m => selectedIds.has(m.client_id) && (m.media_type === 'image' || m.media_type === 'video'));
+  }, [selectedIds, messages]);
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
@@ -465,6 +510,9 @@ export default function ChatScreen() {
             <Text style={{ marginLeft: 12, fontWeight: 'bold', color: colors.text, fontSize: 18 }}>{selectedIds.size}</Text>
             
             <View style={{ flexDirection: 'row', marginLeft: 'auto', gap: 18 }}>
+              {hasMediaSelected && (
+                  <TouchableOpacity onPress={handleDownloadSelected}><Ionicons name="download-outline" size={22} color={colors.text} /></TouchableOpacity>
+              )}
               <TouchableOpacity onPress={handleCopySelected}><Ionicons name="copy-outline" size={22} color={colors.text} /></TouchableOpacity>
               <TouchableOpacity onPress={handleForwardSelected}><Ionicons name="arrow-redo-outline" size={22} color={colors.text} /></TouchableOpacity>
               <TouchableOpacity onPress={handleDeleteSelected}><Ionicons name="trash-outline" size={22} color={colors.danger} /></TouchableOpacity>
@@ -472,18 +520,19 @@ export default function ChatScreen() {
           </View>
         ) : (
           <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-            <TouchableOpacity onPress={() => router.back()} style={{ marginRight: 10 }}><Ionicons name="arrow-back" size={24} color={colors.icon} /></TouchableOpacity>
-            <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }} onPress={() => router.push(`/profile/${targetUsername}`)}>
-              {targetProfile?.avatar ? <Image source={{ uri: targetProfile.avatar }} style={styles.avatar} /> : <View style={styles.avatarPlaceholder}><Ionicons name="person" size={20} color={colors.subText} /></View>}
-              <View>
-                <Text style={styles.headerTitle}>{targetUsername}</Text>
-                {isTyping ? <Text style={styles.headerStatusTyping}>typing...</Text> : <Text style={[styles.headerStatus, (isConnected && isUserOnline) && styles.headerStatusOnline]}>{!isConnected ? 'Waiting for network...' : (isUserOnline ? 'Online' : 'Offline')}</Text>}
-              </View>
-            </TouchableOpacity>
-            <View style={{ flexDirection: 'row', gap: 15, alignItems: 'center' }}>
-                <TouchableOpacity onPress={handleClearChat}><Ionicons name="trash-outline" size={22} color={colors.danger} /></TouchableOpacity>
-                {targetProfile?.id && <CallHeaderButton targetId={targetProfile.id} isVideo={false} targetName={targetUsername} />}
-            </View>
+             {/* ... Normal Header ... */}
+             <TouchableOpacity onPress={() => router.back()} style={{ marginRight: 10 }}><Ionicons name="arrow-back" size={24} color={colors.icon} /></TouchableOpacity>
+             <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }} onPress={() => router.push(`/profile/${targetUsername}`)}>
+               {targetProfile?.avatar ? <Image source={{ uri: targetProfile.avatar }} style={styles.avatar} /> : <View style={styles.avatarPlaceholder}><Ionicons name="person" size={20} color={colors.subText} /></View>}
+               <View>
+                 <Text style={styles.headerTitle}>{targetUsername}</Text>
+                 {isTyping ? <Text style={styles.headerStatusTyping}>typing...</Text> : <Text style={[styles.headerStatus, (isConnected && isUserOnline) && styles.headerStatusOnline]}>{!isConnected ? 'Waiting for network...' : (isUserOnline ? 'Online' : 'Offline')}</Text>}
+               </View>
+             </TouchableOpacity>
+             <View style={{ flexDirection: 'row', gap: 15, alignItems: 'center' }}>
+                 <TouchableOpacity onPress={handleClearChat}><Ionicons name="trash-outline" size={22} color={colors.danger} /></TouchableOpacity>
+                 {targetProfile?.id && <CallHeaderButton targetId={targetProfile.id} isVideo={false} targetName={targetUsername} />}
+             </View>
           </View>
         )}
       </View>
@@ -521,17 +570,13 @@ export default function ChatScreen() {
         images={albumImages} 
         initialIndex={albumInitialIndex} 
         onImagePress={openSingleImage} 
+        selectedIds={selectedIds}
+        toggleSelect={toggleSelect}
+        colors={extendedColors}
         styles={styles} 
       />
 
-      <ImageViewer 
-        visible={viewerVisible} 
-        images={viewerImages} 
-        index={viewerIndex} 
-        onClose={() => setViewerVisible(false)} 
-        onForward={handleForwardMedia} 
-      />
-
+      <ImageViewer visible={viewerVisible} images={viewerImages} index={viewerIndex} onClose={() => setViewerVisible(false)} onForward={handleForwardMedia} />
       {undoState.visible && (
         <Animated.View style={[ styles.undoSnackbar, { top: insets.top + 12, left: 12, right: undefined, transform: [{ translateX: slideAnimX }, { translateY: slideAnimY }] } ]}>
           <Text style={styles.undoText}>{undoState.ids.length} message{undoState.ids.length > 1 ? 's' : ''} deleted</Text>
