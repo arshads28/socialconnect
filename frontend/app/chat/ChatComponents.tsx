@@ -14,7 +14,7 @@ const getMediaUri = (uri: string | null | undefined) => {
 };
 
 //  HELPER: Parse Text & Make Links Clickable
-const renderTextWithLinks = (text: string, color: string) => {
+const renderTextWithLinks = (text: string, color: string, linkColor: string) => {
     const urlRegex = /(https?:\/\/[^\s]+)/g;
     const parts = text.split(urlRegex);
 
@@ -25,7 +25,7 @@ const renderTextWithLinks = (text: string, color: string) => {
                     return (
                         <Text
                             key={index}
-                            style={{ color: '#4dabf7', textDecorationLine: 'underline' }} // Link Style
+                            style={{ color: linkColor, textDecorationLine: 'underline', fontWeight: 'bold' }} 
                             onPress={() => Linking.openURL(part).catch(err => console.error("Couldn't load page", err))}
                         >
                             {part}
@@ -133,7 +133,6 @@ export const AlbumMessage = React.memo(({ item, isMe, selectedIds, toggleSelect,
     );
 });
 
-// SINGLE MESSAGE BUBBLE
 export const MessageBubble = React.memo(({ item, isMe, isSelected, toggleSelect, openImage, selectionMode, handleSendMedia, styles, colors }: any) => {
   if (item.content === "__DELETED__") return null;
 
@@ -144,21 +143,25 @@ export const MessageBubble = React.memo(({ item, isMe, isSelected, toggleSelect,
   const renderTicks = () => {
     if (!isMe) return null;
     const iconName = item.status === 'read' || item.status === 'delivered' ? "checkmark-done" : item.status === 'sent' ? "checkmark" : "time-outline";
-    const iconColor = item.status === 'read' ? (colors.isDark ? '#4dabf7' : '#0095f6') : "#ddd";
+
+    const iconColor = item.status === 'read' ? '#fff' : 'rgba(255,255,255,0.7)'; 
     return <Ionicons name={iconName as any} size={16} color={iconColor} />;
   };
-
+  const myBackground = colors.isDark ?  '#2b225e': '#2e2a63';
+  const theirBackground = colors.isDark ? '#2c2c2e' : '#efefef';
+  const myLinkColor = colors.isDark ?  '#6aaeee': '#7ce6ee';
+  const theirLinkColor = '#4dabf7'; 
   return (
     <View style={[styles.messageRow, isMe ? styles.messageRowRight : styles.messageRowLeft]}>
       <TouchableOpacity
         activeOpacity={0.9}
         onLongPress={() => toggleSelect(item.client_id)}
         onPress={() => selectionMode ? toggleSelect(item.client_id) : null}
-        delayPressIn={100} // slight delay to prevent accidental selection when scrolling
+        delayPressIn={100} 
       >
         <View style={[
             styles.bubble, 
-            isMe ? { backgroundColor: colors.tint } : { backgroundColor: colors.isDark ? '#2c2c2e' : '#efefef' },
+            isMe ? { backgroundColor: myBackground } : { backgroundColor: theirBackground },
             isSelected && { borderWidth: 2, borderColor: colors.tint },
             isMedia && { padding: 4 }
           ]}
@@ -184,7 +187,11 @@ export const MessageBubble = React.memo(({ item, isMe, isSelected, toggleSelect,
                 )}
              </View>
           ) : ( 
-            renderTextWithLinks(item.content, isMe ? '#fff' : colors.text)
+            renderTextWithLinks(
+                item.content, 
+                isMe ? '#fff' : colors.text, 
+                isMe ? myLinkColor : theirLinkColor
+            )
           )}
           
           <View style={[styles.metaRow, isMedia && { position: 'absolute', bottom: 8, right: 8, backgroundColor: 'rgba(0,0,0,0.4)', borderRadius: 10, paddingHorizontal: 6, paddingVertical: 2 }]}>
