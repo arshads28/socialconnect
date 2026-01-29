@@ -1,12 +1,13 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { 
   View, Text, FlatList, TouchableOpacity, Image, ActivityIndicator, Modal, StatusBar, Linking, StyleSheet
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { BASE_URL } from '../../utils/api'; 
 import { AudioPlayerBubble } from '../../components/AudioComponents';
+import { getCachedFile } from '../../utils/mediaCache'; 
 
-// 🛑 DUMMY EXPORT TO SILENCE WARNINGS
+// DUMMY EXPORT TO SILENCE WARNINGS
 export default function ComponentsRoute() { return null; }
 
 const getMediaUri = (uri: string | null | undefined) => {
@@ -15,6 +16,38 @@ const getMediaUri = (uri: string | null | undefined) => {
     if (uri.startsWith('/media/')) return `${BASE_URL}${uri}`;
     return `${BASE_URL}${uri}`; 
 };
+
+// ==========================================
+// NEW COMPONENT: CACHED IMAGE
+// Handles downloading, caching, and displaying images smoothly.
+// ==========================================
+const CachedImage = React.memo(({ uri, style, resizeMode = 'cover' }: { uri: string | null, style: any, resizeMode?: any }) => {
+    const [localUri, setLocalUri] = useState<string | null>(null);
+  
+    useEffect(() => {
+      let isMounted = true;
+      if (!uri) return;
+  
+      const loadCache = async () => {
+        try {
+            const cached = await getCachedFile(uri);
+            if (isMounted) setLocalUri(cached);
+        } catch (e) {
+            if (isMounted) setLocalUri(uri);
+        }
+      };
+  
+      loadCache();
+      return () => { isMounted = false; };
+    }, [uri]);
+  
+    // Show gray placeholder while loading cache
+    if (!localUri) {
+      return <View style={[style, { backgroundColor: '#e0e0e0', borderRadius: style.borderRadius || 0 }]} />;
+    }
+  
+    return <Image source={{ uri: localUri }} style={style} resizeMode={resizeMode} />;
+});
 
 // HELPER: Link Renderer
 const renderTextWithLinks = (text: string, textColor: string, linkColor: string) => {
@@ -42,10 +75,12 @@ const renderTextWithLinks = (text: string, textColor: string, linkColor: string)
 };
 
 // ==========================================
-// 📂 LEVEL 2: ALBUM DETAIL MODAL (With Selection)
+//  LEVEL 2: ALBUM DETAIL MODAL (With Selection)
 // ==========================================
 export const AlbumDetailModal = ({ visible, onClose, images, initialIndex, onImagePress, selectedIds, toggleSelect, styles, colors }: any) => {
     const listRef = useRef<FlatList>(null);
+
+    const isSelectionMode = selectedIds.size > 0;
 
     useEffect(() => {
         if (visible && images.length > 0 && initialIndex >= 0) {
@@ -67,43 +102,43 @@ export const AlbumDetailModal = ({ visible, onClose, images, initialIndex, onIma
                         <Ionicons name="arrow-back" size={28} color="#fff" />
                     </TouchableOpacity>
                     <Text style={{color:'#fff', fontWeight:'bold', fontSize:16, marginLeft: 20}}>
-                        {selectedIds.size > 0 ? `${selectedIds.size} Selected` : "Album"}
+                        {isSelectionMode ? `${selectedIds.size} Selected` : "Album"}
                     </Text>
                 </View>
 
                 <FlatList
                     ref={listRef}
                     data={images}
-                    // ✅ Need the message object (m) not just uri to toggle ID
                     keyExtractor={(_, i) => i.toString()} 
                     contentContainerStyle={styles.albumList}
                     getItemLayout={(_, index) => ({ length: styles.albumFeedImage.height + 20, offset: (styles.albumFeedImage.height + 20) * index, index })}
                     renderItem={({ item }) => {
                         const isSelected = selectedIds.has(item.client_id);
+                        
                         return (
                             <TouchableOpacity 
                                 activeOpacity={0.9} 
                                 style={styles.albumFeedItem} 
                                 onPress={() => {
-                                    // If any item is selected, Tap toggles selection
-                                    // If nothing is selected, Tap opens full screen
-                                    if (selectedIds.size > 0) toggleSelect(item.client_id);
+                                    // If mode is active, Tap selects. Otherwise, Tap opens full screen.
+                                    if (isSelectionMode) toggleSelect(item.client_id);
                                     else onImagePress(item.uri);
                                 }}
                                 onLongPress={() => toggleSelect(item.client_id)}
                             >
-                                <Image source={{ uri: item.uri }} style={styles.albumFeedImage} />
+                                <CachedImage uri={item.uri} style={styles.albumFeedImage} />
                                 
-                                {/* ✅ Selection Checkbox Overlay */}
-                                <View style={{
-                                    position: 'absolute', top: 10, right: 10,
-                                    width: 30, height: 30, borderRadius: 15,
-                                    backgroundColor: isSelected ? colors.tint : 'rgba(0,0,0,0.5)',
-                                    borderWidth: 2, borderColor: '#fff',
-                                    justifyContent: 'center', alignItems: 'center'
-                                }}>
-                                    {isSelected && <Ionicons name="checkmark" size={20} color="#fff" />}
-                                </View>
+                                {isSelectionMode && (
+                                    <View style={{
+                                        position: 'absolute', top: 10, right: 10,
+                                        width: 30, height: 30, borderRadius: 15,
+                                        backgroundColor: isSelected ? colors.tint : 'rgba(0,0,0,0.5)',
+                                        borderWidth: 2, borderColor: '#fff',
+                                        justifyContent: 'center', alignItems: 'center'
+                                    }}>
+                                        {isSelected && <Ionicons name="checkmark" size={20} color="#fff" />}
+                                    </View>
+                                )}
                             </TouchableOpacity>
                         )
                     }}
@@ -114,7 +149,7 @@ export const AlbumDetailModal = ({ visible, onClose, images, initialIndex, onIma
 };
 
 // ==========================================
-// 🧱 1. ALBUM MESSAGE (With Batch Selection)
+// 1. ALBUM MESSAGE (With Batch Selection)
 // ==========================================
 export const AlbumMessage = React.memo(({ item, isMe, selectedIds, toggleSelect, onSelectGroup, onOpenAlbum, selectionMode, dragSelectingRef, styles, colors }: any) => {
     const count = item.length;
@@ -147,11 +182,11 @@ export const AlbumMessage = React.memo(({ item, isMe, selectedIds, toggleSelect,
                         key={m.client_id || i} 
                         activeOpacity={0.9}
                         onPress={() => selectionMode ? toggleSelect(m.client_id) : onOpenAlbum(i)} 
-                        // ✅ LONG PRESS: Select ALL in Album
                         onLongPress={() => onSelectGroup(item)} 
                         style={[ itemStyle, { position: 'relative' }, isSelected && { borderWidth: 3, borderColor: colors.tint, borderRadius: 8 } ]} 
                     >
-                        <Image source={{ uri: fullUrl }} style={styles.albumImage} />
+                        <CachedImage uri={fullUrl} style={styles.albumImage} />
+                        
                         {(i === DISPLAY_LIMIT - 1 && overflowCount > 0) && (
                             <View style={styles.overflowOverlay}><Text style={styles.overflowText}>+{overflowCount}</Text></View>
                         )}
@@ -164,7 +199,7 @@ export const AlbumMessage = React.memo(({ item, isMe, selectedIds, toggleSelect,
 });
 
 // ==========================================
-// 🧱 2. MESSAGE BUBBLE
+//  2. MESSAGE BUBBLE
 // ==========================================
 export const MessageBubble = React.memo(({ item, isMe, isSelected, toggleSelect, openImage, selectionMode, handleSendMedia, styles, colors }: any) => {
   if (item.content === "__DELETED__") return null;
@@ -205,7 +240,11 @@ export const MessageBubble = React.memo(({ item, isMe, isSelected, toggleSelect,
              <View>
                 {mediaUri ? (
                     <TouchableOpacity onPress={() => selectionMode ? toggleSelect(item.client_id) : openImage(mediaUri)}>
-                        <Image source={{ uri: mediaUri }} style={{ width: 220, height: 220, borderRadius: 10 }} resizeMode="cover"/>
+                        <CachedImage 
+                            uri={mediaUri} 
+                            style={{ width: 220, height: 220, borderRadius: 10 }} 
+                            resizeMode="cover"
+                        />
                     </TouchableOpacity>
                 ) : (
                     <View style={{width: 220, height: 220, backgroundColor: '#ccc', borderRadius: 10, justifyContent: 'center', alignItems: 'center'}}>

@@ -1,17 +1,24 @@
-import * as FileSystem from 'expo-file-system';
+import { Alert, Linking, Platform } from 'react-native';
 import * as MediaLibrary from 'expo-media-library';
 
-// Constants
+// FIX: Use 'legacy' import to bypass SDK 54 Deprecation Errors
+import * as FileSystem from 'expo-file-system/legacy';
+
 const MAX_CACHE_SIZE = 200 * 1024 * 1024; // 200 MB
 const MAX_FILE_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 //  HELPER: Robust Directory Logic
-// Fixes "Storage unavailable" crashes by checking permissions safely
 const getCacheDir = () => {
   const FS = FileSystem as any; 
-  const base = FS.cacheDirectory || FS.documentDirectory;
+  let base = FS.cacheDirectory || FS.documentDirectory;
 
-  if (!base) return null; // Return null if native module is missing (Old Build)
+  //  FALLBACK: Construct External Path manually if Constants are Null
+  if (!base && Platform.OS === 'android') {
+    // This points to: Android/data/com.connect.app/files/connect_cache/
+    base = 'file:///storage/emulated/0/Android/data/com.connect.app/files/';
+  }
+
+  if (!base) return null;
   
   return base.endsWith('/') ? base + 'connect_cache/' : base + '/connect_cache/';
 };
@@ -28,7 +35,7 @@ const hashString = (str: string) => {
 // Ensure Directory Exists
 const ensureDir = async () => {
   const dir = getCacheDir();
-  if (!dir) throw new Error("FileSystem unavailable. Please rebuild your app: npx expo run:android");
+  if (!dir) return null;
 
   try {
       const info = await FileSystem.getInfoAsync(dir);
@@ -36,12 +43,12 @@ const ensureDir = async () => {
         await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
       }
   } catch (e) {
-      // Silent fail
+      console.warn("Error creating cache dir:", e);
   }
   return dir;
 };
 
-// Cleanup Logic (Runs in background)
+// Cleanup Logic
 export const cleanupCache = async () => {
   try {
     const dir = getCacheDir();
@@ -95,6 +102,11 @@ export const getCachedFile = async (uri: string): Promise<string> => {
   try {
       const dir = await ensureDir();
       
+      if (!dir) {
+          console.log("FileSystem unavailable: Using remote URI.");
+          return uri;
+      }
+      
       const safeUri = encodeURI(uri);
       const urlWithoutQuery = safeUri.split('?')[0];
       const ext = urlWithoutQuery.split('.').pop()?.substring(0, 4) || 'jpg';
@@ -107,10 +119,7 @@ export const getCachedFile = async (uri: string): Promise<string> => {
       const downloadResumable = FileSystem.createDownloadResumable(safeUri, fileUri, {});
       const result = await downloadResumable.downloadAsync();
       
-      cleanupCache().catch(() => {});
-
-      if (!result || !result.uri) throw new Error("Download returned no URI");
-      return result.uri;
+      return result?.uri || uri;
 
   } catch (e) {
       console.warn("Cache Failed, using remote URI:", e);
@@ -118,32 +127,57 @@ export const getCachedFile = async (uri: string): Promise<string> => {
   }
 };
 
-//  Robust Gallery Saver (Handles Remote URLs)
 export const saveToGallery = async (uri: string) => {
   let finalUri = uri;
   let isTemporary = false;
 
   try {
     // 1. Permission Check
-    const { status } = await MediaLibrary.requestPermissionsAsync();
-    if (status !== 'granted') throw new Error('Permission denied. Go to settings.');
+    const { status, canAskAgain } = await MediaLibrary.requestPermissionsAsync();
+    if (status !== 'granted') {
+         if (!canAskAgain) {
+            Alert.alert(
+                "Permission Required",
+                "Storage permission was denied.\nPlease go to Settings > Apps > Connect > Permissions and allow access.",
+                [
+                    { text: "Cancel", style: "cancel" },
+                    { text: "Open Settings", onPress: () => Linking.openSettings() }
+                ]
+            );
+            return false;
+        }
+        throw new Error('Permission denied');
+    }
 
-    // 2. Download Remote URL to Temp File (Required for Android)
+    // 2. Handle Remote URLs (Download required for Android)
     if (finalUri.startsWith('http') || finalUri.startsWith('https')) {
         const FS = FileSystem as any;
-        if (!FS.documentDirectory) throw new Error("FileSystem missing. Rebuild App.");
+        
+        //  MANUAL FALLBACK if constants are null
+        let dir = FS.documentDirectory || FS.cacheDirectory;
+        if (!dir && Platform.OS === 'android') {
+             // Use External Storage path
+             dir = 'file:///storage/emulated/0/Android/data/com.connect.app/files/';
+        }
+
+        if (!dir) throw new Error("FileSystem unavailable");
+
+        try {
+            await FS.makeDirectoryAsync(dir, { intermediates: true });
+        } catch(e) { /* ignore if exists */ }
 
         const ext = finalUri.split('.').pop()?.substring(0, 4) || 'jpg';
-        // Create a temporary path
-        const tempUri = FS.documentDirectory + `temp_${Date.now()}.${ext}`;
+        const tempUri = dir + `temp_${Date.now()}.${ext}`;
         
-        console.log("📥 Downloading to temp storage...");
+        console.log(" Downloading to:", tempUri);
+        
+        //  The Legacy Import fixes the "Deprecated" crash here
         const result = await FS.downloadAsync(finalUri, tempUri);
         finalUri = result.uri;
         isTemporary = true; 
     }
 
-    // 3. Save to Gallery (This copies the file to the OS Media Store)
+    // 3. Save to Gallery
     const asset = await MediaLibrary.createAssetAsync(finalUri);
     
     // 4. Organize into "Connect" Album
@@ -159,15 +193,88 @@ export const saveToGallery = async (uri: string) => {
 
   } catch (e: any) {
     console.error("Save failed:", e);
-    throw new Error(e.message || "Could not save to gallery");
+    throw e;
   } finally {
-    if (isTemporary) {
+    if (isTemporary && finalUri) {
         try {
             await FileSystem.deleteAsync(finalUri, { idempotent: true });
-            console.log("🧹 Temp file cleaned up");
         } catch (cleanupError) {
-            console.warn("Failed to delete temp file:", cleanupError);
+            // ignore
         }
     }
+  }
+};
+
+export const saveBatchToGallery = async (uris: string[]) => {
+  const tempFiles: string[] = [];
+
+  try {
+    // 1. Permission Check (Once)
+    const { status } = await MediaLibrary.requestPermissionsAsync();
+    if (status !== 'granted') throw new Error('Permission denied');
+
+    // 2. Setup Directory (ONCE, not inside loop)
+    const FS = FileSystem as any;
+    let dir = FS.documentDirectory || FS.cacheDirectory;
+    
+    if (!dir && Platform.OS === 'android') {
+        dir = 'file:///storage/emulated/0/Android/data/com.connect.app/files/';
+    }
+    try { await FS.makeDirectoryAsync(dir, { intermediates: true }); } catch(e) {}
+
+    // 3. Process ALL files concurrently (Parallel Speed Boost )
+    const assetPromises = uris.map(async (uri) => {
+        try {
+            let finalUri = uri;
+
+            if (finalUri.startsWith('http') || finalUri.startsWith('https')) {
+                const ext = finalUri.split('.').pop()?.substring(0, 4) || 'jpg';
+                // Unique name to prevent collision
+                const tempUri = dir + `temp_${Date.now()}_${Math.random().toString(36).substring(7)}.${ext}`;
+                
+                const result = await FS.downloadAsync(finalUri, tempUri);
+                finalUri = result.uri;
+                tempFiles.push(finalUri); // Mark for cleanup
+            }
+
+            // Create Asset
+            return await MediaLibrary.createAssetAsync(finalUri);
+
+        } catch (e) {
+            console.error("Failed one file:", uri, e);
+            return null;
+        }
+    });
+
+    // Wait for ALL downloads to finish
+    const results = await Promise.all(assetPromises);
+    const assets = results.filter((a): a is MediaLibrary.Asset => a !== null);
+
+    if (assets.length === 0) return 0;
+
+    // 4. Batch Save to Album
+    const albumName = "Connect";
+    const album = await MediaLibrary.getAlbumAsync(albumName);
+
+    if (album) {
+        await MediaLibrary.addAssetsToAlbumAsync(assets, album, false);
+    } else {
+        await MediaLibrary.createAlbumAsync(albumName, assets[0], false);
+        if (assets.length > 1) {
+             await MediaLibrary.addAssetsToAlbumAsync(assets.slice(1), album, false);
+        }
+    }
+
+    return assets.length;
+
+  } catch (e: any) {
+    console.error("Batch save failed:", e);
+    throw e;
+  } finally {
+    // 5. Cleanup (Runs in background)
+    // We don't await this so the UI returns immediately
+    Promise.all(tempFiles.map(file => 
+        FileSystem.deleteAsync(file, { idempotent: true }).catch(() => {})
+    ));
   }
 };

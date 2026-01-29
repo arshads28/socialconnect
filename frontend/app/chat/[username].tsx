@@ -10,7 +10,7 @@ import api, { BASE_URL } from '../../utils/api';
 import * as ImagePicker from 'expo-image-picker'; 
 import * as Clipboard from 'expo-clipboard';
 
-import { saveToGallery, getCachedFile } from '../../utils/mediaCache';
+import { saveToGallery, getCachedFile, saveBatchToGallery } from '../../utils/mediaCache';
 import { processMedia } from '../../utils/mediaProcessor';
 
 import { WaveformLive } from '../../components/AudioComponents';
@@ -314,33 +314,51 @@ export default function ChatScreen() {
       clearSelection();
   };
 
+const handleCopySelection = async () => {
+    const selectedMsgs = messages.filter(m => selectedIds.has(m.client_id));
+    if (selectedMsgs.length === 0) return;
+    const textToCopy = selectedMsgs
+        .filter(m => m.content && !m.media_type)
+        .map(m => m.content)
+        .join('\n\n');
+
+    if (!textToCopy) {
+        Alert.alert("Nothing to Copy", "Selected messages contain no text.");
+        return;
+    }
+    await Clipboard.setStringAsync(textToCopy);
+    Alert.alert("Copied", "Text copied to clipboard.");
+    clearSelection();
+  };
+
   const handleDownloadSelected = async () => {
-    const selectedMsgs = messages.filter(m => selectedIds.has(m.client_id) && (m.media_type === 'image' || m.media_type === 'video'));
+    const selectedMsgs = messages.filter(m => 
+      selectedIds.has(m.client_id) && 
+      (m.media_type === 'image' || m.media_type === 'video')
+    );
+
     if (selectedMsgs.length === 0) return;
 
-    let successCount = 0;
+    const urisToSave: string[] = [];
     for (const msg of selectedMsgs) {
         const uri = msg.media || msg.content;
-        if (!uri) continue;
-        
-        try {
-            // 1. Download/Cache it locally first
-            // This handles permissions and caching logic internally inside mediaCache.ts
-            const localUri = await getCachedFile(uri);
-            
-            // 2. Save to Gallery
-            await saveToGallery(localUri);
-            successCount++;
-        } catch (e) {
-            console.error("Download failed for item:", e);
-        }
+        if (uri) urisToSave.push(uri);
     }
 
-    if (successCount > 0) {
-        Alert.alert("Saved!", `${successCount} items saved to 'Connect' album.`);
-    } else {
-        Alert.alert("Error", "Could not save items. Check permissions.");
+    if (urisToSave.length === 0) return;
+
+    try {
+        const count = await saveBatchToGallery(urisToSave);
+        
+        if (count > 0) {
+             Alert.alert("Success", `${count} items saved to 'Connect' album.`);
+        } else {
+             Alert.alert("Error", "No items could be saved.");
+        }
+    } catch (e: any) {
+        Alert.alert("Error", "Failed to save media. Check permissions.");
     }
+
     clearSelection();
   };
 
