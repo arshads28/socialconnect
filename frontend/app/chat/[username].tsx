@@ -410,25 +410,55 @@ const handleCopySelection = async () => {
       } catch (e) { Alert.alert("Error", "Forward failed."); }
   }, [user?.username, conversationId, targetUsername, sendMessage]);
 
-  const handleSendMedia = async (assets: ImagePicker.ImagePickerAsset[]) => {
+const handleSendMedia = async (assets: ImagePicker.ImagePickerAsset[]) => {
     if (!targetProfile?.id) return;
     const albumId = assets.length > 1 ? generateUUID() : undefined;
+
     for (const asset of assets) {
-        const processed = await processMedia(asset.uri, 'image'); const clientId = generateUUID(); const recipientId = targetProfile.id; const token = await getSecure('accessToken');
-        const optimisticMsg: Message = {
-            id: null, client_id: clientId, conversation_id: conversationId, recipient_id: recipientId, sender: user?.username || '', content: processed.uri, status: 'uploading', timestamp: Date.now(), media: processed.uri, media_type: 'image', album_id: albumId, 
-        };
-        saveMessage(optimisticMsg); setMessages(prev => [...prev, optimisticMsg]);
-        UploadManager.add({
-            id: clientId, files: [{ uri: processed.uri, type: 'image' as any }], endpoint: `${BASE_URL}/chat/upload/`, headers: { 'Authorization': `Bearer ${token}` }, additionalData: { id: clientId, recipient_id: recipientId, album_id: albumId }, 
-        }, {
-            onProgress: (p) => setMessages(prev => prev.map(m => m.client_id === clientId ? { ...m, media_progress: p } : m)),
-            onSuccess: (res) => {
-                const remoteUrl = res.media_url || res.url; const ciphertext = encryptMessage(remoteUrl); sendMessage(recipientId, ciphertext, clientId, albumId); 
-                saveMessage({ ...optimisticMsg, content: remoteUrl, media: remoteUrl, status: 'sent' }); setMessages(prev => prev.map(m => m.client_id === clientId ? { ...m, content: remoteUrl, media: remoteUrl, status: 'sent', media_progress: 100 } : m));
-            },
-            onError: () => { setMessages(prev => prev.map(m => m.client_id === clientId ? { ...m, media_failed: true, status: 'failed' } : m)); saveMessage({ ...optimisticMsg, status: 'failed' }); }
-        });
+        try {
+            // Attempt Processing (Compress/Resize)
+            const processed = await processMedia(asset.uri, 'image'); 
+            
+            const clientId = generateUUID(); 
+            const recipientId = targetProfile.id; 
+            const token = await getSecure('accessToken');
+
+            // 2. Create Optimistic Message
+            const optimisticMsg: Message = {
+                id: null, client_id: clientId, conversation_id: conversationId, recipient_id: recipientId, 
+                sender: user?.username || '', content: processed.uri, status: 'uploading', 
+                timestamp: Date.now(), media: processed.uri, media_type: 'image', album_id: albumId, 
+            };
+
+            saveMessage(optimisticMsg); 
+            setMessages(prev => [...prev, optimisticMsg]);
+
+            UploadManager.add({
+                id: clientId, 
+                files: [{ uri: processed.uri, type: 'image' as any }], 
+                endpoint: `${BASE_URL}/chat/upload/`, 
+                headers: { 'Authorization': `Bearer ${token}` }, 
+                additionalData: { id: clientId, recipient_id: recipientId, album_id: albumId }, 
+            }, {
+                onProgress: (p) => setMessages(prev => prev.map(m => m.client_id === clientId ? { ...m, media_progress: p } : m)),
+                onSuccess: (res) => {
+                    const remoteUrl = res.media_url || res.url; 
+                    const ciphertext = encryptMessage(remoteUrl); 
+                    sendMessage(recipientId, ciphertext, clientId, albumId); 
+                    
+                    saveMessage({ ...optimisticMsg, content: remoteUrl, media: remoteUrl, status: 'sent' }); 
+                    setMessages(prev => prev.map(m => m.client_id === clientId ? { ...m, content: remoteUrl, media: remoteUrl, status: 'sent', media_progress: 100 } : m));
+                },
+                onError: () => { 
+                    setMessages(prev => prev.map(m => m.client_id === clientId ? { ...m, media_failed: true, status: 'failed' } : m)); 
+                    saveMessage({ ...optimisticMsg, status: 'failed' }); 
+                }
+            });
+
+        } catch (e) {
+            console.error("Media processing failed for:", asset.uri, e);
+            Alert.alert("Error", "One or more images could not be processed.");
+        }
     }
   };
 
@@ -468,15 +498,34 @@ const handleCopySelection = async () => {
 
   // ... (Grouping & Rendering logic) ...
   const groupedMessages = useMemo(() => {
-    const groups: any[] = []; let buffer: Message[] = [];
+    const groups: any[] = []; 
+    let buffer: Message[] = [];
+
     messages.forEach(msg => {
       if (msg.media_type === 'image') {
         if (buffer.length > 0) {
           const lastMsg = buffer[0];
-          if ((msg.album_id && lastMsg.album_id === msg.album_id) || (!msg.album_id && !lastMsg.album_id && lastMsg.media_type === 'image')) { buffer.push(msg); } else { groups.push(buffer); buffer = [msg]; }
-        } else { buffer.push(msg); }
-      } else { if (buffer.length > 0) { groups.push(buffer); buffer = []; } groups.push([msg]); }
+          const isSameSender = lastMsg.sender === msg.sender;
+          const isSameAlbum = (msg.album_id && lastMsg.album_id === msg.album_id) || 
+                              (!msg.album_id && !lastMsg.album_id);
+          if (isSameSender && isSameAlbum) { 
+             buffer.push(msg); 
+          } else { 
+             groups.push(buffer); 
+             buffer = [msg]; 
+          }
+        } else { 
+          buffer.push(msg); 
+        }
+      } else { 
+        if (buffer.length > 0) { 
+            groups.push(buffer); 
+            buffer = []; 
+        } 
+        groups.push([msg]); 
+      }
     });
+
     if (buffer.length > 0) groups.push(buffer);
     return groups;
   }, [messages]);

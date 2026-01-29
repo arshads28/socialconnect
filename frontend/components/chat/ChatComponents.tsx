@@ -50,12 +50,18 @@ const CachedImage = React.memo(({ uri, style, resizeMode = 'cover' }: { uri: str
 });
 
 // HELPER: Link Renderer
-const renderTextWithLinks = (text: string, textColor: string, linkColor: string) => {
+const renderTextWithLinks = (text: string | null | undefined, textColor: string, linkColor: string) => {
+    if (!text) return null;
+
     const urlRegex = /(https?:\/\/[^\s]+)/g;
     const parts = text.split(urlRegex);
 
     return (
-        <Text style={{ fontSize: 15, marginBottom: 4, lineHeight: 20, color: textColor }}>
+        <Text 
+            style={{ fontSize: 15, marginBottom: 4, lineHeight: 22, color: textColor }}
+            textBreakStrategy="simple"
+            selectable={false}
+        >
             {parts.map((part, index) => {
                 if (part.match(urlRegex)) {
                     return (

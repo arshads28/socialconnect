@@ -1,10 +1,12 @@
-import { View, Text, TouchableOpacity, StyleSheet, Alert } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Alert, ActivityIndicator } from 'react-native';
+import React, { useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import { Colors } from '../../constants/Colors';
+import { deactivatePushToken } from '../../utils/pushNotifications';
 
 export default function MenuScreen() {
   const router = useRouter();
@@ -12,10 +14,31 @@ export default function MenuScreen() {
   const { isDark } = useTheme();
   const colors = isDark ? Colors.dark : Colors.light;
   
+  // State to handle the loading spinner during API call
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+
+  // The actual async logout logic
+  const performLogout = async () => {
+    if (isLoggingOut) return;
+    setIsLoggingOut(true);
+
+    try {
+      await deactivatePushToken();
+    } catch (error) {
+      console.warn("Push deactivation failed, proceeding with local logout anyway:", error);
+    } finally {
+      signOut();
+    }
+  };
+  
   const handleLogout = () => {
     Alert.alert("Log Out", "Are you sure you want to log out?", [
         { text: "Cancel", style: "cancel" },
-        { text: "Log Out", style: "destructive", onPress: signOut }
+        { 
+          text: "Log Out", 
+          style: "destructive", 
+          onPress: performLogout 
+        }
     ]);
   };
 
@@ -28,7 +51,7 @@ export default function MenuScreen() {
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { borderColor: colors.border }]}>
-        <TouchableOpacity onPress={() => router.back()}>
+        <TouchableOpacity onPress={() => router.back()} disabled={isLoggingOut}>
             <Ionicons name="arrow-back" size={24} color={colors.icon} />
         </TouchableOpacity>
         <Text style={[styles.title, { color: colors.text }]}>Menu</Text>
@@ -39,7 +62,8 @@ export default function MenuScreen() {
         {MENU_ITEMS.map((item, index) => (
             <TouchableOpacity 
                 key={index} 
-                style={styles.item}
+                style={[styles.item, { opacity: isLoggingOut ? 0.5 : 1 }]}
+                disabled={isLoggingOut}
                 onPress={() => item.route && router.push(item.route as any)}
             >
                 <Ionicons name={item.icon as any} size={24} color={colors.icon} />
@@ -49,9 +73,21 @@ export default function MenuScreen() {
         ))}
 
         <Text style={[styles.sectionTitle, { color: colors.subText }]}>Login</Text>
-        <TouchableOpacity style={styles.item} onPress={handleLogout}>
-            <Ionicons name="log-out-outline" size={24} color={colors.danger} />
-            <Text style={[styles.itemText, { color: colors.danger }]}>Log Out</Text>
+        
+        <TouchableOpacity 
+          style={styles.item} 
+          onPress={handleLogout}
+          disabled={isLoggingOut}
+        >
+            {isLoggingOut ? (
+              <ActivityIndicator size="small" color={colors.danger} style={{ width: 24 }} />
+            ) : (
+              <Ionicons name="log-out-outline" size={24} color={colors.danger} />
+            )}
+            
+            <Text style={[styles.itemText, { color: colors.danger }]}>
+              {isLoggingOut ? "Logging out..." : "Log Out"}
+            </Text>
         </TouchableOpacity>
 
       </View>

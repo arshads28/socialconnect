@@ -8,13 +8,34 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // 1. CONFIG
 Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
+  handleNotification: async (notification) => {
+    const data = notification.request.content.data;
+    const collapseId = data?.collapse_key;
+
+    if (collapseId) {
+      const existing =
+        await Notifications.getPresentedNotificationsAsync();
+
+      for (const n of existing) {
+        const existingCollapse =
+          n.request.content.data?.collapse_key;
+
+        if (existingCollapse === collapseId) {
+          await Notifications.dismissNotificationAsync(
+            n.request.identifier
+          );
+        }
+      }
+    }
+
+    return {
+      shouldShowAlert: true,
+      shouldPlaySound: true,
+      shouldSetBadge: true,
+      shouldShowBanner: true,
+      shouldShowList: true,
+    };
+  },
 });
 
 // 🔒 LOCK
@@ -69,13 +90,13 @@ export async function registerForPushNotificationsAsync() {
         
         const storedToken = await AsyncStorage.getItem('lastPushToken');
         
-        if (newToken !== storedToken) {
-          console.log("🔔 New Push Token detected, syncing...");
-          await sendPushTokenToBackend(newToken);
-          await AsyncStorage.setItem('lastPushToken', newToken);
-        } else {
-          console.log("✅ Push Token up to date.");
-        }
+        // if (newToken !== storedToken) {
+        //   console.log(" New Push Token detected, syncing...");
+        //   await sendPushTokenToBackend(newToken);
+        //   await AsyncStorage.setItem('lastPushToken', newToken);
+        // } else {
+        //   console.log(" Push Token up to date.");
+        // }
 
         return newToken;
 
@@ -108,5 +129,22 @@ export async function sendPushTokenToBackend(pushToken: string) {
     console.log("✅ Push token registered with Backend!");
   } catch (error) {
     console.error('❌ Failed to register push token:', error);
+  }
+}
+
+export async function deactivatePushToken() {
+  try {
+    const hardware_id = await getHardwareId();
+
+    await api.post('/auth/api/push/logout/', {
+      platform: Platform.OS,
+      hardware_id,
+    });
+
+    console.log("✅ Push notifications deactivated for this device.");
+  } catch (error) {
+    // We log the error but don't stop execution, 
+    // because we still want the user to be able to logout locally.
+    console.warn('❌ Failed to deactivate push token:', error);
   }
 }

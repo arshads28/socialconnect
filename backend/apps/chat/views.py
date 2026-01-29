@@ -21,8 +21,9 @@ from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 from rest_framework.views import APIView
 from rest_framework import status
+from apps.accounts.push_utils import send_push_notification
 
-
+from asgiref.sync import sync_to_async
 from django.db import transaction
 from .constants import TOMBSTONE_MARKER
 from .crypto import encrypt_for_storage
@@ -438,15 +439,15 @@ class SendMessageAPIView(APIView):
             return Response({"status": "sent", "id": existing.id}, status=status.HTTP_200_OK)
 
         try:
-            # Resolve Receiver
             try:
                 receiver = User.objects.get(id=recipient_id)
-            except:
-                receiver = User.objects.get(username=recipient_id)
-        except User.DoesNotExist:
-            return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
-
-        try:
+            except (ValueError, User.DoesNotExist):
+                try:
+                    receiver = User.objects.get(username=recipient_id)
+                except User.DoesNotExist:
+                    return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
+            
+            # Create Message
             message = Message.objects.create(
                 sender=sender,
                 receiver=receiver,
@@ -455,9 +456,12 @@ class SendMessageAPIView(APIView):
                 status='sent'
             )
             
-            # WebSocket Push
+            # BRIDGE TO WEBSOCKET (Async_to_Sync)
             channel_layer = get_channel_layer()
             if channel_layer:
+                users_list = sorted([sender.username, receiver.username])
+                conversation_id = f"{users_list[0]}__{users_list[1]}"
+
                 async_to_sync(channel_layer.group_send)(
                     f"user_{receiver.id}", 
                     {
@@ -468,14 +472,41 @@ class SendMessageAPIView(APIView):
                         "sender_id": str(sender.id),
                         "ciphertext": ciphertext,
                         "timestamp": message.timestamp.isoformat(),
-                        "conversation_id": f"{min(sender.username, receiver.username)}__{max(sender.username, receiver.username)}"
+                        "conversation_id": conversation_id
                     }
                 )
+            user_ids = sorted([str(sender.id), str(receiver.id)])
+            target_room_group = f"chat_{user_ids[0]}_{user_ids[1]}"
+
+            receiver_presence = cache.get(f"presence_room_{receiver.id}")
+
+            if receiver_presence == target_room_group:
+                pass
+            else:
+                throttle_key = f"push_throttle_{sender.id}_{receiver.id}"
+                
+                if not cache.get(throttle_key):
+                    cache.set(throttle_key, "true", timeout=12)
+                    try:
+                        send_push_notification(
+                            receiver, 
+                            title=f"New message from {sender.username}",
+                            body="Tap to reply",
+                            data={
+                                "type": "chat", 
+                                "sender": sender.username, 
+                                "url": f"/chat/{sender.username}",
+                                "collapse_key": f"chat_{sender.username}" 
+                            }
+                        )
+                    except Exception as e:
+                        print(f"API Push Error: {e}")
 
             return Response({"status": "sent", "id": message.id}, status=status.HTTP_201_CREATED)
 
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
 class ChatUploadAPIView(APIView):
     permission_classes = [IsAuthenticated]

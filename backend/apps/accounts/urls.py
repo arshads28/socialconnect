@@ -1,5 +1,6 @@
 from django.urls import path, include
-from .views import signup_view, login_view, logout_view, ProfileViewSet, password_reset_confirm_view, password_reset_request_view, register_push_device
+from .views import signup_view, login_view, logout_view, ProfileViewSet, password_reset_confirm_view,\
+     logout_push_device,  password_reset_request_view, register_push_device
 # from django.contrib.auth import views as auth_views
 from rest_framework.routers import DefaultRouter
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
@@ -25,6 +26,7 @@ urlpatterns = [
     path("api/login/", TokenObtainPairView.as_view(), name="token_obtain_pair"),
     path("api/token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
     path("api/push/register/", register_push_device, name="register_push_device"),
+    path("api/push/logout/", logout_push_device, name="logout_push_device"),
     path("api/", include(router.urls)),
 ]
 

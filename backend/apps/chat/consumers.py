@@ -171,7 +171,6 @@ class UnifiedConsumer(AsyncWebsocketConsumer):
         # RESOLVE RECEIVER (EXPLICIT RECIPIENT ALWAYS WINS)
         target_user = None
 
-        # ✅ IMPORTANT FIX:
         # If recipient_id is provided, NEVER use self.other_user_in_room.
         # This fixes the A → B → C forwarding bug.
         if recipient_id:
@@ -262,9 +261,15 @@ class UnifiedConsumer(AsyncWebsocketConsumer):
                 "conversation_id": conversation_id 
             }
         )
+        throttle_key = f"push_throttle_{self.user.id}_{receiver.id}"
+        is_throttled = await sync_to_async(cache.get)(throttle_key)
+        if is_throttled:
+            return
 
         # 2. Send Push Notification
         await self.send_push_notification(receiver)
+
+        await sync_to_async(cache.set)(throttle_key, "true", timeout=12)
 
     async def handle_call_signal(self, data):
         target_input = data.get("target") 
@@ -418,11 +423,20 @@ class UnifiedConsumer(AsyncWebsocketConsumer):
     async def send_push_notification(self, receiver):
         try:
             from apps.accounts.push_utils import send_push_notification
+
+            # the notification updates the previous one instead of creating a new row.
+            collapse_id = f"chat_{self.user.username}"
+
             await database_sync_to_async(send_push_notification)(
                 receiver,
-                f"New message from {self.user.username}",
-                "Tap to reply",                            
-                {"type": "chat", "sender": self.user.username, "url": f"/chat/{self.user.username}"}
+                title=f"New message from {self.user.username}",
+                body="Tap to reply",                            
+                data={
+                    "type": "chat", 
+                    "sender": self.user.username, 
+                    "url": f"/chat/{self.user.username}",
+                    "collapse_key": collapse_id
+                }
             )
         except Exception as e:
             print(f"Push Notification Error: {e}")

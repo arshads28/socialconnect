@@ -359,6 +359,39 @@ def register_push_device(request):
     })
 
 
+
+@api_view(['POST'])
+def logout_push_device(request):
+    """
+    Deactivates the push notification link for the current user on the specific device.
+    """
+    user = request.user
+    data = request.data
+
+    hardware_id = data.get('hardware_id')
+    platform = data.get('platform')
+
+    if not hardware_id or not platform:
+        return Response({'error': 'Missing device identifiers'}, status=400)
+
+    try:
+        # 1. Find the physical device
+        device = Device.objects.get(platform=platform, hardware_id=hardware_id)
+
+        # 2. Deactivate the link for THIS user and THIS device
+        # Using filter().update() is safe even if the record doesn't exist
+        updated_count = UserDevice.objects.filter(
+            user=user,
+            device=device
+        ).update(is_active=False)
+
+        return Response({'status': 'ok', 'deactivated': updated_count > 0})
+
+    except Device.DoesNotExist:
+        # If the device itself doesn't exist, we don't need to do anything
+        return Response({'status': 'ok', 'message': 'Device not found, no action needed'})
+
+
 # class ConnectionViewSet(ModelViewSet):
 #     queryset = Connection.objects.all()
 #     permission_classes = [IsAuthenticated]
