@@ -33,8 +33,8 @@ import { useTheme } from '../../context/ThemeContext';
 import { Colors } from '../../constants/Colors';
 import UploadManager from '../../utils/UploadManager';
 import ImageViewer from '../../components/ImageViewer'; 
-import { MessageBubble, ChatMessageList, AlbumMessage, AlbumDetailModal } from './ChatComponents';
-import { createStyles } from './Chat.styles';
+import { MessageBubble, ChatMessageList, AlbumMessage, AlbumDetailModal } from '../../components/chat/ChatComponents';
+import { createStyles } from '../../components/chat/Chat.styles';
 
 export default function ChatScreen() {
   const params = useLocalSearchParams<{ username: string }>();
