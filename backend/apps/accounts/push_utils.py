@@ -23,29 +23,28 @@ class BarePushMessage:
         self.priority = priority
 
     def get_payload(self):
-        """
-        Builds the exact JSON dictionary that Expo expects.
-        """
-        # Basic payload
         payload = {
             'to': self.to,
             'sound': self.sound,
             'priority': self.priority,
         }
-
-        # Add optional fields if they exist
         if self.title:
             payload['title'] = self.title
         if self.body:
             payload['body'] = self.body
+        
+        # Android tag for notification replacement
         if self.data:
-            payload['data'] = self.data
+            payload['data'] = self.data.copy()
+        else:
+            payload['data'] = {}
+            
+        if self.collapse_id:
+            payload['data']['tag'] = self.collapse_id
+            payload['collapseId'] = self.collapse_id
+            
         if self.channel_id:
             payload['channelId'] = self.channel_id
-            
-        #  CRITICAL: Directly add collapseId
-        if self.collapse_id:
-            payload['collapseId'] = self.collapse_id
             
         return payload
 

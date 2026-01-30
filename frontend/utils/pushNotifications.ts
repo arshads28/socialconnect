@@ -10,20 +10,13 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 Notifications.setNotificationHandler({
   handleNotification: async (notification) => {
     const data = notification.request.content.data;
-    const collapseId = data?.collapse_key;
+    const tag = data?.tag;
 
-    if (collapseId) {
-      const existing =
-        await Notifications.getPresentedNotificationsAsync();
-
+    if (tag) {
+      const existing = await Notifications.getPresentedNotificationsAsync();
       for (const n of existing) {
-        const existingCollapse =
-          n.request.content.data?.collapse_key;
-
-        if (existingCollapse === collapseId) {
-          await Notifications.dismissNotificationAsync(
-            n.request.identifier
-          );
+        if (n.request.content.data?.tag === tag) {
+          await Notifications.dismissNotificationAsync(n.request.identifier);
         }
       }
     }
@@ -51,9 +44,9 @@ export async function registerForPushNotificationsAsync() {
 
   try {
     if (Platform.OS === 'android') {
-      await Notifications.setNotificationChannelAsync('social_alerts_v3', {
-        name: 'Social Alerts V3',
-        importance: Notifications.AndroidImportance.MAX, 
+      await Notifications.setNotificationChannelAsync('social_alerts', {
+        name: 'Social Alerts',
+        importance: Notifications.AndroidImportance.HIGH,
         vibrationPattern: [0, 250, 250, 250],
         lightColor: '#FF231F7C',
         sound: 'default',
