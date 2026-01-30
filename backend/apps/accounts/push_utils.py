@@ -1,37 +1,52 @@
-from exponent_server_sdk import (
-    PushClient,
-    PushMessage,
-    PushServerError,
-    DeviceNotRegisteredError
-)
+from exponent_server_sdk import PushClient, DeviceNotRegisteredError, PushServerError
 from requests.exceptions import ConnectionError, HTTPError
 from .models import UserDevice
 
+# ==========================================
+#  THE FIX: Standalone Class (No Inheritance)
+# ==========================================
+class BarePushMessage:
+    """
+    A lightweight replacement for the rigid PushMessage namedtuple.
+    This class allows us to send ANY field to Expo (like 'collapseId')
+    without the library blocking us.
+    """
+    def __init__(self, to, title=None, body=None, data=None, sound='default', 
+                 channel_id=None, collapse_id=None, priority='high'):
+        self.to = to
+        self.title = title
+        self.body = body
+        self.data = data
+        self.sound = sound
+        self.channel_id = channel_id
+        self.collapse_id = collapse_id
+        self.priority = priority
 
-# ==========================================
-#  THE FIX: Wrapper for Immutable NamedTuple
-# ==========================================
-class CustomPushMessage(PushMessage):
-    """
-    Wraps the standard PushMessage. Since PushMessage is a namedtuple (immutable),
-    we cannot add 'collapse_id' directly.
-    
-    Instead, we hide 'collapse_id' inside the 'data' dictionary and extract it 
-    just before sending.
-    """
     def get_payload(self):
-        payload = super().get_payload()
-        current_data = self.data or {}
-        
-        if '_collapse_id' in current_data:
-            payload['collapseId'] = current_data['_collapse_id']
+        """
+        Builds the exact JSON dictionary that Expo expects.
+        """
+        # Basic payload
+        payload = {
+            'to': self.to,
+            'sound': self.sound,
+            'priority': self.priority,
+        }
+
+        # Add optional fields if they exist
+        if self.title:
+            payload['title'] = self.title
+        if self.body:
+            payload['body'] = self.body
+        if self.data:
+            payload['data'] = self.data
+        if self.channel_id:
+            payload['channelId'] = self.channel_id
             
-            if 'data' in payload:
-                clean_data = payload['data'].copy()
-                del clean_data['_collapse_id']
-                payload['data'] = clean_data
+        #  CRITICAL: Directly add collapseId
+        if self.collapse_id:
+            payload['collapseId'] = self.collapse_id
             
-        print(f"the payload is {payload} ")    
         return payload
 
 # ==========================================
@@ -52,31 +67,26 @@ def send_push_notification(user, title, body, data=None):
 
     collapse_id = data.get('collapse_key') if data else None
     
-    push_data = data.copy() if data else {}
-    if collapse_id:
-        push_data['_collapse_id'] = collapse_id
-
     messages = []
 
     for ud in user_devices:
         try:
-            msg = CustomPushMessage(
+            msg = BarePushMessage(
                 to=ud.token,
                 title=title,
                 body=body,
-                data=push_data,
+                data=data,
                 sound="default",
-                priority="high",
-                channel_id="social_alerts"
+                channel_id="social_alerts",
+                collapse_id=collapse_id 
             )
             
             messages.append(msg)
 
         except Exception as e:
-            print(f"Push message creation error: {e}")
+            print(f" Push message creation error: {e}")
 
     if messages:
-        print(f"sending messages to batch is  {messages}")
         _send_push_batch(messages)
 
 
@@ -93,7 +103,7 @@ def _send_push_batch(messages):
                 UserDevice.objects.filter(token=message.to).update(is_active=False)
 
             except PushServerError as exc:
-                print(f" Push server error for {message.to}: {exc.errors}")
+                print(f"Push server error for {message.to}: {exc.errors}")
 
     except (ConnectionError, HTTPError) as exc:
         print(f" Push network error: {exc}")

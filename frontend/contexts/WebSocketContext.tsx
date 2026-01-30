@@ -1,6 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
 import { DeviceEventEmitter, AppState } from 'react-native';
-import * as Notifications from 'expo-notifications';
 import { getSecure } from '../utils/storage';
 import { BASE_URL } from '../utils/api';
 import { 
@@ -9,7 +8,7 @@ import {
   updateMessageStatus, 
   markChatAsRead, 
   getConversationId,
-  deleteMessagesByClientIds, // ✅ IMPORTED THIS
+  deleteMessagesByClientIds, 
   Message 
 } from '../utils/db';
 import { decryptMessage } from '../utils/crypto';
@@ -17,6 +16,7 @@ import { useAuth } from '../context/AuthContext';
 import { syncPendingMessages, resendStuckMessages } from '../utils/sync'; 
 import { processOfflineQueue, clearOfflineQueue } from '../utils/offlineQueue'; 
 import { registerForPushNotificationsAsync } from '../utils/pushNotifications'; 
+import Toast from 'react-native-toast-message';
 
 interface WebSocketContextType {
   ws: WebSocket | null;
@@ -44,7 +44,7 @@ export const WebSocketProvider = ({ children }: { children: React.ReactNode }) =
   const [ws, setWs] = useState<WebSocket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   
-  // 🧠 Track which chat is open on screen
+  //  Track which chat is open on screen
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const activeConversationIdRef = useRef<string | null>(null);
 
@@ -53,7 +53,7 @@ export const WebSocketProvider = ({ children }: { children: React.ReactNode }) =
   const reconnectTimeout = useRef<any>(null);
   const appState = useRef(AppState.currentState);
 
-  // 0. Sync State to Ref (Crucial for Event Listener access)
+  // 0. Sync State to Ref
   useEffect(() => {
     activeConversationIdRef.current = activeConversationId;
   }, [activeConversationId]);
@@ -78,7 +78,6 @@ export const WebSocketProvider = ({ children }: { children: React.ReactNode }) =
 
     if (userToken) {
         connect();
-        // Run safety checks once on mount
         resendStuckMessages().then(() => processOfflineQueue());
         syncPendingMessages();
     } else {
@@ -88,7 +87,7 @@ export const WebSocketProvider = ({ children }: { children: React.ReactNode }) =
     const subscription = AppState.addEventListener('change', nextAppState => {
       if (appState.current.match(/inactive|background/) && nextAppState === 'active') {
         if (userToken) {
-             console.log('🟢 App Foreground: Ensuring connection...');
+             console.log(' App Foreground: Ensuring connection...');
              connect(); 
         }
       } 
@@ -124,12 +123,12 @@ export const WebSocketProvider = ({ children }: { children: React.ReactNode }) =
     const cleanUrl = BASE_URL.replace(/^https?:\/\//, '').replace(/\/$/, '');
     const wsUrl = `${protocol}://${cleanUrl}/ws/unified/?token=${token}`;
     
-    console.log("🔌 Connecting WS...", wsUrl);
+    console.log(" Connecting WS...", wsUrl);
     const socket = new WebSocket(wsUrl);
     wsRef.current = socket;
 
     socket.onopen = () => {
-      console.log('✅ WebSocket Connected');
+      console.log(' WebSocket Connected');
       setIsConnected(true);
       setWs(socket);
       
@@ -145,16 +144,16 @@ export const WebSocketProvider = ({ children }: { children: React.ReactNode }) =
       try {
         const data = JSON.parse(e.data);
 
-        // 1️⃣ Filter echoes
+        //  Filter echoes
         if (data.sender === user?.username && data.type === 'chat_message') return;
 
-        // 2️⃣ Handle Server Acknowledgment
+        //  Handle Server Acknowledgment
         if (data.type === 'message_ack') {
             updateMessageStatus(data.client_id, 'sent');
             return;
         }
 
-        // 3️⃣ Handle Incoming Chat Message
+        //  Handle Incoming Chat Message
         if (data.type === 'chat_message') {
           const decryptedContent = decryptMessage(data.ciphertext);
           
@@ -164,7 +163,7 @@ export const WebSocketProvider = ({ children }: { children: React.ReactNode }) =
               conversationId = getConversationId(user?.username || '', data.sender);
           }
 
-          // 💾 Save to DB
+          // Save to DB
           saveMessage({
             client_id: data.client_id,
             id: data.id.toString(),
@@ -178,7 +177,7 @@ export const WebSocketProvider = ({ children }: { children: React.ReactNode }) =
             media_type: data.media_type,
           });
 
-          // 📡 Send Delivery Receipt
+          //  Send Delivery Receipt
           if (socket.readyState === WebSocket.OPEN) {
             socket.send(JSON.stringify({ command: 'ack_delivery', message_id: data.id }));
           }
@@ -190,22 +189,18 @@ export const WebSocketProvider = ({ children }: { children: React.ReactNode }) =
             markChatAsRead(conversationId, user?.username || '');
           } 
 
-          // 🔄 Update Legacy Listeners
+          // Update Legacy Listeners
           DeviceEventEmitter.emit('new_message', { conversation_id: conversationId });
         }
 
-        // ✅ 4️⃣ Handle Deleted Messages (THIS WAS MISSING)
+        //  Handle Deleted Messages
         if (data.type === 'messages_deleted') {
             console.log("🗑️ Received Delete Signal:", data.client_ids);
-            
-            // A. Update Local SQLite DB (Soft Delete)
             deleteMessagesByClientIds(data.client_ids);
-            
-            // B. Notify ChatScreen to update UI immediately
             DeviceEventEmitter.emit('messages_deleted_event', data.client_ids);
         }
 
-        // 5️⃣ Handle Status Updates
+        //  Handle Status Updates
         if (data.type === 'status_update') {
           if (data.client_id) {
             updateMessageStatus(data.client_id, data.status);
@@ -213,22 +208,22 @@ export const WebSocketProvider = ({ children }: { children: React.ReactNode }) =
           DeviceEventEmitter.emit('message_status_changed', data);
         }
         
-        // 6️⃣ Handle Presence / Typing
+        // Handle Presence / Typing
         if (data.type === 'user_status_event') DeviceEventEmitter.emit('presence_update', data);
         if (data.type === 'typing_event') DeviceEventEmitter.emit('typing_event', data);
 
-        // 7️⃣ Handle Notifications
+        //  Handle Notifications
         if (data.type === 'new_message_notification') {
           const notifConvId = data.conversation_id || getConversationId(user?.username || '', data.sender);
           
+          // Only show in-app alert if we are NOT in that chat
           if (activeConversationIdRef.current !== notifConvId) {
-              await Notifications.scheduleNotificationAsync({
-                content: {
-                  title: data.sender,
-                  body: "Sent you a message", 
-                  data: { url: `/chat/${data.sender}` }, 
-                },
-                trigger: null, 
+              Toast.show({
+                type: 'info',
+                text1: data.sender,
+                text2: 'Sent you a message',
+                position: 'top',
+                visibilityTime: 4000,
               });
           }
         }

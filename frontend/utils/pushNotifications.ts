@@ -51,8 +51,8 @@ export async function registerForPushNotificationsAsync() {
 
   try {
     if (Platform.OS === 'android') {
-      await Notifications.setNotificationChannelAsync('social_alerts', {
-        name: 'Social Alerts',
+      await Notifications.setNotificationChannelAsync('social_alerts_v3', {
+        name: 'Social Alerts V3',
         importance: Notifications.AndroidImportance.MAX, 
         vibrationPattern: [0, 250, 250, 250],
         lightColor: '#FF231F7C',
