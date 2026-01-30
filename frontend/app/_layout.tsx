@@ -17,6 +17,7 @@ import { purgeOldMessages } from '../utils/db';
 import { WebRTCProvider } from '../contexts/WebRTCContext';
 import { CallOverlay } from '../contexts/CallComponent';
 import Toast from 'react-native-toast-message';
+import { cleanupStaleNotifications, clearAllNotifications } from '../utils/pushNotifications';
 
 const RETENTION_KEY = 'connect_retention_days';
 
@@ -67,6 +68,26 @@ function RootLayoutNav() {
 
   // 3. Notifications (Native Only)
   useEffect(() => {
+    if (userToken) {
+      clearAllNotifications();
+    }
+    
+    const receivedSubscription = Notifications.addNotificationReceivedListener(notification => {
+      const data = notification.request.content.data;
+      const sender = data?.sender || data?.tag || notification.request.content.title;
+      
+      if (sender) {
+        Notifications.getPresentedNotificationsAsync().then(existing => {
+          existing.forEach(n => {
+            const existingKey = n.request.content.data?.sender || n.request.content.data?.tag || n.request.content.title;
+            if (existingKey === sender && n.request.identifier !== notification.request.identifier) {
+              Notifications.dismissNotificationAsync(n.request.identifier);
+            }
+          });
+        });
+      }
+    });
+    
     Notifications.getLastNotificationResponseAsync().then(response => {
       const data = response?.notification.request.content.data as any;
       if (data?.url && typeof data.url === 'string') setTimeout(() => router.push(data.url), 500); 
@@ -75,8 +96,11 @@ function RootLayoutNav() {
       const data = response.notification.request.content.data as any;
       if (data?.url && typeof data.url === 'string') router.push(data.url);
     });
-    return () => subscription.remove();
-  }, []);
+    return () => {
+      receivedSubscription.remove();
+      subscription.remove();
+    };
+  }, [userToken]);
 
   if (isLoading) {
     return (

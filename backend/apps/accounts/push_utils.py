@@ -33,15 +33,15 @@ class BarePushMessage:
         if self.body:
             payload['body'] = self.body
         
-        # Android tag for notification replacement
         if self.data:
             payload['data'] = self.data.copy()
         else:
             payload['data'] = {}
-            
+        
+        # CRITICAL: categoryIdentifier for iOS notification replacement
         if self.collapse_id:
+            payload['categoryIdentifier'] = self.collapse_id
             payload['data']['tag'] = self.collapse_id
-            payload['collapseId'] = self.collapse_id
             
         if self.channel_id:
             payload['channelId'] = self.channel_id
@@ -53,19 +53,11 @@ class BarePushMessage:
 # ==========================================
 
 def send_push_notification(user, title, body, data=None):
-    """
-    Send push notification to ALL active devices for a user.
-    """
-    user_devices = UserDevice.objects.filter(
-        user=user,
-        is_active=True
-    ).only('token')
-
+    user_devices = UserDevice.objects.filter(user=user, is_active=True).only('token')
     if not user_devices.exists():
         return
 
     collapse_id = data.get('collapse_key') if data else None
-    
     messages = []
 
     for ud in user_devices:
@@ -79,11 +71,9 @@ def send_push_notification(user, title, body, data=None):
                 channel_id="social_alerts",
                 collapse_id=collapse_id 
             )
-            
             messages.append(msg)
-
         except Exception as e:
-            print(f" Push message creation error: {e}")
+            print(f"Push message creation error: {e}")
 
     if messages:
         _send_push_batch(messages)
@@ -92,17 +82,12 @@ def send_push_notification(user, title, body, data=None):
 def _send_push_batch(messages):
     try:
         responses = PushClient().publish_multiple(messages)
-
         for message, response in zip(messages, responses):
             try:
                 response.validate_response()
-                
             except DeviceNotRegisteredError:
-                print(f"Device not registered, deactivating: {message.to}")
                 UserDevice.objects.filter(token=message.to).update(is_active=False)
-
             except PushServerError as exc:
-                print(f"Push server error for {message.to}: {exc.errors}")
-
+                print(f"Push server error: {exc.errors}")
     except (ConnectionError, HTTPError) as exc:
-        print(f" Push network error: {exc}")
+        print(f"Push network error: {exc}")

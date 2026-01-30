@@ -10,12 +10,13 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 Notifications.setNotificationHandler({
   handleNotification: async (notification) => {
     const data = notification.request.content.data;
-    const tag = data?.tag;
+    const sender = data?.sender || data?.tag;
 
-    if (tag) {
+    if (sender) {
       const existing = await Notifications.getPresentedNotificationsAsync();
       for (const n of existing) {
-        if (n.request.content.data?.tag === tag) {
+        const existingKey = n.request.content.data?.sender || n.request.content.data?.tag;
+        if (existingKey === sender && n.request.identifier !== notification.request.identifier) {
           await Notifications.dismissNotificationAsync(n.request.identifier);
         }
       }
@@ -31,15 +32,47 @@ Notifications.setNotificationHandler({
   },
 });
 
+export async function clearAllNotifications() {
+  try {
+    await Notifications.dismissAllNotificationsAsync();
+  } catch (e) {
+    console.error('Failed to clear notifications:', e);
+  }
+}
+
+export async function cleanupStaleNotifications() {
+  try {
+    const presented = await Notifications.getPresentedNotificationsAsync();
+    if (presented.length === 0) return;
+    
+    const bySender = new Map<string, any[]>();
+    for (const notif of presented) {
+      const data = notif.request.content.data;
+      const key = (data?.sender || data?.tag || notif.request.content.title) as string;
+      if (key) {
+        if (!bySender.has(key)) bySender.set(key, []);
+        bySender.get(key)!.push(notif);
+      }
+    }
+    
+    for (const [key, notifs] of bySender.entries()) {
+      if (notifs.length > 1) {
+        notifs.sort((a, b) => b.date - a.date);
+        for (let i = 1; i < notifs.length; i++) {
+          await Notifications.dismissNotificationAsync(notifs[i].request.identifier);
+        }
+      }
+    }
+  } catch (e) {
+    console.error('Cleanup failed:', e);
+  }
+}
+
 // 🔒 LOCK
 let isRegistering = false;
 
-// 2. REGISTER
 export async function registerForPushNotificationsAsync() {
-  if (isRegistering) {
-      console.log("⚠️ Push registration already in progress. Skipping.");
-      return;
-  }
+  if (isRegistering) return;
   isRegistering = true;
 
   try {
@@ -53,6 +86,7 @@ export async function registerForPushNotificationsAsync() {
         enableVibrate: true,
         showBadge: true,
         lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+        groupId: 'chat_messages',
       });
     }
 
@@ -65,51 +99,27 @@ export async function registerForPushNotificationsAsync() {
         finalStatus = status;
       }
       
-      if (finalStatus !== 'granted') {
-        console.log('Permission not granted for push notifications!');
-        return;
-      }
+      if (finalStatus !== 'granted') return;
 
-      try {
-        const projectId = 
-          Constants.expoConfig?.extra?.eas?.projectId || 
-          // @ts-ignore: Fallback for older SDKs
-          Constants.manifest?.extra?.eas?.projectId;
-        
-        const tokenData = await Notifications.getExpoPushTokenAsync({
-          projectId: projectId, 
-        });
-        const newToken = tokenData.data;
-        
-        const storedToken = await AsyncStorage.getItem('lastPushToken');
-        
-        // if (newToken !== storedToken) {
-        //   console.log(" New Push Token detected, syncing...");
-        //   await sendPushTokenToBackend(newToken);
-        //   await AsyncStorage.setItem('lastPushToken', newToken);
-        // } else {
-        //   console.log(" Push Token up to date.");
-        // }
-
-        return newToken;
-
-      } catch (e) {
-        console.error("Error fetching Expo push token:", e);
-      }
-    } else {
-      console.log('Must use physical device for Push Notifications');
+      const projectId = 
+        Constants.expoConfig?.extra?.eas?.projectId || 
+        // @ts-ignore
+        Constants.manifest?.extra?.eas?.projectId;
+      
+      const tokenData = await Notifications.getExpoPushTokenAsync({ projectId });
+      return tokenData.data;
     }
+  } catch (e) {
+    console.error("Error fetching push token:", e);
   } finally {
     isRegistering = false;
   }
 }
 
-// 3. API CALL
 export async function sendPushTokenToBackend(pushToken: string) {
   try {
     const deviceId = await getDeviceId();
     const hardware_id = await getHardwareId();
-
 
     await api.post('/auth/api/push/register/', { 
       token: pushToken, 
@@ -118,26 +128,16 @@ export async function sendPushTokenToBackend(pushToken: string) {
       hardware_id,
       device_name: Device.modelName || 'Unknown Device'
     });
-
-    console.log("✅ Push token registered with Backend!");
   } catch (error) {
-    console.error('❌ Failed to register push token:', error);
+    console.error('Failed to register push token:', error);
   }
 }
 
 export async function deactivatePushToken() {
   try {
     const hardware_id = await getHardwareId();
-
-    await api.post('/auth/api/push/logout/', {
-      platform: Platform.OS,
-      hardware_id,
-    });
-
-    console.log("✅ Push notifications deactivated for this device.");
+    await api.post('/auth/api/push/logout/', { platform: Platform.OS, hardware_id });
   } catch (error) {
-    // We log the error but don't stop execution, 
-    // because we still want the user to be able to logout locally.
-    console.warn('❌ Failed to deactivate push token:', error);
+    console.warn('Failed to deactivate push token:', error);
   }
 }
